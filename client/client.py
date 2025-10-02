@@ -4,6 +4,8 @@ import os
 import sys
 import uuid
 from tkinter import simpledialog
+import pyaudio
+import queue
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from shared import protocol
@@ -14,14 +16,23 @@ class Client:
         self.host = host
         self.control_port = protocol.TCP_CONTROL_PORT
         self.file_port = protocol.TCP_FILE_PORT
+        self.audio_port = protocol.UDP_AUDIO_STREAM_PORT
         self.control_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.audio_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.files = {}
         self.gui = None
+        self.audio = pyaudio.PyAudio()
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paInt16
+        self.CHANNELS = 1
+        self.RATE = 44100
+        self.jitter_buffer = queue.Queue()
 
     def start(self):
         self.control_sock.connect((self.host, self.control_port))
         self.file_sock.connect((self.host, self.file_port))
+        self.audio_sock.bind(('', 0)) # Bind to a random available port
 
         self.gui = ClientGUI(self)
 
@@ -29,13 +40,38 @@ class Client:
         if not username:
             return
         
-        register_message = protocol.create_message(protocol.REGISTER, {'username': username})
+        audio_port = self.audio_sock.getsockname()[1]
+        register_message = protocol.create_message(protocol.REGISTER, {'username': username, 'audio_port': audio_port})
         self.control_sock.send(register_message)
 
         receive_thread = threading.Thread(target=self.receive)
         receive_thread.start()
 
+        # send_audio_thread = threading.Thread(target=self.send_audio)
+        # send_audio_thread.start()
+
+        # receive_audio_thread = threading.Thread(target=self.receive_audio)
+        # receive_audio_thread.start()
+
         self.gui.start()
+
+    def send_audio(self):
+        stream = self.audio.open(format=self.FORMAT, channels=self.CHANNELS,
+                                rate=self.RATE, input=True,
+                                frames_per_buffer=self.CHUNK)
+        while True:
+            data = stream.read(self.CHUNK)
+            self.audio_sock.sendto(data, (self.host, self.audio_port))
+
+    def receive_audio(self):
+        stream = self.audio.open(format=self.FORMAT, channels=self.CHANNELS,
+                                rate=self.RATE, output=True,
+                                frames_per_buffer=self.CHUNK)
+        while True:
+            data, addr = self.audio_sock.recvfrom(self.CHUNK * 2)
+            self.jitter_buffer.put(data)
+            if self.jitter_buffer.qsize() > 10: # Basic jitter buffer
+                stream.write(self.jitter_buffer.get())
 
     def send_chat_message(self, message):
         chat_message = protocol.create_message(protocol.CHAT, {'message': message})

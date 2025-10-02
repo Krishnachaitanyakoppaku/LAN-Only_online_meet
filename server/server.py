@@ -12,20 +12,27 @@ class Server:
         self.host = host
         self.control_port = protocol.TCP_CONTROL_PORT
         self.file_port = protocol.TCP_FILE_PORT
+        self.audio_port = protocol.UDP_AUDIO_STREAM_PORT
         self.clients = {}
         self.files = {}
         self.control_sock = None
         self.file_sock = None
+        self.audio_sock = None
         self.gui = None
         self.listening = False
 
     def start_listening(self):
         self.control_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.audio_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
         self.control_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.file_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
         self.control_sock.bind((self.host, self.control_port))
         self.file_sock.bind((self.host, self.file_port))
+        self.audio_sock.bind((self.host, self.audio_port))
+
         os.makedirs("session_files", exist_ok=True)
 
         self.control_sock.listen(5)
@@ -33,6 +40,7 @@ class Server:
         self.listening = True
         self.gui.update_log(f'[*] Listening for control connections on {self.host}:{self.control_port}')
         self.gui.update_log(f'[*] Listening for file connections on {self.host}:{self.file_port}')
+        self.gui.update_log(f'[*] Listening for audio on {self.host}:{self.audio_port}')
 
         control_thread = threading.Thread(target=self.handle_control_connections)
         control_thread.start()
@@ -40,11 +48,31 @@ class Server:
         file_thread = threading.Thread(target=self.handle_file_connections)
         file_thread.start()
 
+        # audio_thread = threading.Thread(target=self.handle_audio_stream)
+        # audio_thread.start()
+
     def stop_listening(self):
         self.listening = False
         self.control_sock.close()
         self.file_sock.close()
+        self.audio_sock.close()
         self.gui.update_log("[*] Server stopped.")
+
+    def handle_audio_stream(self):
+        while self.listening:
+            try:
+                data, addr = self.audio_sock.recvfrom(4096)
+                self.broadcast_audio(data, addr)
+            except OSError:
+                break
+
+    def broadcast_audio(self, data, sender_addr):
+        for client_socket, client_data in self.clients.items():
+            if client_data['audio_addr'] != sender_addr:
+                try:
+                    self.audio_sock.sendto(data, client_data['audio_addr'])
+                except Exception as e:
+                    self.gui.update_log(f"[!] Error sending audio to {client_data['audio_addr']}: {e}")
 
     def handle_control_connections(self):
         while self.listening:
@@ -66,6 +94,9 @@ class Server:
 
     def handle_client(self, client_socket):
         username = None
+        addr = client_socket.getpeername()
+        audio_addr = (addr[0], self.audio_port)
+
         while True:
             try:
                 data = client_socket.recv(1024)
@@ -76,7 +107,10 @@ class Server:
                 
                 if message['type'] == protocol.REGISTER:
                     username = message['payload']['username']
-                    self.clients[client_socket] = username
+                    audio_port = message['payload']['audio_port']
+                    addr = client_socket.getpeername()
+                    audio_addr = (addr[0], audio_port)
+                    self.clients[client_socket] = {'username': username, 'audio_addr': audio_addr}
                     join_notification = protocol.create_message(protocol.CHAT, {
                         'username': 'Server',
                         'message': f'{username} has joined the chat.'
@@ -86,7 +120,7 @@ class Server:
                 
                 elif message['type'] == protocol.CHAT:
                     chat_message = protocol.create_message(protocol.CHAT, {
-                        'username': self.clients[client_socket],
+                        'username': self.clients[client_socket]['username'],
                         'message': message['payload']['message']
                     })
                     self.broadcast(chat_message)
@@ -123,6 +157,7 @@ class Server:
                     self.gui.update_log(f"[*] New file available: {file_info['filename']}")
 
                     with open(os.path.join("session_files", file_info['filename']), 'wb') as f:
+                        received_size = 0
                         while True:
                             chunk_data = client_socket.recv(4096)
                             if not chunk_data:
