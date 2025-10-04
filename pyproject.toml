@@ -1,0 +1,160 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lan-video-call"
+version = "1.0.0"
+description = "A comprehensive LAN-based video calling application with all Zoom-like features plus file sharing capabilities"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "LAN Video Call Team", email = "contact@lanvideocall.com"}
+]
+maintainers = [
+    {name = "LAN Video Call Team", email = "contact@lanvideocall.com"}
+]
+keywords = ["video", "calling", "lan", "network", "chat", "file-sharing", "meeting"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Video :: Display",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: System :: Networking",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "Pillow>=10.0.0",
+    "pyaudio>=0.2.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+gui = [
+    "customtkinter>=5.2.0",
+]
+all = [
+    "lan-video-call[dev,gui]",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-username/lan-video-call"
+Documentation = "https://github.com/your-username/lan-video-call#readme"
+Repository = "https://github.com/your-username/lan-video-call.git"
+"Bug Tracker" = "https://github.com/your-username/lan-video-call/issues"
+"Source Code" = "https://github.com/your-username/lan-video-call"
+
+[project.scripts]
+lan-video-server = "server.main_server:main"
+lan-video-client = "client.main_client:main"
+lan-video-server-gui = "gui.server_gui:main"
+lan-video-client-gui = "gui.client_gui:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["shared*", "server*", "client*", "gui*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.txt", "*.yml", "*.yaml", "*.json"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+    "--cov=shared",
+    "--cov=server", 
+    "--cov=client",
+    "--cov=gui",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["shared", "server", "client", "gui"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/env/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
