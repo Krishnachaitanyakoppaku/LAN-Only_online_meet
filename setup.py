@@ -12,14 +12,47 @@ def install_requirements():
     """Install required packages"""
     print("Installing required packages...")
     
+    # Check if we're in a virtual environment
+    in_venv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    
+    if not in_venv:
+        print("⚠️  Warning: Not in a virtual environment!")
+        print("It's recommended to use a virtual environment to avoid conflicts.")
+        print("Create one with: python3 -m venv venv")
+        print("Activate with: source venv/bin/activate")
+        print()
+    
     try:
-        # Install from requirements.txt
+        # Upgrade pip first
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+        
+        # Try to install from requirements.txt
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
         print("✓ Requirements installed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"✗ Failed to install requirements: {e}")
-        return False
+        print(f"✗ Failed to install full requirements: {e}")
+        print("Trying minimal installation...")
+        
+        try:
+            # Try minimal requirements
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements-minimal.txt"])
+            print("✓ Minimal requirements installed successfully")
+            print("Note: Audio functionality may be limited without PyAudio")
+            return True
+        except subprocess.CalledProcessError as e2:
+            print(f"✗ Failed to install minimal requirements: {e2}")
+            print("You may need to install packages manually:")
+            if in_venv:
+                print("  pip install opencv-python numpy Pillow")
+                print("  pip install pyaudio  # Optional, may require system dependencies")
+            else:
+                print("  # First activate virtual environment:")
+                print("  source venv/bin/activate")
+                print("  # Then install packages:")
+                print("  pip install opencv-python numpy Pillow")
+                print("  pip install pyaudio  # Optional, may require system dependencies")
+            return False
 
 def create_directories():
     """Create necessary directories"""

@@ -1,11 +1,11 @@
 # Video and Audio processing
-opencv-python==4.8.1.78
-numpy==1.24.3
-Pillow==10.0.1
-pyaudio==0.2.11
+opencv-python>=4.8.0
+numpy>=1.26.0
+Pillow>=10.0.0
+pyaudio>=0.2.11
 
 # GUI enhancements (optional)
-# customtkinter==5.2.0
+# customtkinter>=5.2.0
 
 # Note: The following are built-in Python modules and don't need to be installed:
 # tkinter, socket, threading, json, base64, hashlib, time, datetime, os, sys, pathlib, queue, collections, zipfile, tarfile, gzip, struct, pickle, uuid
