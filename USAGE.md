@@ -1,5 +1,39 @@
 # LAN Video Calling Application - Usage Guide
 
+## Host Mode (Recommended)
+
+The host mode provides full meeting control capabilities, similar to Zoom. The server acts as the meeting host with complete control over participants and meeting settings.
+
+### Start Host Server
+```bash
+# GUI host control panel (recommended)
+python3 run_host_gui.py
+
+# Command line host server
+python3 run_host_server.py --host 0.0.0.0 --port 8888 --username "Meeting Host"
+```
+
+### Host Controls
+- **Mute All**: Mute all participants at once
+- **Disable Video**: Turn off video for all participants  
+- **Recording**: Start/stop meeting recording
+- **Chat Control**: Enable/disable chat for participants
+- **File Sharing**: Control file upload/download permissions
+- **Participant Management**: Kick participants, view statistics
+
+### Participants Join
+```bash
+# GUI client
+python3 run_client_gui.py
+
+# Command line client
+python3 run_client.py --host <server-ip> --port 8888 --username YourName
+```
+
+## Regular Server Mode
+
+Traditional server-client model without host controls.
+
 ## Quick Start
 
 ### 1. Setup

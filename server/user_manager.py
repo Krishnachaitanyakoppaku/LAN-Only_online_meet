@@ -20,6 +20,7 @@ class User:
     connection: Any = None
     room_id: Optional[str] = None
     is_online: bool = True
+    is_host: bool = False
     is_muted: bool = False
     is_video_enabled: bool = True
     is_audio_enabled: bool = True
@@ -43,6 +44,7 @@ class User:
             'username': self.username,
             'room_id': self.room_id,
             'is_online': self.is_online,
+            'is_host': self.is_host,
             'is_muted': self.is_muted,
             'is_video_enabled': self.is_video_enabled,
             'is_audio_enabled': self.is_audio_enabled,

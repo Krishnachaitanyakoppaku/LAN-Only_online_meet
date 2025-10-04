@@ -53,16 +53,31 @@ LAN-Video-Call/
 ## Installation
 
 1. Clone the repository
-2. Install dependencies: `pip install -r requirements.txt`
-3. Run server: `python server/main_server.py`
-4. Run client: `python client/main_client.py`
+2. Install dependencies: `python3 setup.py`
+3. Start host server: `python3 run_host_server.py --username "Host"`
+4. Connect participants: `python3 run_client.py --host <server-ip> --username YourName`
 
 ## Usage
 
-1. Start the server on your LAN
+### Host Mode (Recommended)
+1. Start the host server: `python3 run_host_gui.py`
+2. Configure meeting settings and controls
+3. Participants join using the server IP
+4. Host can control the meeting (mute all, kick participants, etc.)
+
+### Regular Server Mode
+1. Start regular server: `python3 run_server_gui.py`
 2. Connect clients to the server IP
 3. Create or join meeting rooms
 4. Enjoy video calling with all features!
+
+### Meeting Controls (Host Mode)
+- **Mute All**: Mute all participants at once
+- **Disable Video**: Turn off video for all participants
+- **Recording**: Start/stop meeting recording
+- **Chat Control**: Enable/disable chat for participants
+- **File Sharing**: Control file upload/download permissions
+- **Participant Management**: Kick participants, view statistics
 
 ## Technical Details
 

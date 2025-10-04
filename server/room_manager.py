@@ -394,3 +394,16 @@ class RoomManager:
                 'total_participants': total_participants,
                 'empty_rooms': total_rooms - active_rooms
             }
+    
+    def get_default_room(self):
+        """Get the default room (first public room)"""
+        with self.lock:
+            for room in self.rooms.values():
+                if not room.is_private:
+                    return room
+            return None
+    
+    def get_all_rooms(self):
+        """Get all rooms"""
+        with self.lock:
+            return list(self.rooms.values())

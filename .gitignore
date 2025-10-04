@@ -47,10 +47,13 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-uploads/
-downloads/
-logs/
+uploads/*
+downloads/*
+logs/*
 *.log
+!uploads/.gitkeep
+!downloads/.gitkeep
+!logs/.gitkeep
 *.tmp
 *.temp
 
