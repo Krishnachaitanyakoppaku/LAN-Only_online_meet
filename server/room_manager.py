@@ -279,8 +279,13 @@ class RoomManager:
             room.add_chat_message(user_id, user.username, message)
             
             # Broadcast message to all participants
-            from shared.protocol import create_chat_message
-            chat_msg = create_chat_message(user_id, message, room_id)
+            from shared.protocol import Message, MessageType
+            chat_msg = Message(
+                msg_type=MessageType.CHAT_MESSAGE,
+                data={'user_id': user_id, 'username': user.username, 'message': message, 'room_id': room_id},
+                sender=user_id,
+                room_id=room_id
+            )
             self.broadcast_to_room(room_id, chat_msg, exclude_user=user_id)
             
             return True

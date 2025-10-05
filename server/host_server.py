@@ -78,22 +78,30 @@ class HostServer(LANVideoServer):
             if username == self.host_username and not self.is_host_connected:
                 self.is_host_connected = True
                 user.is_host = True
-                user.user_id = self.host_id  # Assign the predefined host ID
-                self.user_manager.remap_user_id(user.user_id, self.host_id)
+                # Remap to predefined host ID using the original generated ID
+                original_user_id = user.user_id
+                if original_user_id != self.host_id:
+                    remapped = self.user_manager.remap_user_id(original_user_id, self.host_id)
+                    if remapped:
+                        user = self.user_manager.get_user(self.host_id) or user
                 connection.user_id = self.host_id
                 logger.info(f"Host '{username}' has connected. ID: {self.host_id}")
             else:
                 connection.user_id = user.user_id
 
-            # Send success response with room info
+            # Send success response with room info (use unified keys 'room' and 'participants')
             default_room = self.room_manager.get_default_room()
+            participants = []
+            if default_room:
+                participants = self.room_manager.get_room_participants(default_room.room_id)
             response = Message(
                 msg_type=MessageType.SUCCESS,
                 data={
-                    'user_id': user.user_id,
+                    'user_id': connection.user_id,
                     'message': 'Connected successfully',
                     'is_host': user.is_host,
-                    'default_room': default_room.to_dict() if default_room else None,
+                    'room': default_room.to_dict() if default_room else None,
+                    'participants': participants,
                     'meeting_controls': self.meeting_controls
                 }
             )
@@ -246,6 +254,46 @@ class HostServer(LANVideoServer):
                     
         except Exception as e:
             logger.error(f"Error handling chat message: {e}")
+
+    def _handle_meeting_control(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle meeting control messages from the host client and broadcast state changes."""
+        try:
+            # Only host can change meeting controls
+            if connection.user_id != self.host_id:
+                # Non-hosts just receive ACK
+                response = Message(msg_type=MessageType.ACK)
+                connection.send(response)
+                return
+
+            control = message.data.get('control')
+            value = message.data.get('value')
+
+            if control in self.meeting_controls:
+                self.meeting_controls[control] = value
+                # Trigger side-effects for specific controls
+                if control == 'recording':
+                    # Nothing to persist here; UI reflects via broadcast
+                    pass
+
+                # Broadcast update to all participants
+                control_message = Message(
+                    msg_type=MessageType.MEETING_CONTROL,
+                    data={
+                        'control': control,
+                        'value': value,
+                        'host_username': self.host_username
+                    }
+                )
+                self._broadcast_to_all(control_message)
+
+                # ACK host
+                response = Message(msg_type=MessageType.ACK)
+                connection.send(response)
+            else:
+                self._send_error(connection, "Unknown meeting control")
+
+        except Exception as e:
+            logger.error(f"Error handling meeting control: {e}")
     
     # Host control methods
     def mute_all_participants(self, mute: bool = True):

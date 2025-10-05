@@ -68,3 +68,5 @@ echo "Setup complete!"
 echo "If you were added to the video group, please log out and log back in"
 echo "Then run: python fix_camera_permissions.py"
 
+
+

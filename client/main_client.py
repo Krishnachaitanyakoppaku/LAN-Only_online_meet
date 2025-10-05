@@ -59,6 +59,7 @@ class LANVideoClient:
         # State
         self.room_participants: Dict[str, Dict[str, Any]] = {}
         self.available_rooms: List[Dict[str, Any]] = []
+        self.last_audio_activity: Dict[str, float] = {}
         
         # Setup message handlers
         self._setup_message_handlers()
@@ -320,6 +321,8 @@ class LANVideoClient:
             
             # Play audio
             self.audio_client.play_remote_audio(user_id, audio_bytes)
+            # Track speaking activity
+            self.last_audio_activity[user_id] = time.time()
     
     def _handle_screen_share(self, message: Message):
         """Handle screen share message"""
@@ -397,7 +400,8 @@ class LANVideoClient:
         message = Message(
             msg_type=MessageType.CHAT_MESSAGE,
             data={
-                'message': message_text
+                'message': message_text,
+                'room_id': self.current_room_id
             }
         )
         
@@ -521,6 +525,25 @@ class LANVideoClient:
             self.connection_callbacks[event] = callback
         else:
             self.message_callbacks[event] = callback
+
+    # Host control API
+    def send_meeting_control(self, control: str, value: Any) -> bool:
+        """Send a meeting control update (host only)."""
+        message = Message(
+            msg_type=MessageType.MEETING_CONTROL,
+            data={'control': control, 'value': value}
+        )
+        return self.send_message(message)
+
+    def get_active_speakers(self, within_seconds: float = 2.0) -> List[str]:
+        """Return user_ids of participants who spoke within the time window, sorted by recency."""
+        now = time.time()
+        speakers = [
+            (uid, ts) for uid, ts in self.last_audio_activity.items()
+            if now - ts <= within_seconds
+        ]
+        speakers.sort(key=lambda x: x[1], reverse=True)
+        return [uid for uid, _ in speakers]
     
     def _on_local_frame(self, frame):
         """Handle local video frame for self-view"""

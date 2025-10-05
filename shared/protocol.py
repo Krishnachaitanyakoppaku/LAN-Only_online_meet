@@ -280,9 +280,17 @@ def create_room_join_message(user_id: str, room_id: str) -> Message:
 
 def create_chat_message(user_id: str, message: str, room_id: str) -> Message:
     """Create chat message"""
+    # Include username and room_id in message payload for client display and routing
+    from .utils import get_username_by_id  # helper expected in utils
+    username = None
+    try:
+        username = get_username_by_id(user_id)
+    except Exception:
+        # Fallback: leave username None; client can resolve if needed
+        username = None
     return Message(
         msg_type=MessageType.CHAT_MESSAGE,
-        data={'user_id': user_id, 'message': message},
+        data={'user_id': user_id, 'username': username, 'message': message, 'room_id': room_id},
         sender=user_id,
         room_id=room_id
     )

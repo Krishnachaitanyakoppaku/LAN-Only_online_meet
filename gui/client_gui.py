@@ -36,10 +36,14 @@ class VideoDisplay:
         self.parent.configure(bg="black")
         self.canvas = tk.Canvas(self.parent, width=width, height=height, bg="black", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.last_frame = None
+        self.canvas.bind('<Configure>', self._on_resize)
         
         # Video frame
         self.current_frame = None
         self.photo = None
+        self.placeholder_text = None
+        self.placeholder_bg = "#37474F"
     
     def update_frame(self, frame):
         """Update video frame"""
@@ -47,22 +51,46 @@ class VideoDisplay:
             if frame is None or not CV2_AVAILABLE or not PIL_AVAILABLE:
                 return
             
-            # Resize frame to fit display
-            frame_resized = cv2.resize(frame, (self.width, self.height))
-            
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
-            
-            # Convert to PIL Image
-            image = Image.fromarray(frame_rgb)
-            self.photo = ImageTk.PhotoImage(image)
-            
-            # Update canvas
-            self.canvas.delete("all")
-            self.canvas.create_image(self.width//2, self.height//2, image=self.photo)
+            self.last_frame = frame
+            self._render_current()
             
         except Exception as e:
             logger.error(f"Error updating video frame: {e}")
+
+    def show_placeholder(self, initial: str):
+        """Show a placeholder tile with the user's initial when video is off."""
+        try:
+            self.canvas.delete("all")
+            self.canvas.configure(bg=self.placeholder_bg)
+            # Background rectangle
+            self.canvas.create_rectangle(0, 0, self.width, self.height, fill=self.placeholder_bg, outline=self.placeholder_bg)
+            # Draw initial
+            initial = (initial or "?").strip()[:1].upper()
+            # Dynamic font size based on tile size
+            size = max(24, int(min(self.width, self.height) * 0.5))
+            font_id = ("Helvetica", size, "bold")
+            self.canvas.create_text(self.width//2, self.height//2, text=initial, fill="white", font=font_id)
+        except Exception as e:
+            logger.error(f"Error showing placeholder: {e}")
+
+    def _on_resize(self, event):
+        self.width = max(1, event.width)
+        self.height = max(1, event.height)
+        self._render_current()
+
+    def _render_current(self):
+        try:
+            if self.last_frame is None or not CV2_AVAILABLE or not PIL_AVAILABLE:
+                return
+            # Fit image to current canvas size
+            frame_resized = cv2.resize(self.last_frame, (self.width, self.height))
+            frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame_rgb)
+            self.photo = ImageTk.PhotoImage(image)
+            self.canvas.delete("all")
+            self.canvas.create_image(self.width//2, self.height//2, image=self.photo)
+        except Exception as e:
+            logger.error(f"Error rendering current frame: {e}")
 
 
 class ClientGUI:
@@ -78,6 +106,7 @@ class ClientGUI:
         # Client instance
         self.client: LANVideoClient = None
         self.is_connected = False
+        self.is_host = False
         
         # Media state
         self.is_video_on = False
@@ -94,6 +123,12 @@ class ClientGUI:
         # Video displays
         self.video_displays: Dict[str, VideoDisplay] = {}
         self.local_video_display: Optional[VideoDisplay] = None
+        self.user_last_video_ts: Dict[str, float] = {}
+        self.page_index = 0
+        self.tiles_per_page = 6
+        self.screen_share_active = False
+        self.screen_share_user_id: Optional[str] = None
+        self.screen_share_display: Optional[VideoDisplay] = None
         
         # Chat history
         self.chat_history = []
@@ -136,9 +171,13 @@ class ClientGUI:
             self.login_frame.destroy()
             self.login_frame = None
 
-        # --- Main container for video feeds ---
+        # --- Main container (screen share on top, videos below) ---
         self.video_container = tk.Frame(self.root, bg="#212121")
         self.video_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Screen share area (hidden by default)
+        self.screen_share_frame = tk.Frame(self.video_container, bg="#111111")
+        self.screen_share_frame.pack(fill=tk.X, side=tk.TOP)
+        self.screen_share_frame.pack_forget()
 
         # --- Bottom control bar ---
         self.control_bar = tk.Frame(self.root, bg="#2B2B2B", height=70)
@@ -168,6 +207,13 @@ class ClientGUI:
         self.screen_share_button = tk.Button(center_frame, text="🔼 Share Screen", **button_style, command=self.toggle_screen_share)
         self.screen_share_button.pack(side=tk.LEFT, padx=5)
         tk.Button(center_frame, text="💬 Chat", **button_style).pack(side=tk.LEFT, padx=5) # Placeholder
+        # Pagination controls
+        self.prev_page_btn = tk.Button(center_frame, text="◀ Prev", **button_style, command=self.prev_page)
+        self.prev_page_btn.pack(side=tk.LEFT, padx=5)
+        self.page_label = tk.Label(center_frame, text="Page 1", bg=self.control_bar.cget('bg'), fg="#BBBBBB", font=control_font)
+        self.page_label.pack(side=tk.LEFT, padx=5)
+        self.next_page_btn = tk.Button(center_frame, text="Next ▶", **button_style, command=self.next_page)
+        self.next_page_btn.pack(side=tk.LEFT, padx=5)
 
         right_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
         right_frame.pack(side=tk.RIGHT, padx=10)
@@ -206,6 +252,8 @@ class ClientGUI:
             self.client.set_callback('on_chat_message', self.on_chat_message)
             self.client.set_callback('on_frame_received', self.on_video_frame_received)
             self.client.set_callback('on_local_frame', self.on_local_frame)
+            # Screen share callback from VideoClient
+            self.client.video_client.set_display_callback('on_screen_share', self.on_screen_share)
             
             # Connect
             if self.client.connect(host, port, username):
@@ -374,28 +422,90 @@ For more help, see the troubleshooting guide."""
         self.update_video_grid()
 
     def update_video_grid(self):
-        """Rearranges the participant videos in a grid."""
-        if not self.local_video_display: return
+        """Rearranges participant videos with pagination and placeholders."""
+        if not self.local_video_display:
+            return
 
-        all_frames = [self.local_video_display.parent] + [d.parent for d in self.video_displays.values()]
-        
+        # Build ordered list of user_ids to display
+        participants = self.client.get_room_participants() if self.client else {}
+        user_ids = list(participants.keys())
+
+        # Ensure local user at front if logged in
+        ordered = []
+        if self.client and self.client.user_id:
+            ordered.append(self.client.user_id)
+        # Active speakers (excluding local if already in)
+        speakers = self.client.get_active_speakers() if self.client else []
+        for uid in speakers:
+            if uid not in ordered:
+                ordered.append(uid)
+        # Add the rest
+        for uid in user_ids:
+            if uid not in ordered:
+                ordered.append(uid)
+
+        # Pagination
+        total_tiles = len(ordered)
+        total_pages = max(1, (total_tiles + self.tiles_per_page - 1) // self.tiles_per_page)
+        self.page_index = max(0, min(self.page_index, total_pages - 1))
+        start = self.page_index * self.tiles_per_page
+        end = min(start + self.tiles_per_page, total_tiles)
+        page_user_ids = ordered[start:end]
+
+        # Clear grid
         for widget in self.video_grid_frame.winfo_children():
             widget.grid_forget()
 
-        total_participants = len(all_frames)
-        if total_participants == 0: return
-
-        import math
-        cols = math.ceil(math.sqrt(total_participants))
-        rows = math.ceil(total_participants / cols)
-
+        # Layout: choose rows/cols to best fit count up to 6
+        count = len(page_user_ids)
+        if count <= 1:
+            cols, rows = 1, 1
+        elif count == 2:
+            cols, rows = 2, 1
+        elif count == 3:
+            cols, rows = 3, 1
+        elif count == 4:
+            cols, rows = 2, 2
+        else:
+            cols, rows = 3, 2
         for i in range(cols): self.video_grid_frame.grid_columnconfigure(i, weight=1)
         for i in range(rows): self.video_grid_frame.grid_rowconfigure(i, weight=1)
 
-        for index, p_frame in enumerate(all_frames):
+        # Ensure all frames exist and render placeholder if needed
+        tiles = []
+        for uid in page_user_ids:
+            if uid == self.client.user_id:
+                tiles.append((uid, self.local_video_display))
+            else:
+                if uid not in self.video_displays:
+                    p_frame = tk.Frame(self.video_grid_frame, bg="black", borderwidth=1, relief="solid")
+                    display = VideoDisplay(p_frame, 320, 240)
+                    self.video_displays[uid] = display
+                    username = participants.get(uid, {}).get('username', 'Unknown')
+                    tk.Label(p_frame, text=username, bg="#424242", fg="white", anchor="sw", padx=8, pady=4).pack(side="bottom", fill="x")
+                tiles.append((uid, self.video_displays[uid]))
+
+        # Place tiles on grid
+        for index, (uid, display) in enumerate(tiles):
             row = index // cols
             col = index % cols
-            p_frame.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
+            # Parent frame is either existing parent (for local) or display.parent
+            parent_widget = display.parent if uid != self.client.user_id else display.parent
+            parent_widget.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
+            # Placeholder logic: if no recent video, show initial
+            last_ts = self.user_last_video_ts.get(uid)
+            has_recent_video = last_ts is not None and (time.time() - last_ts) < 2.0
+            if not has_recent_video:
+                username = 'You' if uid == self.client.user_id else participants.get(uid, {}).get('username', 'User')
+                initial = (username[:1] if username else '?')
+                display.show_placeholder(initial)
+            else:
+                display._render_current()
+
+        # Update page label and buttons
+        self.page_label.config(text=f"Page {self.page_index + 1} / {total_pages}")
+        self.prev_page_btn.config(state=("normal" if self.page_index > 0 else "disabled"))
+        self.next_page_btn.config(state=("normal" if self.page_index < total_pages - 1 else "disabled"))
     
     def clear_participants(self):
         """Clear participants list"""
@@ -410,6 +520,11 @@ For more help, see the troubleshooting guide."""
         """Handle connection success"""
         logger.info(f"Successfully joined the meeting as {self.username_var.get()}.")
         room = data.get('room')
+        self.is_host = bool(data.get('is_host'))
+        # Show extra host-only controls if host
+        if self.is_host:
+            # Enable already-present controls; could add more in future
+            pass
         if room:
             logger.info(f"Meeting Room: {room.get('room_name')}")
     
@@ -450,6 +565,9 @@ For more help, see the troubleshooting guide."""
             
             # Update display
             self.video_displays[user_id].update_frame(frame)
+            self.user_last_video_ts[user_id] = time.time()
+            # If user is on current page, keep tiles fresh
+            self.update_video_grid()
             
         except Exception as e:
             logger.error(f"Error handling video frame: {e}")
@@ -458,6 +576,40 @@ For more help, see the troubleshooting guide."""
         """Handle local video frame for self-view."""
         if self.local_video_display:
             self.local_video_display.update_frame(frame)
+            self.user_last_video_ts[self.client.user_id] = time.time()
+            self.update_video_grid()
+
+    def on_screen_share(self, user_id, frame):
+        """Display screen share prominently above the grid."""
+        try:
+            self.screen_share_active = True
+            self.screen_share_user_id = user_id
+            # Create display if needed
+            if not self.screen_share_display:
+                self.screen_share_frame.pack(fill=tk.X, side=tk.TOP)
+                display_frame = tk.Frame(self.screen_share_frame, bg="black", borderwidth=1, relief="solid")
+                display_frame.pack(fill=tk.X, padx=5, pady=5)
+                # Make it wider and a decent height
+                self.screen_share_display = VideoDisplay(display_frame, width=960, height=540)
+                tk.Label(display_frame, text="Screen Share", bg="#424242", fg="white", anchor="w", padx=8, pady=4).pack(side="bottom", fill="x")
+            # Update frame
+            self.screen_share_display.update_frame(frame)
+        except Exception as e:
+            logger.error(f"Error displaying screen share: {e}")
+
+    def prev_page(self):
+        if self.page_index > 0:
+            self.page_index -= 1
+            self.update_video_grid()
+
+    def next_page(self):
+        # Compute max pages
+        participants = self.client.get_room_participants() if self.client else {}
+        total_tiles = len(participants)
+        total_pages = max(1, (total_tiles + self.tiles_per_page - 1) // self.tiles_per_page)
+        if self.page_index < total_pages - 1:
+            self.page_index += 1
+            self.update_video_grid()
     
     def on_closing(self):
         """Handle window closing"""

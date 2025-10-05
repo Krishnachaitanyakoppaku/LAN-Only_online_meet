@@ -263,12 +263,32 @@ class LANVideoServer:
             connection.user_id = user.user_id
             connection.is_authenticated = True
             
+            # Ensure a default public room exists and auto-join the user
+            default_room = self.room_manager.get_default_room()
+            if not default_room:
+                # Create a default room named "Main Meeting"
+                default_room = self.room_manager.create_room(
+                    room_name="Main Meeting",
+                    created_by=user.user_id,
+                    is_private=False,
+                    password=None,
+                    max_participants=50
+                )
+            # Attempt to join the default room
+            if default_room:
+                self.room_manager.join_room(default_room.room_id, user.user_id)
+                room_participants = self.room_manager.get_room_participants(default_room.room_id)
+            else:
+                room_participants = []
+
             # Send success response
             response = Message(
                 msg_type=MessageType.SUCCESS,
                 data={
                     'user_id': user.user_id,
-                    'message': 'Connected successfully'
+                    'message': 'Connected successfully',
+                    'room': default_room.to_dict() if default_room else None,
+                    'participants': room_participants
                 }
             )
             connection.send(response)
@@ -418,6 +438,11 @@ class LANVideoServer:
             room_id = message.data.get('room_id')
             message_text = message.data.get('message')
             
+            # Fallback to user's current room if not provided
+            if not room_id:
+                user = self.user_manager.get_user(connection.user_id)
+                room_id = user.room_id if user else None
+
             if room_id and message_text:
                 success = self.room_manager.add_chat_message(
                     room_id, connection.user_id, message_text
