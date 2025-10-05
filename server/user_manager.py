@@ -95,6 +95,20 @@ class UserManager:
             logger.info(f"Created new user: {username} ({user_id})")
             return user
     
+    def remap_user_id(self, old_id: str, new_id: str):
+        """Remaps a user from an old ID to a new ID, used for assigning the host ID."""
+        with self.lock:
+            if old_id in self.users and new_id not in self.users:
+                user = self.users.pop(old_id)
+                user.user_id = new_id
+                self.users[new_id] = user
+                # Update the username_to_id map
+                if user.username in self.username_to_id and self.username_to_id[user.username] == old_id:
+                    self.username_to_id[user.username] = new_id
+                logger.info(f"Remapped user '{user.username}' from {old_id} to {new_id}")
+                return True
+            return False
+
     def get_user(self, user_id: str) -> Optional[User]:
         """Get user by ID"""
         with self.lock:
@@ -182,6 +196,11 @@ class UserManager:
         with self.lock:
             return [user for user in self.users.values() if user.is_online]
     
+    def get_all_users(self) -> List[User]:
+        """Get all users (online and offline)"""
+        with self.lock:
+            return list(self.users.values())
+    
     def get_users_in_room(self, room_id: str) -> List[User]:
         """Get all users in a specific room"""
         with self.lock:
@@ -255,10 +274,12 @@ class UserManager:
             online_users = len([u for u in self.users.values() if u.is_online])
             users_in_rooms = len([u for u in self.users.values() 
                                 if u.is_online and u.room_id])
+            all_users_dict = {user_id: user.to_dict() for user_id, user in self.users.items()}
             
             return {
                 'total_users': total_users,
                 'online_users': online_users,
                 'users_in_rooms': users_in_rooms,
-                'offline_users': total_users - online_users
+                'offline_users': total_users - online_users,
+                'users': all_users_dict
             }

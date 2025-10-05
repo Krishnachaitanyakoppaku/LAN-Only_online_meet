@@ -29,7 +29,6 @@ class HostServer(LANVideoServer):
         self.host_username = host_username
         self.host_id = "host_" + str(uuid.uuid4())[:8]
         self.is_host_connected = False
-        self.host_connection: Optional[ClientConnection] = None
         
         # Host-specific capabilities
         self.meeting_controls = {
@@ -57,58 +56,11 @@ class HostServer(LANVideoServer):
         if not self.start():
             return False
         
-        # Create host user
-        self._create_host_user()
-        
         # Create default meeting room
         self._create_default_room()
         
-        logger.info(f"Host server started with username: {self.host_username}")
-        logger.info(f"Host ID: {self.host_id}")
+        logger.info(f"Host server started. Waiting for host '{self.host_username}' to connect.")
         return True
-    
-    def _create_host_user(self):
-        """Create host user"""
-        # Create a virtual connection for the host
-        host_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        host_socket.connect(('127.0.0.1', self.port))
-        
-        # Create host connection
-        self.host_connection = ClientConnection(host_socket, ('127.0.0.1', 0))
-        self.host_connection.user_id = self.host_id
-        self.host_connection.is_authenticated = True
-        
-        # Create host user
-        host_user = self.user_manager.create_user(self.host_username, self.host_connection)
-        host_user.is_host = True
-        host_user.user_id = self.host_id
-        
-        # Add to connections
-        connection_id = f"host_{self.host_id}"
-        with self.connection_lock:
-            self.connections[connection_id] = self.host_connection
-        
-        self.is_host_connected = True
-        logger.info(f"Host user created: {self.host_username} ({self.host_id})")
-    
-    def _create_default_room(self):
-        """Create default meeting room"""
-        try:
-            room = self.room_manager.create_room(
-                room_name="Main Meeting Room",
-                created_by=self.host_id,
-                is_private=False,
-                password=None,
-                max_participants=100
-            )
-            
-            # Host automatically joins the room
-            self.room_manager.join_room(room.room_id, self.host_id)
-            
-            logger.info(f"Default room created: {room.room_name} ({room.room_id})")
-            
-        except Exception as e:
-            logger.error(f"Failed to create default room: {e}")
     
     def _handle_connect(self, connection_id: str, connection: ClientConnection, message: Message):
         """Handle user connection with host privileges check"""
@@ -118,16 +70,21 @@ class HostServer(LANVideoServer):
                 self._send_error(connection, "Username required")
                 return
             
-            # Check if username is already taken (except host)
-            if username == self.host_username and connection_id != f"host_{self.host_id}":
-                self._send_error(connection, "Host username is reserved")
-                return
-            
             # Create user
             user = self.user_manager.create_user(username, connection)
-            connection.user_id = user.user_id
             connection.is_authenticated = True
             
+            # Check if this is the host connecting
+            if username == self.host_username and not self.is_host_connected:
+                self.is_host_connected = True
+                user.is_host = True
+                user.user_id = self.host_id  # Assign the predefined host ID
+                self.user_manager.remap_user_id(user.user_id, self.host_id)
+                connection.user_id = self.host_id
+                logger.info(f"Host '{username}' has connected. ID: {self.host_id}")
+            else:
+                connection.user_id = user.user_id
+
             # Send success response with room info
             default_room = self.room_manager.get_default_room()
             response = Message(
@@ -135,7 +92,7 @@ class HostServer(LANVideoServer):
                 data={
                     'user_id': user.user_id,
                     'message': 'Connected successfully',
-                    'host_username': self.host_username,
+                    'is_host': user.is_host,
                     'default_room': default_room.to_dict() if default_room else None,
                     'meeting_controls': self.meeting_controls
                 }
@@ -145,14 +102,35 @@ class HostServer(LANVideoServer):
             # Broadcast user join
             self._broadcast_user_join(user)
             
-            # If host is connected, send current meeting state
-            if self.is_host_connected:
-                self._send_meeting_state_to_user(connection)
-            
             logger.info(f"User {username} connected with ID {user.user_id}")
             
+            # Automatically join user to the default room
+            default_room = self.room_manager.get_default_room()
+            if default_room:
+                # Use the overridden _handle_room_join to add the user
+                join_message = Message(msg_type=MessageType.ROOM_JOIN, data={'room_id': default_room.room_id})
+                self._handle_room_join(connection_id, connection, join_message)
+
         except Exception as e:
             self._send_error(connection, str(e))
+
+    def _create_default_room(self):
+        """Create default meeting room"""
+        try:
+            # Create a temporary user for room creation
+            temp_user_id = "temp_" + str(uuid.uuid4())[:8]
+            room = self.room_manager.create_room(
+                room_name="Main Meeting Room",
+                created_by=temp_user_id,
+                is_private=False,
+                password=None,
+                max_participants=100
+            )
+            logger.info(f"Default room created: {room.room_name} ({room.room_id})")
+            
+        except Exception as e:
+            logger.error(f"Failed to create default room: {e}")
+
     
     def _send_meeting_state_to_user(self, connection: ClientConnection):
         """Send current meeting state to a user"""
@@ -181,6 +159,11 @@ class HostServer(LANVideoServer):
         except Exception as e:
             logger.error(f"Error sending meeting state: {e}")
     
+    def _handle_room_create(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Disable room creation for clients in host mode."""
+        if connection.user_id != self.host_id:
+            self._send_error(connection, "Room creation is disabled in this meeting.")
+
     def _handle_room_join(self, connection_id: str, connection: ClientConnection, message: Message):
         """Handle room join with host approval"""
         if not connection.is_authenticated:
@@ -199,11 +182,6 @@ class HostServer(LANVideoServer):
             room = self.room_manager.get_room(room_id)
             if not room:
                 self._send_error(connection, "Room not found")
-                return
-            
-            # Check meeting controls
-            if not self.meeting_controls['chat_enabled'] and room_id:
-                self._send_error(connection, "Meeting is locked by host")
                 return
             
             # Join room
@@ -232,27 +210,13 @@ class HostServer(LANVideoServer):
                     ), exclude_user=connection.user_id)
                     
                     # Notify host of new participant
-                    if self.is_host_connected and connection.user_id != self.host_id:
+                    if self.is_host_connected and connection.user_id != self.host_id and user:
                         self._notify_host_participant_join(user, room)
             else:
                 self._send_error(connection, "Failed to join room")
                 
         except Exception as e:
             self._send_error(connection, str(e))
-    
-    def _notify_host_participant_join(self, user, room):
-        """Notify host when a participant joins"""
-        if self.host_connection:
-            notification = Message(
-                msg_type=MessageType.HOST_NOTIFICATION,
-                data={
-                    'type': 'participant_join',
-                    'user': user.to_dict(),
-                    'room': room.to_dict(),
-                    'timestamp': time.time()
-                }
-            )
-            self.host_connection.send(notification)
     
     def _handle_chat_message(self, connection_id: str, connection: ClientConnection, message: Message):
         """Handle chat message with host monitoring"""
@@ -282,70 +246,6 @@ class HostServer(LANVideoServer):
                     
         except Exception as e:
             logger.error(f"Error handling chat message: {e}")
-    
-    def _notify_host_chat_message(self, user_id: str, room_id: str, message_text: str):
-        """Notify host of chat message"""
-        if self.host_connection:
-            user = self.user_manager.get_user(user_id)
-            if user:
-                notification = Message(
-                    msg_type=MessageType.HOST_NOTIFICATION,
-                    data={
-                        'type': 'chat_message',
-                        'user': user.to_dict(),
-                        'room_id': room_id,
-                        'message': message_text,
-                        'timestamp': time.time()
-                    }
-                )
-                self.host_connection.send(notification)
-    
-    def _handle_video_frame(self, connection_id: str, connection: ClientConnection, message: Message):
-        """Handle video frame with host controls"""
-        if not connection.is_authenticated:
-            return
-        
-        # Check if video is disabled by host
-        if self.meeting_controls['disable_video_all'] and connection.user_id != self.host_id:
-            return
-        
-        super()._handle_video_frame(connection_id, connection, message)
-    
-    def _handle_audio_frame(self, connection_id: str, connection: ClientConnection, message: Message):
-        """Handle audio frame with host controls"""
-        if not connection.is_authenticated:
-            return
-        
-        # Check if audio is muted by host
-        if self.meeting_controls['mute_all'] and connection.user_id != self.host_id:
-            return
-        
-        super()._handle_audio_frame(connection_id, connection, message)
-    
-    def _handle_screen_share(self, connection_id: str, connection: ClientConnection, message: Message):
-        """Handle screen share with host controls"""
-        if not connection.is_authenticated:
-            return
-        
-        # Check if screen sharing is controlled by host
-        if not self.meeting_controls['screen_sharing'] and connection.user_id != self.host_id:
-            self._send_error(connection, "Screen sharing is disabled by host")
-            return
-        
-        super()._handle_screen_share(connection_id, connection, message)
-    
-    def _handle_file_upload_start(self, connection_id: str, connection: ClientConnection, message: Message):
-        """Handle file upload with host controls"""
-        if not connection.is_authenticated:
-            self._send_error(connection, "Not authenticated")
-            return
-        
-        # Check if file sharing is enabled
-        if not self.meeting_controls['file_sharing_enabled'] and connection.user_id != self.host_id:
-            self._send_error(connection, "File sharing is disabled by host")
-            return
-        
-        super()._handle_file_upload_start(connection_id, connection, message)
     
     # Host control methods
     def mute_all_participants(self, mute: bool = True):

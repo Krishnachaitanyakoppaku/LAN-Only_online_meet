@@ -2,14 +2,23 @@
 Host GUI for the LAN Video Calling Application
 Provides meeting control and monitoring capabilities for the host
 """
-
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog, font
 import threading
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
+try:
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageTk
+    MEDIA_LIBS_AVAILABLE = True
+except ImportError:
+    MEDIA_LIBS_AVAILABLE = False
+
 from server.host_server import HostServer
+from client.main_client import LANVideoClient
 from shared.utils import logger, get_local_ip
+from .client_gui import VideoDisplay
 
 
 class HostGUI:
@@ -17,19 +26,29 @@ class HostGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("LAN Video Call - Host Control Panel")
-        self.root.geometry("1400x900")
-        self.root.configure(bg='#f0f0f0')
+        self.root.title("LAN Video Call - Host")
+        self.root.geometry("1200x800")
+        self.root.configure(bg="#212121")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # Server instance
         self.server: Optional[HostServer] = None
         self.server_thread: Optional[threading.Thread] = None
         self.is_server_running = False
+
+        # Client instance for host participation
+        self.client: Optional[LANVideoClient] = None
+        self.is_client_connected = False
+        self.is_video_on = False
+        self.is_audio_on = False
+
+        # Video displays
+        self.video_displays: Dict[str, VideoDisplay] = {}
+        self.local_video_display: Optional[VideoDisplay] = None
         
         # GUI variables
-        self.host_username_var = tk.StringVar(value="Host")
-        self.server_host_var = tk.StringVar(value="0.0.0.0")
-        self.server_port_var = tk.StringVar(value="8888")
+        self.host_username = "Host"
+        self.server_port = 8888
         
         # Meeting control variables
         self.mute_all_var = tk.BooleanVar()
@@ -42,142 +61,147 @@ class HostGUI:
         self.participants = {}
         self.rooms = {}
         self.chat_messages = []
-        
+
+        # Child windows
+        self.settings_window = None
+        self.participants_window = None
+        self.chat_window = None
+        self.stats_window = None
+
         self.setup_gui()
         self.start_update_thread()
     
     def setup_gui(self):
         """Setup the GUI layout"""
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # --- Main container for video feeds ---
+        self.video_container = tk.Frame(self.root, bg="#212121")
+        self.video_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # --- Bottom control bar ---
+        self.control_bar = tk.Frame(self.root, bg="#2B2B2B", height=70)
+        self.control_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.control_bar.pack_propagate(False) # Prevent resizing
+
+        self.setup_controls()
+        self.setup_video_grid()
+
+        # Start server automatically
+        self.start_server()
+
+    def setup_controls(self):
+        """Sets up the buttons in the bottom control bar."""
+        control_font = font.Font(family="Helvetica", size=10)
+        button_style = {
+            "bg": "#2B2B2B", "fg": "#FFFFFF", "activebackground": "#404040",
+            "activeforeground": "#FFFFFF", "bd": 0, "font": control_font,
+            "padx": 10, "pady": 5
+        }
+
+        # --- Left Controls ---
+        left_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        left_frame.pack(side=tk.LEFT, padx=10)
+
+        self.audio_button = tk.Button(left_frame, text="🎤 Unmute", **button_style, command=self.toggle_audio)
+        self.audio_button.pack(side=tk.LEFT, padx=5)
+
+        self.video_button = tk.Button(left_frame, text="📹 Start Video", **button_style, command=self.toggle_video)
+        self.video_button.pack(side=tk.LEFT, padx=5)
+
+        # --- Center Controls ---
+        center_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        center_frame.pack(side=tk.LEFT, expand=True, padx=20)
+
+        tk.Button(center_frame, text="👥 Participants", **button_style, command=self.open_participants_window).pack(side=tk.LEFT, padx=5)
+        tk.Button(center_frame, text="💬 Chat", **button_style, command=self.open_chat_window).pack(side=tk.LEFT, padx=5)
+        tk.Button(center_frame, text="🔼 Share Screen", **button_style).pack(side=tk.LEFT, padx=5) # Placeholder
+        tk.Button(center_frame, text="📈 Stats", **button_style, command=self.open_stats_window).pack(side=tk.LEFT, padx=5)
+        tk.Button(center_frame, text="⚙️ Settings", **button_style, command=self.open_settings_window).pack(side=tk.LEFT, padx=5)
+
+        # --- Right Controls ---
+        right_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        right_frame.pack(side=tk.RIGHT, padx=10)
+
+        leave_btn = tk.Button(right_frame, text="Leave", bg="#E53935", fg="white", activebackground="#C62828", bd=0, font=control_font, padx=20, pady=5, command=self.on_closing)
+        leave_btn.pack(side=tk.RIGHT, padx=10)
+
+    def setup_video_grid(self):
+        """Sets up the grid for participant videos."""
+        self.video_grid_frame = tk.Frame(self.video_container, bg="#212121")
+        self.video_grid_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Host's local video display
+        local_video_frame = tk.Frame(self.video_grid_frame, bg="black", borderwidth=1, relief="solid")
+        self.local_video_display = VideoDisplay(local_video_frame, 320, 240)
+        tk.Label(local_video_frame, text=f"{self.host_username} (You)", bg="#424242", fg="white", anchor="sw", padx=8, pady=4).pack(side="bottom", fill="x")
         
-        # Configure grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        self.update_video_grid()
+
+    def on_local_frame(self, frame):
+        """Callback for receiving local camera frame."""
+        if self.local_video_display:
+            self.local_video_display.update_frame(frame)
+
+    def on_video_frame_received(self, user_id, frame_data):
+        """Handle video frame received from another participant."""
+        if user_id not in self.video_displays:
+            p_frame = tk.Frame(self.video_grid_frame, bg="black", borderwidth=1, relief="solid")
+            display = VideoDisplay(p_frame, 320, 240)
+            self.video_displays[user_id] = display
+            
+            username = 'Unknown'
+            if self.server:
+                user = self.server.user_manager.get_user(user_id)
+                if user:
+                    username = user.username
+
+            tk.Label(p_frame, text=username, bg="#424242", fg="white", anchor="sw", padx=8, pady=4).pack(side="bottom", fill="x")
+            self.update_video_grid()
         
-        # Title
-        title_label = ttk.Label(main_frame, text="LAN Video Call - Host Control Panel", 
-                               font=('Arial', 16, 'bold'))
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        self.video_displays[user_id].update_frame(frame_data)
+
+    def open_settings_window(self):
+        """Opens a new window for host meeting settings."""
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.lift()
+            return
+
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("Meeting Settings")
+        self.settings_window.geometry("350x300")
+        self.settings_window.configure(bg="#2B2B2B")
+        self.settings_window.resizable(False, False)
+
+        title_font = font.Font(family="Helvetica", size=12, weight="bold")
+        check_font = font.Font(family="Helvetica", size=10)
         
-        # Server control section
-        self.setup_server_controls(main_frame)
+        settings_frame = tk.Frame(self.settings_window, bg="#2B2B2B", padx=20, pady=20)
+        settings_frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(settings_frame, text="Host Controls", font=title_font, bg="#2B2B2B", fg="white").pack(anchor='w', pady=(0, 10))
+
+        check_style = {"bg": "#2B2B2B", "fg": "white", "selectcolor": "#212121", "activebackground": "#2B2B2B", "activeforeground": "white", "font": check_font}
         
-        # Main content area
-        self.setup_main_content(main_frame)
-        
-        # Status bar
-        self.setup_status_bar(main_frame)
-    
-    def setup_server_controls(self, parent):
-        """Setup server control section"""
-        server_frame = ttk.LabelFrame(parent, text="Server Control", padding="10")
-        server_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
-        
-        # Server settings
-        ttk.Label(server_frame, text="Host Username:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(server_frame, textvariable=self.host_username_var, width=15).grid(row=0, column=1, padx=(0, 20))
-        
-        ttk.Label(server_frame, text="Server Host:").grid(row=0, column=2, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(server_frame, textvariable=self.server_host_var, width=15).grid(row=0, column=3, padx=(0, 20))
-        
-        ttk.Label(server_frame, text="Port:").grid(row=0, column=4, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(server_frame, textvariable=self.server_port_var, width=8).grid(row=0, column=5, padx=(0, 20))
-        
-        # Server buttons
-        self.start_button = ttk.Button(server_frame, text="Start Server", command=self.start_server)
-        self.start_button.grid(row=0, column=6, padx=(0, 10))
-        
-        self.stop_button = ttk.Button(server_frame, text="Stop Server", command=self.stop_server, state='disabled')
-        self.stop_button.grid(row=0, column=7)
-        
-        # Server status
-        self.server_status_label = ttk.Label(server_frame, text="Server: Stopped", foreground='red')
-        self.server_status_label.grid(row=1, column=0, columnspan=8, pady=(10, 0))
-    
-    def setup_main_content(self, parent):
-        """Setup main content area"""
-        # Create notebook for tabs
-        self.notebook = ttk.Notebook(parent)
-        self.notebook.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
-        
-        # Meeting controls tab
-        self.setup_meeting_controls_tab()
-        
-        # Participants tab
-        self.setup_participants_tab()
-        
-        # Chat monitoring tab
-        self.setup_chat_monitoring_tab()
-        
-        # Statistics tab
-        self.setup_statistics_tab()
-    
-    def setup_meeting_controls_tab(self):
-        """Setup meeting controls tab"""
-        controls_frame = ttk.Frame(self.notebook)
-        self.notebook.add(controls_frame, text="Meeting Controls")
-        
-        # Audio controls
-        audio_frame = ttk.LabelFrame(controls_frame, text="Audio Controls", padding="10")
-        audio_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Checkbutton(audio_frame, text="Mute All Participants", 
-                       variable=self.mute_all_var, command=self.toggle_mute_all).pack(anchor=tk.W)
-        
-        # Video controls
-        video_frame = ttk.LabelFrame(controls_frame, text="Video Controls", padding="10")
-        video_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Checkbutton(video_frame, text="Disable Video for All Participants", 
-                       variable=self.disable_video_all_var, command=self.toggle_disable_video_all).pack(anchor=tk.W)
-        
-        # Recording controls
-        recording_frame = ttk.LabelFrame(controls_frame, text="Recording Controls", padding="10")
-        recording_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Checkbutton(recording_frame, text="Recording", 
-                       variable=self.recording_var, command=self.toggle_recording).pack(anchor=tk.W)
-        
-        # Feature controls
-        features_frame = ttk.LabelFrame(controls_frame, text="Feature Controls", padding="10")
-        features_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        ttk.Checkbutton(features_frame, text="Enable Chat", 
-                       variable=self.chat_enabled_var, command=self.toggle_chat).pack(anchor=tk.W)
-        
-        ttk.Checkbutton(features_frame, text="Enable File Sharing", 
-                       variable=self.file_sharing_enabled_var, command=self.toggle_file_sharing).pack(anchor=tk.W)
-        
-        # Participant management
-        participant_frame = ttk.LabelFrame(controls_frame, text="Participant Management", padding="10")
-        participant_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Participant list for management
-        self.participant_tree = ttk.Treeview(participant_frame, columns=('username', 'status', 'room'), show='headings')
-        self.participant_tree.heading('username', text='Username')
-        self.participant_tree.heading('status', text='Status')
-        self.participant_tree.heading('room', text='Room')
-        self.participant_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Participant action buttons
-        action_frame = ttk.Frame(participant_frame)
-        action_frame.pack(fill=tk.X)
-        
-        ttk.Button(action_frame, text="Mute Selected", command=self.mute_selected_participant).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(action_frame, text="Kick Selected", command=self.kick_selected_participant).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(action_frame, text="Refresh", command=self.refresh_participants).pack(side=tk.LEFT)
-    
-    def setup_participants_tab(self):
-        """Setup participants monitoring tab"""
-        participants_frame = ttk.Frame(self.notebook)
-        self.notebook.add(participants_frame, text="Participants")
+        tk.Checkbutton(settings_frame, text="Mute All Participants", variable=self.mute_all_var, command=self.toggle_mute_all, **check_style).pack(anchor='w')
+        tk.Checkbutton(settings_frame, text="Disable Video for All", variable=self.disable_video_all_var, command=self.toggle_disable_video_all, **check_style).pack(anchor='w')
+        tk.Checkbutton(settings_frame, text="Enable meeting chat", variable=self.chat_enabled_var, command=self.toggle_chat, **check_style).pack(anchor='w')
+        tk.Checkbutton(settings_frame, text="Enable File Sharing", variable=self.file_sharing_enabled_var, command=self.toggle_file_sharing, **check_style).pack(anchor='w')
+        tk.Checkbutton(settings_frame, text="Start Recording", variable=self.recording_var, command=self.toggle_recording, **check_style).pack(anchor='w', pady=(0, 15))
+
+        tk.Button(settings_frame, text="Close", bg="#424242", fg="white", command=self.settings_window.destroy).pack(side=tk.RIGHT)
+
+    def open_participants_window(self):
+        """Opens a window to show the participant list."""
+        if self.participants_window and self.participants_window.winfo_exists():
+            self.participants_window.lift()
+            return
+
+        self.participants_window = tk.Toplevel(self.root)
+        self.participants_window.title("Participants")
+        self.participants_window.geometry("400x500")
+        self.participants_window.configure(bg="#2B2B2B")
         
         # Participants list
-        self.participants_tree = ttk.Treeview(participants_frame, 
+        self.participants_tree = ttk.Treeview(self.participants_window, 
                                             columns=('username', 'user_id', 'room', 'connected_time', 'status'), 
                                             show='headings')
         self.participants_tree.heading('username', text='Username')
@@ -193,108 +217,158 @@ class HostGUI:
         self.participants_tree.column('connected_time', width=120)
         self.participants_tree.column('status', width=100)
         
-        self.participants_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.participants_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Participants info
-        info_frame = ttk.Frame(participants_frame)
-        info_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        # Action buttons
+        action_frame = tk.Frame(self.participants_window, bg="#2B2B2B")
+        action_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        self.participants_count_label = ttk.Label(info_frame, text="Participants: 0")
-        self.participants_count_label.pack(side=tk.LEFT)
-        
-        ttk.Button(info_frame, text="Refresh", command=self.refresh_participants).pack(side=tk.RIGHT)
-    
-    def setup_chat_monitoring_tab(self):
-        """Setup chat monitoring tab"""
-        chat_frame = ttk.Frame(self.notebook)
-        self.notebook.add(chat_frame, text="Chat Monitoring")
+        tk.Button(action_frame, text="Mute Selected", command=self.mute_selected_participant, bg="#424242", fg="white").pack(side=tk.LEFT, padx=(0, 5))
+        tk.Button(action_frame, text="Kick Selected", command=self.kick_selected_participant, bg="#E53935", fg="white").pack(side=tk.LEFT, padx=(0, 5))
+
+    def open_chat_window(self):
+        """Opens a window for chat."""
+        if self.chat_window and self.chat_window.winfo_exists():
+            self.chat_window.lift()
+            return
+
+        self.chat_window = tk.Toplevel(self.root)
+        self.chat_window.title("Meeting Chat")
+        self.chat_window.geometry("400x500")
+        self.chat_window.configure(bg="#2B2B2B")
         
         # Chat messages display
-        self.chat_display = scrolledtext.ScrolledText(chat_frame, height=20, state='disabled')
-        self.chat_display.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.chat_display = scrolledtext.ScrolledText(self.chat_window, height=20, state='disabled', bg="#212121", fg="white")
+        self.chat_display.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Chat controls
-        chat_controls = ttk.Frame(chat_frame)
-        chat_controls.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        ttk.Label(chat_controls, text="Chat Status:").pack(side=tk.LEFT)
-        self.chat_status_label = ttk.Label(chat_controls, text="Enabled", foreground='green')
-        self.chat_status_label.pack(side=tk.LEFT, padx=(5, 20))
-        
-        ttk.Button(chat_controls, text="Clear Chat", command=self.clear_chat).pack(side=tk.RIGHT)
-        ttk.Button(chat_controls, text="Export Chat", command=self.export_chat).pack(side=tk.RIGHT, padx=(0, 5))
-    
-    def setup_statistics_tab(self):
-        """Setup statistics tab"""
-        stats_frame = ttk.Frame(self.notebook)
-        self.notebook.add(stats_frame, text="Statistics")
+        # Chat input
+        input_frame = tk.Frame(self.chat_window, bg="#2B2B2B")
+        input_frame.pack(fill=tk.X, padx=10, pady=5)
+        chat_entry = tk.Entry(input_frame, bg="#424242", fg="white", insertbackground="white")
+        chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        tk.Button(input_frame, text="Send", bg="#424242", fg="white").pack(side=tk.RIGHT)
+
+    def open_stats_window(self):
+        """Opens a window for server statistics."""
+        if self.stats_window and self.stats_window.winfo_exists():
+            self.stats_window.lift()
+            return
+
+        self.stats_window = tk.Toplevel(self.root)
+        self.stats_window.title("Server Statistics")
+        self.stats_window.geometry("500x600")
+        self.stats_window.configure(bg="#2B2B2B")
         
         # Statistics display
-        self.stats_text = scrolledtext.ScrolledText(stats_frame, height=20, state='disabled')
-        self.stats_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.stats_text = scrolledtext.ScrolledText(self.stats_window, height=20, state='disabled', bg="#212121", fg="white")
+        self.stats_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Refresh button
-        ttk.Button(stats_frame, text="Refresh Statistics", command=self.refresh_statistics).pack(pady=(0, 10))
-    
-    def setup_status_bar(self, parent):
-        """Setup status bar"""
-        status_frame = ttk.Frame(parent)
-        status_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E))
-        
-        self.status_label = ttk.Label(status_frame, text="Ready")
-        self.status_label.pack(side=tk.LEFT)
-        
-        self.time_label = ttk.Label(status_frame, text="")
-        self.time_label.pack(side=tk.RIGHT)
+        tk.Button(self.stats_window, text="Refresh Statistics", command=self.refresh_statistics, bg="#424242", fg="white").pack(pady=5)
     
     def start_server(self):
         """Start the host server"""
         try:
-            host = self.server_host_var.get()
-            port = int(self.server_port_var.get())
-            username = self.host_username_var.get()
-            
-            if not username:
-                messagebox.showerror("Error", "Please enter a host username")
-                return
-            
             # Create and start server
-            self.server = HostServer(host, port, username)
+            self.server = HostServer("0.0.0.0", self.server_port, self.host_username)
             
             # Start server in separate thread
             self.server_thread = threading.Thread(target=self._run_server, daemon=True)
             self.server_thread.start()
             
-            # Update UI
-            self.start_button.config(state='disabled')
-            self.stop_button.config(state='normal')
-            self.server_status_label.config(text=f"Server: Running on {host}:{port}", foreground='green')
-            self.status_label.config(text=f"Host server started as '{username}'")
-            
             self.is_server_running = True
+            self.root.title(f"LAN Video Call - Host ({self.host_username}) - Running on port {self.server_port}")
+
+            # Automatically connect host as a client
+            self.connect_host_client()
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start server: {e}")
             logger.error(f"Failed to start server: {e}")
+            self.root.destroy()
     
     def stop_server(self):
         """Stop the host server"""
         try:
-            if self.server:
+            # Disconnect host client first
+            if self.client and self.is_client_connected:
+                self.client.disconnect()
+
+            if self.server and self.is_server_running:
                 self.server.stop()
                 self.server = None
             
             self.is_server_running = False
-            
-            # Update UI
-            self.start_button.config(state='normal')
-            self.stop_button.config(state='disabled')
-            self.server_status_label.config(text="Server: Stopped", foreground='red')
-            self.status_label.config(text="Server stopped")
+
+            # Reset client state
+            self.client = None
+            self.is_client_connected = False
+            self.clear_video_displays()
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to stop server: {e}")
             logger.error(f"Failed to stop server: {e}")
+
+    def connect_host_client(self):
+        """Connect the host as a client to its own server."""
+        if not MEDIA_LIBS_AVAILABLE:
+            messagebox.showwarning("Warning", "Media libraries (OpenCV, Pillow) not found. Host video participation will be disabled.")
+            return
+
+        try:
+            host = "127.0.0.1"
+            port = self.server_port
+
+            self.client = LANVideoClient()
+            self.client.set_callback('on_connect', lambda d: logger.info("Host client connected."))
+            self.client.set_callback('on_error', lambda e: logger.error(f"Host client error: {e}"))
+            self.client.set_callback('on_frame_received', self.on_video_frame_received)
+            self.client.set_callback('on_local_frame', self.on_local_frame)
+
+            if self.client.connect(host, port, self.host_username):
+                self.is_client_connected = True
+                logger.info(f"Host '{self.host_username}' successfully connected as a participant.")
+            else:
+                messagebox.showerror("Host Client Error", "Could not connect as a participant.")
+
+        except Exception as e:
+            messagebox.showerror("Host Client Error", f"Failed to connect as participant: {e}")
+            logger.error(f"Host client connection failed: {e}")
+
+    def toggle_video(self):
+        if not self.client or not self.is_client_connected: return
+        if self.is_video_on:
+            if self.client.stop_video():
+                self.is_video_on = False
+                self.video_button.config(text="📹 Start Video")
+        else:
+            if self.client.start_video():
+                self.is_video_on = True
+                self.video_button.config(text="📹 Stop Video")
+            else:
+                error_msg = """Could not start camera. This is usually a permission issue on Linux.
+
+Troubleshooting steps:
+1. Run: python fix_camera_permissions.py
+2. Or manually: sudo usermod -a -G video $USER
+3. Log out and log back in
+4. Check if another app is using the camera
+5. Try: ls -la /dev/video*
+
+For more help, see the troubleshooting guide."""
+                messagebox.showerror("Camera Error", error_msg)
+
+    def toggle_audio(self):
+        if not self.client or not self.is_client_connected: return
+        if self.is_audio_on:
+            if self.client.stop_audio():
+                self.is_audio_on = False
+                self.audio_button.config(text="🎤 Unmute")
+        else:
+            if self.client.start_audio():
+                self.is_audio_on = True
+                self.audio_button.config(text="🎤 Mute")
+
     
     def _run_server(self):
         """Run the server (in separate thread)"""
@@ -308,13 +382,11 @@ class HostGUI:
         """Toggle mute all participants"""
         if self.server and self.is_server_running:
             self.server.mute_all_participants(self.mute_all_var.get())
-            self.status_label.config(text=f"Mute all: {'ON' if self.mute_all_var.get() else 'OFF'}")
     
     def toggle_disable_video_all(self):
         """Toggle disable video for all participants"""
         if self.server and self.is_server_running:
             self.server.disable_video_all_participants(self.disable_video_all_var.get())
-            self.status_label.config(text=f"Disable video all: {'ON' if self.disable_video_all_var.get() else 'OFF'}")
     
     def toggle_recording(self):
         """Toggle recording"""
@@ -323,7 +395,6 @@ class HostGUI:
                 self.server.start_recording()
             else:
                 self.server.stop_recording()
-            self.status_label.config(text=f"Recording: {'ON' if self.recording_var.get() else 'OFF'}")
     
     def toggle_chat(self):
         """Toggle chat"""
@@ -338,11 +409,10 @@ class HostGUI:
         """Toggle file sharing"""
         if self.server and self.is_server_running:
             self.server.toggle_file_sharing(self.file_sharing_enabled_var.get())
-            self.status_label.config(text=f"File sharing: {'ON' if self.file_sharing_enabled_var.get() else 'OFF'}")
     
     def refresh_participants(self):
         """Refresh participants list"""
-        if not self.server or not self.is_server_running:
+        if not self.server or not self.is_server_running or not (self.participants_window and self.participants_window.winfo_exists()):
             return
         
         try:
@@ -352,26 +422,58 @@ class HostGUI:
             
             # Get participants from server
             stats = self.server.get_meeting_stats()
-            user_stats = stats.get('user_stats', {})
+            users = stats.get('user_stats', {}).get('users', {})
             
             # Add participants
-            for user_id, user_info in user_stats.get('users', {}).items():
-                if user_id != self.server.host_id:  # Don't show host in participants list
-                    self.participants_tree.insert('', 'end', values=(
-                        user_info.get('username', 'Unknown'),
-                        user_id,
-                        user_info.get('room_id', 'None'),
-                        time.strftime('%H:%M:%S', time.localtime(user_info.get('connected_time', 0))),
-                        'Connected' if user_info.get('is_online', False) else 'Disconnected'
-                    ))
-            
-            # Update count
-            participant_count = len([u for u in user_stats.get('users', {}).values() if u.get('user_id') != self.server.host_id])
-            self.participants_count_label.config(text=f"Participants: {participant_count}")
+            for user_id, user_info in users.items():
+                username = user_info.get('username', 'Unknown')
+                if user_id == self.server.host_id:
+                    username += " (Host)"
+                self.participants_tree.insert('', 'end', values=(
+                    username,
+                    user_id,
+                    user_info.get('room_id', 'N/A'),
+                    time.strftime('%H:%M:%S', time.localtime(user_info.get('last_seen', 0))),
+                    'Online' if user_info.get('is_online', False) else 'Offline'
+                ))
             
         except Exception as e:
             logger.error(f"Error refreshing participants: {e}")
     
+    def update_video_grid(self):
+        """Rearranges the participant videos in a grid."""
+        all_frames = [self.local_video_display.parent] + [d.parent for d in self.video_displays.values()]
+        
+        for widget in self.video_grid_frame.winfo_children():
+            widget.grid_forget()
+
+        total_participants = len(all_frames)
+        if total_participants == 0:
+            return
+
+        import math
+        cols = math.ceil(math.sqrt(total_participants))
+        rows = math.ceil(total_participants / cols)
+
+        for i in range(cols): self.video_grid_frame.grid_columnconfigure(i, weight=1)
+        for i in range(rows): self.video_grid_frame.grid_rowconfigure(i, weight=1)
+
+        for index, p_frame in enumerate(all_frames):
+            row = index // cols
+            col = index % cols
+            p_frame.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
+
+    def clear_video_displays(self):
+        """Clear all video displays."""
+        for display in self.video_displays.values():
+            display.parent.destroy()
+        self.video_displays.clear()
+
+        if self.local_video_display:
+            # Create a blank frame
+            self.local_video_display.update_frame(np.zeros((240, 320, 3), dtype=np.uint8))
+        self.update_video_grid()
+
     def mute_selected_participant(self):
         """Mute selected participant"""
         selection = self.participant_tree.selection()
@@ -380,7 +482,7 @@ class HostGUI:
             return
         
         # Implementation for muting individual participants
-        messagebox.showinfo("Info", "Individual participant muting not yet implemented")
+        messagebox.showinfo("Info", "Individual participant muting is handled by the server logic, not yet implemented as a direct GUI action.")
     
     def kick_selected_participant(self):
         """Kick selected participant"""
@@ -397,7 +499,6 @@ class HostGUI:
             if self.server and self.is_server_running:
                 success = self.server.kick_participant(user_id, "Kicked by host")
                 if success:
-                    self.status_label.config(text=f"Kicked participant: {username}")
                     self.refresh_participants()
                 else:
                     messagebox.showerror("Error", "Failed to kick participant")
@@ -415,7 +516,7 @@ class HostGUI:
     
     def refresh_statistics(self):
         """Refresh statistics display"""
-        if not self.server or not self.is_server_running:
+        if not self.server or not self.is_server_running or not (self.stats_window and self.stats_window.winfo_exists()):
             return
         
         try:
@@ -427,7 +528,7 @@ class HostGUI:
 
 Server Information:
 - Host: {stats.get('host', 'Unknown')}
-- Port: {stats.get('port', 'Unknown')}
+- Port: {self.server_port}
 - Uptime: {stats.get('uptime', 0):.1f} seconds
 - Status: {'Running' if stats.get('is_running', False) else 'Stopped'}
 
@@ -445,8 +546,7 @@ Room Statistics:
 
 File Statistics:
 - Total Files: {stats.get('file_stats', {}).get('total_files', 0)}
-- Files Uploaded: {stats.get('file_stats', {}).get('files_uploaded', 0)}
-- Files Downloaded: {stats.get('file_stats', {}).get('files_downloaded', 0)}
+- Storage Used: {stats.get('file_stats', {}).get('total_storage_used_formatted', '0 B')}
 
 Media Statistics:
 - Video Frames Processed: {stats.get('media_stats', {}).get('video_frames_processed', 0)}
@@ -460,7 +560,7 @@ Meeting Controls:
 - File Sharing Enabled: {'ON' if stats.get('meeting_controls', {}).get('file_sharing_enabled', True) else 'OFF'}
 
 Host Information:
-- Host Username: {stats.get('host_username', 'Unknown')}
+- Host Username: {self.host_username}
 - Host ID: {stats.get('host_id', 'Unknown')}
 - Host Connected: {'Yes' if stats.get('is_host_connected', False) else 'No'}
 """
@@ -479,13 +579,10 @@ Host Information:
         def update_loop():
             while True:
                 try:
-                    # Update time
-                    current_time = time.strftime('%Y-%m-%d %H:%M:%S')
-                    self.root.after(0, lambda: self.time_label.config(text=current_time))
-                    
                     # Update participants if server is running
                     if self.is_server_running:
                         self.root.after(0, self.refresh_participants)
+                        self.root.after(0, self.update_video_grid)
                     
                     time.sleep(5)  # Update every 5 seconds
                     
@@ -495,18 +592,16 @@ Host Information:
         
         update_thread = threading.Thread(target=update_loop, daemon=True)
         update_thread.start()
-    
+
+    def on_closing(self):
+        """Handle window closing."""
+        if messagebox.askokcancel("Quit", "Do you want to stop the server and quit?"):
+            self.stop_server()
+            self.root.destroy()
+
     def run(self):
         """Run the GUI"""
-        try:
-            self.root.mainloop()
-        except KeyboardInterrupt:
-            self.stop_server()
-        except Exception as e:
-            logger.error(f"GUI error: {e}")
-        finally:
-            if self.server:
-                self.server.stop()
+        self.root.mainloop()
 
 
 def main():

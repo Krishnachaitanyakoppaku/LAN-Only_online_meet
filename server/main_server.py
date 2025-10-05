@@ -218,6 +218,14 @@ class LANVideoServer:
                 self._handle_room_leave(connection_id, connection, message)
             elif message.type == MessageType.CHAT_MESSAGE:
                 self._handle_chat_message(connection_id, connection, message)
+            elif message.type == MessageType.VIDEO_START:
+                self._handle_video_start(connection_id, connection, message)
+            elif message.type == MessageType.VIDEO_STOP:
+                self._handle_video_stop(connection_id, connection, message)
+            elif message.type == MessageType.AUDIO_START:
+                self._handle_audio_start(connection_id, connection, message)
+            elif message.type == MessageType.AUDIO_STOP:
+                self._handle_audio_stop(connection_id, connection, message)
             elif message.type == MessageType.VIDEO_FRAME:
                 self._handle_video_frame(connection_id, connection, message)
             elif message.type == MessageType.AUDIO_FRAME:
@@ -230,6 +238,12 @@ class LANVideoServer:
                 self._handle_file_upload_chunk(connection_id, connection, message)
             elif message.type == MessageType.FILE_DOWNLOAD_REQUEST:
                 self._handle_file_download_request(connection_id, connection, message)
+            elif message.type == MessageType.MEETING_CONTROL:
+                self._handle_meeting_control(connection_id, connection, message)
+            elif message.type == MessageType.MEETING_STATE:
+                self._handle_meeting_state(connection_id, connection, message)
+            elif message.type == MessageType.USER_JOIN:
+                self._handle_user_join(connection_id, connection, message)
             else:
                 logger.warning(f"Unknown message type: {message.type}")
                 
@@ -414,6 +428,54 @@ class LANVideoServer:
                     
         except Exception as e:
             logger.error(f"Error handling chat message: {e}")
+
+    def _handle_video_start(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle video start message"""
+        if connection.is_authenticated:
+            self.media_server.start_video_stream(connection.user_id)
+
+    def _handle_video_stop(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle video stop message"""
+        if connection.is_authenticated:
+            self.media_server.stop_video_stream(connection.user_id)
+
+    def _handle_audio_start(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle audio start message"""
+        if connection.is_authenticated:
+            self.media_server.start_audio_stream(connection.user_id)
+
+    def _handle_audio_stop(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle audio stop message"""
+        if connection.is_authenticated:
+            self.media_server.stop_audio_stream(connection.user_id)
+
+    def _handle_screen_share(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle screen share start/stop and frame messages"""
+        if not connection.is_authenticated:
+            return
+
+        action = message.data.get('action')
+        if action == 'start':
+            self.media_server.start_screen_share(connection.user_id)
+        elif action == 'stop':
+            self.media_server.stop_screen_share(connection.user_id)
+        else:
+            # This is a frame, process it
+            self._process_screen_share_frame(connection_id, connection, message)
+
+    def _process_screen_share_frame(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Process an individual screen share frame."""
+        try:
+            frame_data = message.data.get('frame_data')
+            width = message.data.get('width')
+            height = message.data.get('height')
+            
+            if frame_data and width and height:
+                import base64
+                frame_bytes = base64.b64decode(frame_data)
+                self.media_server.process_screen_frame(connection.user_id, frame_bytes, width, height)
+        except Exception as e:
+            logger.error(f"Error handling chat message: {e}")
     
     def _handle_video_frame(self, connection_id: str, connection: ClientConnection, message: Message):
         """Handle video frame"""
@@ -460,29 +522,6 @@ class LANVideoServer:
                 
         except Exception as e:
             logger.error(f"Error handling audio frame: {e}")
-    
-    def _handle_screen_share(self, connection_id: str, connection: ClientConnection, message: Message):
-        """Handle screen share frame"""
-        if not connection.is_authenticated:
-            return
-        
-        try:
-            frame_data = message.data.get('frame_data')
-            width = message.data.get('width')
-            height = message.data.get('height')
-            
-            if frame_data and width and height:
-                # Decode base64 frame data
-                import base64
-                frame_bytes = base64.b64decode(frame_data)
-                
-                # Process screen share frame
-                self.media_server.process_screen_frame(
-                    connection.user_id, frame_bytes, width, height
-                )
-                
-        except Exception as e:
-            logger.error(f"Error handling screen share: {e}")
     
     def _handle_file_upload_start(self, connection_id: str, connection: ClientConnection, message: Message):
         """Handle file upload start"""
@@ -578,6 +617,24 @@ class LANVideoServer:
                 
         except Exception as e:
             self._send_error(connection, str(e))
+    
+    def _handle_meeting_control(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle meeting control message"""
+        # This is handled by the host server, just acknowledge
+        response = Message(msg_type=MessageType.ACK)
+        connection.send(response)
+    
+    def _handle_meeting_state(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle meeting state message"""
+        # This is handled by the host server, just acknowledge
+        response = Message(msg_type=MessageType.ACK)
+        connection.send(response)
+    
+    def _handle_user_join(self, connection_id: str, connection: ClientConnection, message: Message):
+        """Handle user join message"""
+        # This is handled by the connect handler, just acknowledge
+        response = Message(msg_type=MessageType.ACK)
+        connection.send(response)
     
     def _send_error(self, connection: ClientConnection, error_message: str):
         """Send error message to client"""

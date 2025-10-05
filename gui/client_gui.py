@@ -2,9 +2,8 @@
 Client GUI for the LAN Video Calling Application
 Provides a modern interface for video calling, chat, and file sharing
 """
-
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, scrolledtext
+from tkinter import ttk, messagebox, filedialog, scrolledtext, font
 try:
     import cv2
     import numpy as np
@@ -34,9 +33,9 @@ class VideoDisplay:
         self.width = width
         self.height = height
         
-        # Create canvas
-        self.canvas = tk.Canvas(parent, width=width, height=height, bg="black")
-        self.canvas.pack()
+        self.parent.configure(bg="black")
+        self.canvas = tk.Canvas(self.parent, width=width, height=height, bg="black", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
         
         # Video frame
         self.current_frame = None
@@ -71,19 +70,25 @@ class ClientGUI:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("LAN Video Calling Client")
+        self.root.title("LAN Video Call")
         self.root.geometry("1200x800")
+        self.root.configure(bg="#212121")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # Client instance
         self.client: LANVideoClient = None
         self.is_connected = False
         
+        # Media state
+        self.is_video_on = False
+        self.is_audio_on = False
+        self.is_screen_sharing = False
+        
         # GUI variables
         self.server_host_var = tk.StringVar(value="127.0.0.1")
         self.server_port_var = tk.StringVar(value="8888")
         self.username_var = tk.StringVar(value="")
-        self.room_name_var = tk.StringVar(value="")
+        self.login_frame = None
         self.chat_message_var = tk.StringVar(value="")
         
         # Video displays
@@ -94,151 +99,90 @@ class ClientGUI:
         self.chat_history = []
         
         # Create GUI
-        self.create_widgets()
+        self.show_login_screen()
+
+    def show_login_screen(self):
+        if self.login_frame:
+            self.login_frame.destroy()
+
+        self.login_frame = tk.Frame(self.root, bg="#2B2B2B")
+        self.login_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        title_font = font.Font(family="Helvetica", size=16, weight="bold")
+        label_font = font.Font(family="Helvetica", size=10)
         
-        # Update thread
-        self.update_thread = threading.Thread(target=self.update_display, daemon=True)
-        self.update_thread.start()
-    
-    def create_widgets(self):
-        """Create GUI widgets"""
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        tk.Label(self.login_frame, text="Join a Meeting", font=title_font, bg="#2B2B2B", fg="white").pack(pady=20)
+
+        entry_style = {"bg": "#424242", "fg": "white", "insertbackground": "white", "bd": 1, "relief": "solid"}
         
-        # Connection frame
-        self.create_connection_frame(main_frame)
-        
-        # Main content frame
-        content_frame = ttk.Frame(main_frame)
-        content_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        
-        # Left panel (video and controls)
-        left_panel = ttk.Frame(content_frame)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        
-        # Right panel (chat and participants)
-        right_panel = ttk.Frame(content_frame)
-        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
-        
-        # Create panels
-        self.create_video_panel(left_panel)
-        self.create_controls_panel(left_panel)
-        self.create_chat_panel(right_panel)
-        self.create_participants_panel(right_panel)
-    
-    def create_connection_frame(self, parent):
-        """Create connection frame"""
-        conn_frame = ttk.LabelFrame(parent, text="Connection", padding="10")
-        conn_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # Server settings
-        ttk.Label(conn_frame, text="Server:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        server_entry = ttk.Entry(conn_frame, textvariable=self.server_host_var, width=15)
-        server_entry.grid(row=0, column=1, padx=(0, 5))
-        
-        ttk.Label(conn_frame, text="Port:").grid(row=0, column=2, sticky=tk.W, padx=(0, 5))
-        port_entry = ttk.Entry(conn_frame, textvariable=self.server_port_var, width=8)
-        port_entry.grid(row=0, column=3, padx=(0, 10))
-        
-        ttk.Label(conn_frame, text="Username:").grid(row=0, column=4, sticky=tk.W, padx=(0, 5))
-        username_entry = ttk.Entry(conn_frame, textvariable=self.username_var, width=15)
-        username_entry.grid(row=0, column=5, padx=(0, 10))
-        
-        # Connection buttons
-        self.connect_button = ttk.Button(conn_frame, text="Connect", command=self.connect_to_server)
-        self.connect_button.grid(row=0, column=6, padx=(0, 5))
-        
-        self.disconnect_button = ttk.Button(conn_frame, text="Disconnect", command=self.disconnect_from_server, state="disabled")
-        self.disconnect_button.grid(row=0, column=7)
-        
-        # Room settings
-        ttk.Label(conn_frame, text="Room Name:").grid(row=1, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 0))
-        room_entry = ttk.Entry(conn_frame, textvariable=self.room_name_var, width=15)
-        room_entry.grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
-        
-        self.create_room_button = ttk.Button(conn_frame, text="Create Room", command=self.create_room, state="disabled")
-        self.create_room_button.grid(row=1, column=2, padx=(0, 5), pady=(5, 0))
-        
-        self.join_room_button = ttk.Button(conn_frame, text="Join Room", command=self.join_room, state="disabled")
-        self.join_room_button.grid(row=1, column=3, padx=(0, 5), pady=(5, 0))
-        
-        self.leave_room_button = ttk.Button(conn_frame, text="Leave Room", command=self.leave_room, state="disabled")
-        self.leave_room_button.grid(row=1, column=4, pady=(5, 0))
-    
-    def create_video_panel(self, parent):
-        """Create video panel"""
-        video_frame = ttk.LabelFrame(parent, text="Video", padding="10")
-        video_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Video grid frame
-        self.video_grid_frame = ttk.Frame(video_frame)
+        tk.Label(self.login_frame, text="Server IP", font=label_font, bg="#2B2B2B", fg="white").pack(padx=20, anchor='w')
+        server_entry = tk.Entry(self.login_frame, textvariable=self.server_host_var, font=label_font, **entry_style)
+        server_entry.pack(padx=20, pady=5, fill='x')
+
+        tk.Label(self.login_frame, text="Port", font=label_font, bg="#2B2B2B", fg="white").pack(padx=20, anchor='w')
+        port_entry = tk.Entry(self.login_frame, textvariable=self.server_port_var, font=label_font, **entry_style)
+        port_entry.pack(padx=20, pady=5, fill='x')
+
+        tk.Label(self.login_frame, text="Username", font=label_font, bg="#2B2B2B", fg="white").pack(padx=20, anchor='w')
+        username_entry = tk.Entry(self.login_frame, textvariable=self.username_var, font=label_font, **entry_style)
+        username_entry.pack(padx=20, pady=5, fill='x')
+        username_entry.bind('<Return>', lambda e: self.connect_to_server())
+
+        self.connect_button = tk.Button(self.login_frame, text="Join", command=self.connect_to_server, bg="#007BFF", fg="white", font=label_font)
+        self.connect_button.pack(pady=20, padx=20, fill='x')
+
+    def show_meeting_ui(self):
+        if self.login_frame:
+            self.login_frame.destroy()
+            self.login_frame = None
+
+        # --- Main container for video feeds ---
+        self.video_container = tk.Frame(self.root, bg="#212121")
+        self.video_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # --- Bottom control bar ---
+        self.control_bar = tk.Frame(self.root, bg="#2B2B2B", height=70)
+        self.control_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.control_bar.pack_propagate(False)
+
+        self.setup_controls()
+        self.setup_video_grid()
+
+    def setup_controls(self):
+        control_font = font.Font(family="Helvetica", size=10)
+        button_style = {
+            "bg": "#2B2B2B", "fg": "#FFFFFF", "activebackground": "#404040",
+            "activeforeground": "#FFFFFF", "bd": 0, "font": control_font,
+            "padx": 10, "pady": 5
+        }
+
+        left_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        left_frame.pack(side=tk.LEFT, padx=10)
+        self.audio_button = tk.Button(left_frame, text="🎤 Unmute", **button_style, command=self.toggle_audio)
+        self.audio_button.pack(side=tk.LEFT, padx=5)
+        self.video_button = tk.Button(left_frame, text="📹 Start Video", **button_style, command=self.toggle_video)
+        self.video_button.pack(side=tk.LEFT, padx=5)
+
+        center_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        center_frame.pack(side=tk.LEFT, expand=True, padx=20)
+        self.screen_share_button = tk.Button(center_frame, text="🔼 Share Screen", **button_style, command=self.toggle_screen_share)
+        self.screen_share_button.pack(side=tk.LEFT, padx=5)
+        tk.Button(center_frame, text="💬 Chat", **button_style).pack(side=tk.LEFT, padx=5) # Placeholder
+
+        right_frame = tk.Frame(self.control_bar, bg=self.control_bar.cget('bg'))
+        right_frame.pack(side=tk.RIGHT, padx=10)
+        leave_btn = tk.Button(right_frame, text="Leave", bg="#E53935", fg="white", activebackground="#C62828", bd=0, font=control_font, padx=20, pady=5, command=self.disconnect_from_server)
+        leave_btn.pack(side=tk.RIGHT, padx=10)
+
+    def setup_video_grid(self):
+        self.video_grid_frame = tk.Frame(self.video_container, bg="#212121")
         self.video_grid_frame.pack(fill=tk.BOTH, expand=True)
+
+        local_frame = tk.Frame(self.video_grid_frame, bg="black", borderwidth=1, relief="solid")
+        self.local_video_display = VideoDisplay(local_frame, 320, 240)
+        tk.Label(local_frame, text="You", bg="#424242", fg="white", anchor="sw", padx=8, pady=4).pack(side="bottom", fill="x")
         
-        # Create local video display
-        self.local_video_display = VideoDisplay(self.video_grid_frame, 320, 240)
-        self.local_video_display.canvas.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # Add label for local video
-        local_label = ttk.Label(self.video_grid_frame, text="You")
-        local_label.pack(side=tk.LEFT, padx=(0, 5))
-    
-    def create_controls_panel(self, parent):
-        """Create controls panel"""
-        controls_frame = ttk.LabelFrame(parent, text="Controls", padding="10")
-        controls_frame.pack(fill=tk.X)
-        
-        # Media controls
-        media_frame = ttk.Frame(controls_frame)
-        media_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.video_button = ttk.Button(media_frame, text="Start Video", command=self.toggle_video, state="disabled")
-        self.video_button.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.audio_button = ttk.Button(media_frame, text="Start Audio", command=self.toggle_audio, state="disabled")
-        self.audio_button.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.screen_share_button = ttk.Button(media_frame, text="Share Screen", command=self.toggle_screen_share, state="disabled")
-        self.screen_share_button.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # File controls
-        file_frame = ttk.Frame(controls_frame)
-        file_frame.pack(fill=tk.X)
-        
-        ttk.Button(file_frame, text="Upload File", command=self.upload_file, state="disabled").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(file_frame, text="Download File", command=self.download_file, state="disabled").pack(side=tk.LEFT)
-    
-    def create_chat_panel(self, parent):
-        """Create chat panel"""
-        chat_frame = ttk.LabelFrame(parent, text="Chat", padding="10")
-        chat_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Chat history
-        self.chat_text = scrolledtext.ScrolledText(chat_frame, height=15, state="disabled")
-        self.chat_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Chat input
-        chat_input_frame = ttk.Frame(chat_frame)
-        chat_input_frame.pack(fill=tk.X)
-        
-        chat_entry = ttk.Entry(chat_input_frame, textvariable=self.chat_message_var)
-        chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        chat_entry.bind('<Return>', lambda e: self.send_chat_message())
-        
-        ttk.Button(chat_input_frame, text="Send", command=self.send_chat_message, state="disabled").pack(side=tk.RIGHT)
-    
-    def create_participants_panel(self, parent):
-        """Create participants panel"""
-        participants_frame = ttk.LabelFrame(parent, text="Participants", padding="10")
-        participants_frame.pack(fill=tk.X)
-        
-        # Participants list
-        self.participants_tree = ttk.Treeview(participants_frame, columns=("status",), show="tree headings")
-        self.participants_tree.heading("#0", text="Username")
-        self.participants_tree.heading("status", text="Status")
-        self.participants_tree.column("#0", width=120)
-        self.participants_tree.column("status", width=80)
-        self.participants_tree.pack(fill=tk.X)
+        self.update_video_grid()
     
     def connect_to_server(self):
         """Connect to server"""
@@ -261,16 +205,14 @@ class ClientGUI:
             self.client.set_callback('on_user_leave', self.on_user_leave)
             self.client.set_callback('on_chat_message', self.on_chat_message)
             self.client.set_callback('on_frame_received', self.on_video_frame_received)
+            self.client.set_callback('on_local_frame', self.on_local_frame)
             
             # Connect
             if self.client.connect(host, port, username):
                 self.is_connected = True
-                self.connect_button.config(state="disabled")
-                self.disconnect_button.config(state="normal")
-                self.create_room_button.config(state="normal")
-                self.join_room_button.config(state="normal")
-                
-                self.add_chat_message("System", f"Connecting to {host}:{port}...")
+                self.show_meeting_ui()
+                self.root.title(f"LAN Video Call - {username}")
+                logger.info(f"Connecting to {host}:{port}...")
             else:
                 messagebox.showerror("Error", "Failed to connect to server")
                 
@@ -285,118 +227,102 @@ class ClientGUI:
             if self.client:
                 self.client.disconnect()
                 self.client = None
-            
+
             self.is_connected = False
-            self.connect_button.config(state="normal")
-            self.disconnect_button.config(state="disabled")
-            self.create_room_button.config(state="disabled")
-            self.join_room_button.config(state="disabled")
-            self.leave_room_button.config(state="disabled")
-            
-            # Disable media controls
-            self.video_button.config(state="disabled")
-            self.audio_button.config(state="disabled")
-            self.screen_share_button.config(state="disabled")
-            
-            # Clear displays
+            self.is_video_on = False
+            self.is_audio_on = False
+            self.is_screen_sharing = False
+
+            # Destroy meeting UI and show login screen
+            if self.video_container: self.video_container.destroy()
+            if self.control_bar: self.control_bar.destroy()
             self.clear_video_displays()
-            self.clear_participants()
-            
-            self.add_chat_message("System", "Disconnected from server")
+            self.video_displays.clear()
+            self.local_video_display = None
+
+            self.show_login_screen()
+            self.root.title("LAN Video Call")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to disconnect: {e}")
     
-    def create_room(self):
-        """Create a new room"""
-        try:
-            room_name = self.room_name_var.get().strip()
-            if not room_name:
-                messagebox.showerror("Error", "Please enter a room name")
-                return
-            
-            if self.client.create_room(room_name):
-                self.add_chat_message("System", f"Creating room '{room_name}'...")
-            else:
-                messagebox.showerror("Error", "Failed to create room")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to create room: {e}")
-    
-    def join_room(self):
-        """Join a room"""
-        try:
-            room_name = self.room_name_var.get().strip()
-            if not room_name:
-                messagebox.showerror("Error", "Please enter a room name")
-                return
-            
-            # For now, we'll use room name as room ID (in real implementation, 
-            # you'd have a room selection dialog)
-            if self.client.join_room(room_name):
-                self.add_chat_message("System", f"Joining room '{room_name}'...")
-                self.leave_room_button.config(state="normal")
-                self.video_button.config(state="normal")
-                self.audio_button.config(state="normal")
-                self.screen_share_button.config(state="normal")
-            else:
-                messagebox.showerror("Error", "Failed to join room")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to join room: {e}")
-    
-    def leave_room(self):
-        """Leave current room"""
-        try:
-            if self.client.leave_room():
-                self.add_chat_message("System", "Left room")
-                self.leave_room_button.config(state="disabled")
-                self.video_button.config(state="disabled")
-                self.audio_button.config(state="disabled")
-                self.screen_share_button.config(state="disabled")
-                
-                # Clear video displays
-                self.clear_video_displays()
-                self.clear_participants()
-            else:
-                messagebox.showerror("Error", "Failed to leave room")
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to leave room: {e}")
+    def update_media_controls_state(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        self.video_button.config(state=state)
+        self.audio_button.config(state=state)
+        self.screen_share_button.config(state=state)
     
     def toggle_video(self):
         """Toggle video on/off"""
         try:
-            if self.client:
-                # This would need to be implemented based on client state
-                pass
+            if not self.client or not self.is_connected:
+                return
+
+            if self.is_video_on:
+                if self.client.stop_video():
+                    self.is_video_on = False
+                    self.video_button.config(text="📹 Start Video")
+            else:
+                success = self.client.start_video()
+                if success:
+                    self.is_video_on = True
+                    self.video_button.config(text="📹 Stop Video")
+                else:
+                    error_msg = """Could not start camera. This is usually a permission issue on Linux.
+
+Troubleshooting steps:
+1. Run: python fix_camera_permissions.py
+2. Or manually: sudo usermod -a -G video $USER
+3. Log out and log back in
+4. Check if another app is using the camera
+5. Try: ls -la /dev/video*
+
+For more help, see the troubleshooting guide."""
+                    messagebox.showerror("Camera Error", error_msg)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to toggle video: {e}")
     
     def toggle_audio(self):
         """Toggle audio on/off"""
         try:
-            if self.client:
-                # This would need to be implemented based on client state
-                pass
+            if not self.client or not self.is_connected:
+                return
+
+            if self.is_audio_on:
+                if self.client.stop_audio():
+                    self.is_audio_on = False
+                    self.audio_button.config(text="🎤 Unmute")
+            else:
+                if self.client.start_audio():
+                    self.is_audio_on = True
+                    self.audio_button.config(text="🎤 Mute")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to toggle audio: {e}")
     
     def toggle_screen_share(self):
         """Toggle screen sharing"""
         try:
-            if self.client:
-                # This would need to be implemented based on client state
-                pass
+            if not self.client or not self.is_connected:
+                return
+
+            if self.is_screen_sharing:
+                if self.client.stop_screen_share():
+                    self.is_screen_sharing = False
+                    self.screen_share_button.config(text="🔼 Share Screen")
+            else:
+                if self.client.start_screen_share():
+                    self.is_screen_sharing = True
+                    self.screen_share_button.config(text="⏹ Stop Sharing")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to toggle screen share: {e}")
     
     def upload_file(self):
         """Upload a file"""
         try:
-            file_path = filedialog.askopenfilename()
-            if file_path and self.client:
-                self.client.upload_file(file_path)
+            if self.client and self.is_connected:
+                file_path = filedialog.askopenfilename()
+                if file_path:
+                    self.client.upload_file(file_path)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to upload file: {e}")
     
@@ -422,6 +348,9 @@ class ClientGUI:
     
     def add_chat_message(self, username: str, message: str):
         """Add message to chat"""
+        # This is a placeholder as chat is now in a separate window in the host GUI
+        # For client, we can log to console or implement a similar pop-up
+        logger.info(f"Chat from {username}: {message}")
         try:
             timestamp = time.strftime("%H:%M:%S")
             chat_entry = f"[{timestamp}] {username}: {message}\n"
@@ -435,19 +364,38 @@ class ClientGUI:
             logger.error(f"Error adding chat message: {e}")
     
     def clear_video_displays(self):
-        """Clear all video displays"""
-        try:
-            # Clear remote video displays
-            for display in self.video_displays.values():
-                display.canvas.destroy()
-            self.video_displays.clear()
-            
-            # Clear local video display
-            if self.local_video_display:
-                self.local_video_display.canvas.delete("all")
-                
-        except Exception as e:
-            logger.error(f"Error clearing video displays: {e}")
+        """Clear all video displays."""
+        for display in self.video_displays.values():
+            display.parent.destroy()
+        self.video_displays.clear()
+
+        if self.local_video_display:
+            self.local_video_display.update_frame(np.zeros((240, 320, 3), dtype=np.uint8))
+        self.update_video_grid()
+
+    def update_video_grid(self):
+        """Rearranges the participant videos in a grid."""
+        if not self.local_video_display: return
+
+        all_frames = [self.local_video_display.parent] + [d.parent for d in self.video_displays.values()]
+        
+        for widget in self.video_grid_frame.winfo_children():
+            widget.grid_forget()
+
+        total_participants = len(all_frames)
+        if total_participants == 0: return
+
+        import math
+        cols = math.ceil(math.sqrt(total_participants))
+        rows = math.ceil(total_participants / cols)
+
+        for i in range(cols): self.video_grid_frame.grid_columnconfigure(i, weight=1)
+        for i in range(rows): self.video_grid_frame.grid_rowconfigure(i, weight=1)
+
+        for index, p_frame in enumerate(all_frames):
+            row = index // cols
+            col = index % cols
+            p_frame.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
     
     def clear_participants(self):
         """Clear participants list"""
@@ -460,42 +408,45 @@ class ClientGUI:
     # Callback methods
     def on_connected(self, data):
         """Handle connection success"""
-        self.add_chat_message("System", f"Connected as {data.get('user_id', 'Unknown')}")
+        logger.info(f"Successfully joined the meeting as {self.username_var.get()}.")
+        room = data.get('room')
+        if room:
+            logger.info(f"Meeting Room: {room.get('room_name')}")
     
     def on_error(self, error):
         """Handle error"""
-        self.add_chat_message("Error", error)
+        messagebox.showerror("Server Error", error)
     
     def on_user_join(self, user):
         """Handle user join"""
-        self.add_chat_message("System", f"{user['username']} joined")
-        self.update_participants()
+        logger.info(f"User joined: {user['username']}")
+        self.update_video_grid()
     
     def on_user_leave(self, user):
         """Handle user leave"""
-        self.add_chat_message("System", f"{user['username']} left")
-        self.update_participants()
+        logger.info(f"User left: {user['username']}")
+        user_id = user.get('user_id')
+        if user_id in self.video_displays:
+            self.video_displays[user_id].parent.destroy()
+            del self.video_displays[user_id]
+        self.update_video_grid()
     
     def on_chat_message(self, data):
         """Handle chat message"""
-        self.add_chat_message(data['username'], data['message'])
+        logger.info(f"Chat from {data['username']}: {data['message']}")
     
     def on_video_frame_received(self, user_id, frame):
         """Handle video frame received"""
         try:
             if user_id not in self.video_displays:
-                # Create new video display
-                display_frame = ttk.Frame(self.video_grid_frame)
-                display_frame.pack(side=tk.LEFT, padx=(0, 5))
-                
-                display = VideoDisplay(display_frame, 320, 240)
+                p_frame = tk.Frame(self.video_grid_frame, bg="black", borderwidth=1, relief="solid")
+                display = VideoDisplay(p_frame, 320, 240)
                 self.video_displays[user_id] = display
                 
-                # Add label
                 user = self.client.get_room_participants().get(user_id, {})
                 username = user.get('username', 'Unknown')
-                label = ttk.Label(display_frame, text=username)
-                label.pack()
+                tk.Label(p_frame, text=username, bg="#424242", fg="white", anchor="sw", padx=8, pady=4).pack(side="bottom", fill="x")
+                self.update_video_grid()
             
             # Update display
             self.video_displays[user_id].update_frame(frame)
@@ -503,44 +454,10 @@ class ClientGUI:
         except Exception as e:
             logger.error(f"Error handling video frame: {e}")
     
-    def update_participants(self):
-        """Update participants list"""
-        try:
-            # Clear existing items
-            for item in self.participants_tree.get_children():
-                self.participants_tree.delete(item)
-            
-            # Add participants
-            if self.client:
-                participants = self.client.get_room_participants()
-                for user_id, user in participants.items():
-                    status = "Online"
-                    if user.get('is_muted'):
-                        status += " (Muted)"
-                    if user.get('is_video_enabled'):
-                        status += " (Video)"
-                    if user.get('is_audio_enabled'):
-                        status += " (Audio)"
-                    
-                    self.participants_tree.insert("", "end", text=user['username'], values=(status,))
-                    
-        except Exception as e:
-            logger.error(f"Error updating participants: {e}")
-    
-    def update_display(self):
-        """Update display (runs in background thread)"""
-        while True:
-            try:
-                # Update local video display if camera is running
-                if self.client and self.client.video_client and self.client.video_client.is_camera_running:
-                    # This would need to be implemented to get local camera frame
-                    pass
-                
-                time.sleep(0.033)  # ~30 FPS
-                
-            except Exception as e:
-                logger.error(f"Error in update display: {e}")
-                time.sleep(1)
+    def on_local_frame(self, frame):
+        """Handle local video frame for self-view."""
+        if self.local_video_display:
+            self.local_video_display.update_frame(frame)
     
     def on_closing(self):
         """Handle window closing"""

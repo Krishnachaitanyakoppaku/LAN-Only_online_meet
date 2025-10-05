@@ -62,11 +62,24 @@ class VideoClient:
             if self.is_camera_running:
                 return True
             
+            # Check available camera devices first
+            self._check_camera_devices()
+            
             # Initialize camera
             self.camera = cv2.VideoCapture(camera_index)
             if not self.camera.isOpened():
-                logger.error("Failed to open camera")
-                return False
+                logger.error(f"Failed to open camera at index {camera_index}")
+                # Try alternative camera indices
+                for alt_index in [1, 2, -1]:
+                    logger.info(f"Trying camera index {alt_index}")
+                    self.camera = cv2.VideoCapture(alt_index)
+                    if self.camera.isOpened():
+                        logger.info(f"Successfully opened camera at index {alt_index}")
+                        break
+                else:
+                    logger.error("No camera found at any index")
+                    self._print_camera_troubleshooting()
+                    return False
             
             # Set camera properties
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.video_width)
@@ -164,6 +177,10 @@ class VideoClient:
                 if frame.shape[:2] != (self.video_height, self.video_width):
                     frame = cv2.resize(frame, (self.video_width, self.video_height))
                 
+                # Trigger local frame callback for self-view
+                if 'on_local_frame' in self.display_callbacks:
+                    self.display_callbacks['on_local_frame'](frame)
+
                 # Process and send frame
                 self._process_and_send_frame(frame, 'video')
                 
@@ -224,40 +241,56 @@ class VideoClient:
     def _process_and_send_frame(self, frame, frame_type: str):
         """Process frame and send to server"""
         try:
+            if frame is None:
+                logger.warning("Received None frame, skipping")
+                return
+                
+            if not self.main_client.is_authenticated:
+                # Don't log warning for every frame when not authenticated
+                # This is normal during testing or before connection
+                return
+
             # Process frame (compress, optimize)
             processed_frame = self.frame_processor.process_frame(frame, self.video_quality)
             if processed_frame is None:
+                logger.warning("Frame processing returned None, skipping")
                 return
-            
-            # Encode frame
-            frame_bytes = processed_frame.tobytes()
-            
-            # Create video frame
-            video_frame = VideoFrame(
-                frame_data=frame_bytes,
-                width=frame.shape[1],
-                height=frame.shape[0],
-                user_id=self.main_client.user_id
-            )
+
+            # Encode frame to base64
+            _, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.video_quality])
+            if not _:
+                logger.error("Failed to encode frame to JPEG")
+                return
+                
+            frame_data_b64 = base64.b64encode(buffer).decode('utf-8')
             
             # Send to server
             if frame_type == 'video':
                 message = Message(
                     msg_type=MessageType.VIDEO_FRAME,
-                    data=video_frame.to_dict(),
-                    sender=self.main_client.user_id,
-                    room_id=self.main_client.current_room_id
+                    data={
+                        'frame_data': frame_data_b64,
+                        'width': frame.shape[1],
+                        'height': frame.shape[0],
+                        'user_id': self.main_client.user_id
+                    }
                 )
             else:  # screen share
                 message = Message(
                     msg_type=MessageType.SCREEN_SHARE,
-                    data=video_frame.to_dict(),
-                    sender=self.main_client.user_id,
-                    room_id=self.main_client.current_room_id
+                    data={
+                        'frame_data': frame_data_b64,
+                        'width': frame.shape[1],
+                        'height': frame.shape[0],
+                        'user_id': self.main_client.user_id
+                    }
                 )
             
-            self.main_client.send_message(message)
-            self.frames_sent += 1
+            success = self.main_client.send_message(message)
+            if success:
+                self.frames_sent += 1
+            else:
+                logger.warning("Failed to send frame message")
             
         except Exception as e:
             logger.error(f"Error processing and sending frame: {e}")
@@ -341,6 +374,39 @@ class VideoClient:
         self.stop_screen_capture()
         self.remote_frames.clear()
         self.screen_share_frames.clear()
+    
+    def _check_camera_devices(self):
+        """Check available camera devices"""
+        try:
+            import os
+            import glob
+            
+            # Check for video devices on Linux
+            if os.name == 'posix':  # Linux/Unix
+                video_devices = glob.glob('/dev/video*')
+                logger.info(f"Found video devices: {video_devices}")
+                
+                # Check permissions
+                for device in video_devices:
+                    if os.access(device, os.R_OK | os.W_OK):
+                        logger.info(f"Device {device} is accessible")
+                    else:
+                        logger.warning(f"Device {device} is not accessible (permission denied)")
+                        
+        except Exception as e:
+            logger.error(f"Error checking camera devices: {e}")
+    
+    def _print_camera_troubleshooting(self):
+        """Print camera troubleshooting information"""
+        logger.error("Camera troubleshooting:")
+        logger.error("1. Make sure a camera is connected")
+        logger.error("2. Check camera permissions:")
+        logger.error("   - Add your user to the 'video' group: sudo usermod -a -G video $USER")
+        logger.error("   - Log out and log back in")
+        logger.error("3. Check if camera is being used by another application")
+        logger.error("4. Try running with sudo (temporary solution): sudo python run_client_gui.py")
+        logger.error("5. Check camera with: ls -la /dev/video*")
+        logger.error("6. Test camera with: cheese or guvcview")
 
 
 class VideoFrameProcessor:

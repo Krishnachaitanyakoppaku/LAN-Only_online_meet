@@ -212,11 +212,11 @@ class MediaServer:
         """Process and broadcast video frame"""
         with self.lock:
             # Check if user has active video stream
-            if user_id not in self.video_streams or not self.video_streams[user_id].is_streaming():
+            if user_id not in self.video_streams or not self.video_streams[user_id].is_active:
                 return False
             
             user = self.user_manager.get_user(user_id)
-            if not user or not user.room_id:
+            if not user:
                 return False
             
             # Update stream statistics
@@ -224,7 +224,7 @@ class MediaServer:
             
             # Process frame (compress, optimize)
             processed_frame = self.video_processor.process_frame(
-                frame_data, width, height, self.video_streams[user_id].quality
+                frame_data, self.video_streams[user_id].quality
             )
             
             if processed_frame is None:
@@ -238,13 +238,21 @@ class MediaServer:
                 user_id=user_id
             )
             
-            # Broadcast to room participants
+            # Broadcast to all connected users (no room required)
             from shared.protocol import create_video_frame_message
-            message = create_video_frame_message(user_id, video_frame, user.room_id)
+            message = create_video_frame_message(user_id, video_frame, None)
             
-            sent_count = self.room_manager.broadcast_to_room(
-                user.room_id, message, exclude_user=user_id
-            )
+            # Get all connected users and broadcast to them
+            all_users = self.user_manager.get_all_users()
+            sent_count = 0
+            
+            for other_user in all_users:
+                if other_user.user_id != user_id and other_user.connection:
+                    try:
+                        other_user.connection.send(message)
+                        sent_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send video frame to {other_user.username}: {e}")
             
             self.total_frames_sent += sent_count
             return sent_count > 0
@@ -258,7 +266,7 @@ class MediaServer:
                 return False
             
             user = self.user_manager.get_user(user_id)
-            if not user or not user.room_id or user.is_muted:
+            if not user or user.is_muted:
                 return False
             
             # Update stream statistics
@@ -280,13 +288,21 @@ class MediaServer:
                 user_id=user_id
             )
             
-            # Broadcast to room participants
+            # Broadcast to all connected users (no room required)
             from shared.protocol import create_audio_frame_message
-            message = create_audio_frame_message(user_id, audio_frame, user.room_id)
+            message = create_audio_frame_message(user_id, audio_frame, None)
             
-            sent_count = self.room_manager.broadcast_to_room(
-                user.room_id, message, exclude_user=user_id
-            )
+            # Get all connected users and broadcast to them
+            all_users = self.user_manager.get_all_users()
+            sent_count = 0
+            
+            for other_user in all_users:
+                if other_user.user_id != user_id and other_user.connection:
+                    try:
+                        other_user.connection.send(message)
+                        sent_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send audio frame to {other_user.username}: {e}")
             
             self.total_audio_frames_sent += sent_count
             return sent_count > 0
@@ -300,7 +316,7 @@ class MediaServer:
                 return False
             
             user = self.user_manager.get_user(user_id)
-            if not user or not user.room_id:
+            if not user:
                 return False
             
             # Update stream statistics
@@ -322,14 +338,22 @@ class MediaServer:
                 user_id=user_id
             )
             
-            # Broadcast to room participants
+            # Broadcast to all connected users (no room required)
             from shared.protocol import create_video_frame_message
-            message = create_video_frame_message(user_id, video_frame, user.room_id)
+            message = create_video_frame_message(user_id, video_frame, None)
             message.type = MessageType.SCREEN_SHARE  # Mark as screen share
             
-            sent_count = self.room_manager.broadcast_to_room(
-                user.room_id, message, exclude_user=user_id
-            )
+            # Get all connected users and broadcast to them
+            all_users = self.user_manager.get_all_users()
+            sent_count = 0
+            
+            for other_user in all_users:
+                if other_user.user_id != user_id and other_user.connection:
+                    try:
+                        other_user.connection.send(message)
+                        sent_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send screen share to {other_user.username}: {e}")
             
             return sent_count > 0
     
@@ -382,17 +406,19 @@ class VideoProcessor:
         else:
             self.codec = None
     
-    def process_frame(self, frame_data: bytes, width: int, height: int, 
-                     quality: int = 80) -> Optional[bytes]:
+    def process_frame(self, frame_data: bytes, quality: int = 80) -> Optional[bytes]:
         """Process and compress video frame"""
         try:
             if not CV2_AVAILABLE:
                 # Return original data if OpenCV not available
                 return frame_data
             
-            # Convert bytes to numpy array
+            # Decode the incoming JPEG frame data
             frame_array = np.frombuffer(frame_data, dtype=np.uint8)
-            frame = frame_array.reshape((height, width, 3))
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            if frame is None:
+                logger.error("Failed to decode video frame")
+                return None
             
             # Apply compression
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]

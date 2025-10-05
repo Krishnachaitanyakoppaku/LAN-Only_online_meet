@@ -77,7 +77,12 @@ class LANVideoClient:
             MessageType.SCREEN_SHARE: self._handle_screen_share,
             MessageType.CHAT_MESSAGE: self._handle_chat_message,
             MessageType.FILE_LIST: self._handle_file_list,
+            MessageType.MEETING_CONTROL: self._handle_meeting_control,
         }
+        
+        # Set up internal callbacks between components
+        self.video_client.set_display_callback('on_local_frame', self._on_local_frame)
+        self.video_client.set_display_callback('on_frame_received', self._on_frame_received)
     
     def connect(self, host: str, port: int, username: str) -> bool:
         """Connect to server"""
@@ -230,6 +235,12 @@ class LANVideoClient:
         if message.data.get('user_id'):
             self.user_id = message.data['user_id']
             self.is_authenticated = True
+
+            # In host mode, client is auto-joined. Update room ID from success message.
+            room_data = message.data.get('room')
+            if room_data and room_data.get('room_id'):
+                self.current_room_id = room_data.get('room_id')
+                self.room_participants = {p['user_id']: p for p in message.data.get('participants', [])}
             
             if self.connection_callbacks.get('on_connect'):
                 self.connection_callbacks['on_connect'](message.data)
@@ -244,6 +255,11 @@ class LANVideoClient:
         if self.connection_callbacks.get('on_error'):
             self.connection_callbacks['on_error'](error_msg)
     
+    def _handle_meeting_control(self, message: Message):
+        """Handle meeting control messages from the host."""
+        if self.connection_callbacks.get('on_meeting_control'):
+            self.connection_callbacks['on_meeting_control'](message.data)
+
     def _handle_ack(self, message: Message):
         """Handle acknowledgment message"""
         pass  # Heartbeat response
@@ -289,6 +305,7 @@ class LANVideoClient:
                 frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
                 
                 if frame is not None:
+                    # Route to video client for display
                     self.video_client.display_remote_frame(user_id, frame)
     
     def _handle_audio_frame(self, message: Message):
@@ -320,6 +337,7 @@ class LANVideoClient:
                 frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
                 
                 if frame is not None:
+                    # Route to video client for display
                     self.video_client.display_screen_share(user_id, frame)
     
     def _handle_chat_message(self, message: Message):
@@ -338,39 +356,20 @@ class LANVideoClient:
     
     # Client operations
     def create_room(self, room_name: str, is_private: bool = False, 
-                   password: str = None, max_participants: int = 50) -> bool:
-        """Create a new room"""
-        if not self.is_authenticated:
-            return False
-        
-        message = Message(
-            msg_type=MessageType.ROOM_CREATE,
-            data={
-                'room_name': room_name,
-                'is_private': is_private,
-                'password': password,
-                'max_participants': max_participants
-            }
-        )
-        
-        return self.send_message(message)
+                   password: str = None, max_participants: int = 50):
+        """Room creation is disabled for clients in host mode."""
+        logger.warning("Clients cannot create rooms in host mode.")
     
-    def join_room(self, room_id: str, password: str = None) -> bool:
-        """Join a room"""
-        if not self.is_authenticated:
-            return False
-        
-        message = Message(
-            msg_type=MessageType.ROOM_JOIN,
-            data={
-                'room_id': room_id,
-                'password': password
-            }
-        )
-        
-        return self.send_message(message)
-    
+    def join_room(self, room_id: str, password: str = None):
+        """Clients automatically join the main meeting room."""
+        logger.warning("Clients automatically join the main meeting.")
+
     def leave_room(self) -> bool:
+        """Leave current room. In host mode, this is equivalent to disconnecting."""
+        self.disconnect()
+        return True
+
+    def _leave_room_on_server(self) -> bool:
         """Leave current room"""
         if not self.is_authenticated or not self.current_room_id:
             return False
@@ -381,8 +380,8 @@ class LANVideoClient:
         )
         
         # Stop media streams
-        self.video_client.stop_streaming()
-        self.audio_client.stop_streaming()
+        self.video_client.stop_camera()
+        self.audio_client.stop_microphone()
         
         self.current_room_id = None
         self.room_participants.clear()
@@ -391,13 +390,13 @@ class LANVideoClient:
     
     def send_chat_message(self, message_text: str) -> bool:
         """Send chat message"""
-        if not self.is_authenticated or not self.current_room_id:
+        if not self.is_authenticated:
+            logger.warning("Cannot send chat message: client not authenticated")
             return False
         
         message = Message(
             msg_type=MessageType.CHAT_MESSAGE,
             data={
-                'room_id': self.current_room_id,
                 'message': message_text
             }
         )
@@ -406,7 +405,8 @@ class LANVideoClient:
     
     def start_video(self) -> bool:
         """Start video streaming"""
-        if not self.is_authenticated or not self.current_room_id:
+        if not self.is_authenticated:
+            logger.warning("Cannot start video: client not authenticated")
             return False
         
         success = self.video_client.start_camera()
@@ -435,7 +435,8 @@ class LANVideoClient:
     
     def start_audio(self) -> bool:
         """Start audio streaming"""
-        if not self.is_authenticated or not self.current_room_id:
+        if not self.is_authenticated:
+            logger.warning("Cannot start audio: client not authenticated")
             return False
         
         success = self.audio_client.start_microphone()
@@ -464,7 +465,8 @@ class LANVideoClient:
     
     def start_screen_share(self) -> bool:
         """Start screen sharing"""
-        if not self.is_authenticated or not self.current_room_id:
+        if not self.is_authenticated:
+            logger.warning("Cannot start screen share: client not authenticated")
             return False
         
         success = self.video_client.start_screen_capture()
@@ -519,6 +521,16 @@ class LANVideoClient:
             self.connection_callbacks[event] = callback
         else:
             self.message_callbacks[event] = callback
+    
+    def _on_local_frame(self, frame):
+        """Handle local video frame for self-view"""
+        if self.connection_callbacks.get('on_local_frame'):
+            self.connection_callbacks['on_local_frame'](frame)
+    
+    def _on_frame_received(self, user_id: str, frame):
+        """Handle received video frame"""
+        if self.connection_callbacks.get('on_frame_received'):
+            self.connection_callbacks['on_frame_received'](user_id, frame)
 
 
 def main():
@@ -570,13 +582,9 @@ def main():
                         continue
                     
                     if command[0] == 'help':
-                        print("Commands: create <name>, join <id>, leave, chat <message>, start_video, stop_video, quit")
-                    elif command[0] == 'create' and len(command) > 1:
-                        client.create_room(' '.join(command[1:]))
-                    elif command[0] == 'join' and len(command) > 1:
-                        client.join_room(command[1])
+                        print("Commands: leave, chat <message>, start_video, stop_video, quit")
                     elif command[0] == 'leave':
-                        client.leave_room()
+                        break # Same as quit
                     elif command[0] == 'chat' and len(command) > 1:
                         client.send_chat_message(' '.join(command[1:]))
                     elif command[0] == 'start_video':

@@ -178,6 +178,33 @@ Once connected, use these commands:
 - Try different camera/microphone
 - Check network bandwidth
 
+#### Camera Permission Issues (Linux)
+If you get "Could not access camera" error:
+
+**Quick Fix:**
+```bash
+# Run the camera setup script
+python fix_camera_permissions.py
+
+# Or manually fix permissions
+sudo usermod -a -G video $USER
+# Then log out and log back in
+```
+
+**Manual Troubleshooting:**
+1. Check camera devices: `ls -la /dev/video*`
+2. Check permissions: `ls -la /dev/video*` (should show rw for your user)
+3. Test camera: `cheese` or `guvcview`
+4. Check if camera is in use: `lsof /dev/video*`
+5. Add user to video group: `sudo usermod -a -G video $USER`
+6. Log out and log back in after adding to video group
+
+**Alternative Solutions:**
+- Run with sudo (temporary): `sudo python run_client_gui.py`
+- Check if another app is using the camera
+- Try different camera indices (0, 1, 2)
+- Restart the camera service: `sudo systemctl restart v4l2loopback`
+
 #### File Transfer Issues
 - Check file size (max 100MB)
 - Verify sufficient disk space
