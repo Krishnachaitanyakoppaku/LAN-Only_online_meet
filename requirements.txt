@@ -1,11 +1,19 @@
-# Video and Audio processing
+# LAN Communication System Requirements
+
+# Core dependencies
 opencv-python>=4.8.0
-numpy>=1.26.0
-Pillow>=10.0.0
+pillow>=10.0.0
+numpy>=1.24.0
 pyaudio>=0.2.11
 
-# GUI enhancements (optional)
-# customtkinter>=5.2.0
+# GUI (included with Python)
+# tkinter - comes with Python standard library
 
-# Note: The following are built-in Python modules and don't need to be installed:
-# tkinter, socket, threading, json, base64, hashlib, time, datetime, os, sys, pathlib, queue, collections, zipfile, tarfile, gzip, struct, pickle, uuid
+# Optional for enhanced features
+# mss>=9.0.1  # For screen capture
+# pydub>=0.25.1  # For audio processing
+# cryptography>=41.0.0  # For file encryption (future feature)
+
+# Development and testing
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
