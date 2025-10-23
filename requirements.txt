@@ -10,7 +10,7 @@ pyaudio>=0.2.11
 # tkinter - comes with Python standard library
 
 # Optional for enhanced features
-# mss>=9.0.1  # For screen capture
+mss>=9.0.1  # For screen capture
 # pydub>=0.25.1  # For audio processing
 
 # Installation command:

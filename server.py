@@ -25,6 +25,8 @@ import queue
 import cv2
 import pyaudio
 from PIL import Image, ImageTk
+import mss
+import numpy as np
 
 class LANCommunicationServer:
     def __init__(self):
@@ -44,6 +46,7 @@ class LANCommunicationServer:
         self.host_name = "Host"
         self.host_video_enabled = False
         self.host_audio_enabled = False
+        self.host_screen_share_enabled = False
         
         # Sockets
         self.tcp_socket = None
@@ -84,6 +87,9 @@ class LANCommunicationServer:
         self.video_cap = None
         self.audio_stream = None
         self.audio = None
+        
+        # Screen sharing
+        self.screen_frame_queue = queue.Queue(maxsize=2)
         
         # GUI
         self.setup_gui()
@@ -263,17 +269,26 @@ class LANCommunicationServer:
         left_panel = tk.Frame(content_frame, bg='#2d2d2d', width=600)
         left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
-        # Host video section
-        video_frame = tk.LabelFrame(left_panel, text="📹 Host Video", 
+        # Dynamic video conference area
+        video_frame = tk.LabelFrame(left_panel, text="📹 Video Conference", 
                                    bg='#2d2d2d', fg='white',
                                    font=('Segoe UI', 12, 'bold'))
         video_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
         
-        self.host_video_label = tk.Label(video_frame, 
+        # Video grid container
+        self.video_grid_frame = tk.Frame(video_frame, bg='#000000')
+        self.video_grid_frame.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        
+        # Host video (main video)
+        self.host_video_label = tk.Label(self.video_grid_frame, 
                                         text="📹 Host Video\n\nClick 'Start Video' to begin",
                                         font=('Segoe UI', 14),
                                         fg='#888888', bg='#000000')
-        self.host_video_label.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        self.host_video_label.pack(expand=True, fill=tk.BOTH)
+        
+        # Initialize video grid
+        self.video_labels = {}  # {client_id: video_label}
+        self.video_grid_columns = 3  # Default grid columns
         
         # Host controls
         controls_frame = tk.LabelFrame(left_panel, text="🎛️ Host Controls", 
@@ -310,15 +325,25 @@ class LANCommunicationServer:
                                          relief='flat', borderwidth=0,
                                          padx=20, pady=8,
                                          cursor='hand2', state=tk.DISABLED)
-        self.host_present_btn.pack(side=tk.LEFT)
+        self.host_present_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Right panel - Participants, chat, and activity monitoring
-        right_panel = tk.Frame(content_frame, bg='#2d2d2d', width=450)
+        # Stop screen sharing button
+        self.host_stop_screen_btn = tk.Button(controls_inner, text="⏹️ Stop Screen", 
+                                             command=self.stop_host_screen_share,
+                                             bg='#dc3545', fg='white', 
+                                             font=('Segoe UI', 11, 'bold'),
+                                             relief='flat', borderwidth=0,
+                                             padx=20, pady=8,
+                                             cursor='hand2', state=tk.DISABLED)
+        self.host_stop_screen_btn.pack(side=tk.LEFT)
+        
+        # Right panel - Simple info and chat only
+        right_panel = tk.Frame(content_frame, bg='#2d2d2d', width=300)
         right_panel.pack(side=tk.RIGHT, fill=tk.Y)
         right_panel.pack_propagate(False)
         
-        # Server info and statistics
-        info_frame = tk.LabelFrame(right_panel, text="📊 Server Info & Statistics", 
+        # Simple server info
+        info_frame = tk.LabelFrame(right_panel, text="📊 Server Info", 
                                   bg='#2d2d2d', fg='white',
                                   font=('Segoe UI', 12, 'bold'))
         info_frame.pack(fill=tk.X, padx=15, pady=15)
@@ -336,35 +361,8 @@ class LANCommunicationServer:
                                                 fg='white', bg='#2d2d2d')
         self.participants_count_label.pack(anchor=tk.W, pady=(5, 0))
         
-        self.chat_messages_count_label = tk.Label(info_inner, text="💬 Messages: 0", 
-                                                 font=('Segoe UI', 10), 
-                                                 fg='white', bg='#2d2d2d')
-        self.chat_messages_count_label.pack(anchor=tk.W, pady=(2, 0))
-        
-        self.files_shared_count_label = tk.Label(info_inner, text="📁 Files: 0", 
-                                                font=('Segoe UI', 10), 
-                                                fg='white', bg='#2d2d2d')
-        self.files_shared_count_label.pack(anchor=tk.W, pady=(2, 0))
-        
-        # Participants list with enhanced info
-        participants_frame = tk.LabelFrame(right_panel, text="👥 Active Participants", 
-                                          bg='#2d2d2d', fg='white',
-                                          font=('Segoe UI', 12, 'bold'))
-        participants_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
-        
-        participants_inner = tk.Frame(participants_frame, bg='#2d2d2d')
-        participants_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Enhanced participants listbox with more info
-        self.participants_listbox = tk.Listbox(participants_inner, 
-                                              bg='#3d3d3d', fg='white',
-                                              selectbackground='#0078d4',
-                                              font=('Segoe UI', 9),
-                                              relief='flat', borderwidth=0)
-        self.participants_listbox.pack(fill=tk.BOTH, expand=True)
-        
-        # Group chat with enhanced features
-        chat_frame = tk.LabelFrame(right_panel, text="💬 Group Chat & Activity", 
+        # Simple group chat
+        chat_frame = tk.LabelFrame(right_panel, text="💬 Group Chat", 
                                   bg='#2d2d2d', fg='white',
                                   font=('Segoe UI', 12, 'bold'))
         chat_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
@@ -372,16 +370,16 @@ class LANCommunicationServer:
         chat_inner = tk.Frame(chat_frame, bg='#2d2d2d')
         chat_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Chat display with activity monitoring
+        # Chat display
         self.chat_display = tk.Text(chat_inner, 
                                    bg='#3d3d3d', fg='white',
                                    font=('Segoe UI', 9),
                                    relief='flat', borderwidth=0,
                                    wrap=tk.WORD, state=tk.DISABLED,
-                                   height=10)
+                                   height=12)
         self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # Chat input with enhanced controls
+        # Chat input
         chat_input_frame = tk.Frame(chat_inner, bg='#2d2d2d')
         chat_input_frame.pack(fill=tk.X)
         
@@ -541,7 +539,7 @@ class LANCommunicationServer:
         tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.detailed_participants_tree = ttk.Treeview(tree_frame, 
-                                                      columns=('ID', 'Name', 'IP', 'Join Time', 'Status', 'Video', 'Audio', 'Actions'), 
+                                                      columns=('ID', 'Name', 'IP', 'Join Time', 'Status', 'Video', 'Audio', 'Screen', 'Actions'), 
                                                       show='headings',
                                                       style='Modern.Treeview')
         
@@ -553,6 +551,7 @@ class LANCommunicationServer:
         self.detailed_participants_tree.heading('Status', text='Status')
         self.detailed_participants_tree.heading('Video', text='Video')
         self.detailed_participants_tree.heading('Audio', text='Audio')
+        self.detailed_participants_tree.heading('Screen', text='Screen')
         self.detailed_participants_tree.heading('Actions', text='Actions')
         
         self.detailed_participants_tree.column('ID', width=50)
@@ -562,6 +561,7 @@ class LANCommunicationServer:
         self.detailed_participants_tree.column('Status', width=80)
         self.detailed_participants_tree.column('Video', width=60)
         self.detailed_participants_tree.column('Audio', width=60)
+        self.detailed_participants_tree.column('Screen', width=60)
         self.detailed_participants_tree.column('Actions', width=100)
         
         # Scrollbar for treeview
@@ -816,6 +816,7 @@ class LANCommunicationServer:
                 "Active",
                 "✅" if self.host_video_enabled else "❌",
                 "✅" if self.host_audio_enabled else "❌",
+                "✅" if self.host_screen_share_enabled else "❌",
                 "Host Controls"
             ))
             
@@ -1103,7 +1104,14 @@ class LANCommunicationServer:
                                           command=self.toggle_host_presentation,
                                           style='Warning.TButton',
                                           state=tk.DISABLED)
-        self.host_present_btn.pack(side=tk.LEFT)
+        self.host_present_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Stop screen sharing button
+        self.host_stop_screen_btn = ttk.Button(media_buttons, text="⏹️ Stop Screen", 
+                                             command=self.stop_host_screen_share,
+                                             style='Danger.TButton',
+                                             state=tk.DISABLED)
+        self.host_stop_screen_btn.pack(side=tk.LEFT)
         
         # Right panel - Participants and chat
         right_panel = ttk.Frame(content_paned, style='Modern.TFrame')
@@ -1333,6 +1341,16 @@ class LANCommunicationServer:
                                          width=8, height=3,
                                          cursor='hand2', state=tk.DISABLED)
         self.host_present_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Stop screen sharing button
+        self.host_stop_screen_btn = tk.Button(media_frame, text="⏹️\nStop", 
+                                             command=self.stop_host_screen_share,
+                                             bg='#dc3545', fg='white', 
+                                             font=('Segoe UI', 10, 'bold'),
+                                             relief='flat', borderwidth=0,
+                                             width=8, height=3,
+                                             cursor='hand2', state=tk.DISABLED)
+        self.host_stop_screen_btn.pack(side=tk.LEFT, padx=10)
         
         # Server info
         info_frame = tk.Frame(controls_frame, bg='#2d2d2d')
@@ -1734,6 +1752,7 @@ class LANCommunicationServer:
                 self.log_message(f"Client {client_id} connected from {address[0]}")
                 self.update_clients_display()
                 self.update_server_info()
+                self.update_video_grid()
                 
             except Exception as e:
                 if self.running:
@@ -1888,6 +1907,9 @@ class LANCommunicationServer:
                 'enabled': message.get('enabled', False)
             }
             self.broadcast_message(status_msg, exclude=client_id)
+            
+            # Update video grid display
+            self.update_client_video_display(client_id)
             
         elif msg_type == 'audio_status':
             # Audio enable/disable status
@@ -2047,6 +2069,7 @@ class LANCommunicationServer:
         self.log_message(f"Client {client_id} ({client_name}) disconnected")
         self.update_clients_display()
         self.update_server_info()
+        self.update_video_grid()
         
     def add_host_to_session(self):
         """Add Host as a participant in the session"""
@@ -2077,6 +2100,8 @@ class LANCommunicationServer:
                 host_status += " 📹"
             if self.host_audio_enabled:
                 host_status += " 🎤"
+            if self.host_screen_share_enabled:
+                host_status += " 🖥️"
             if self.presenter_id == self.host_id:
                 host_status += " [Presenter]"
             
@@ -2114,6 +2139,7 @@ class LANCommunicationServer:
                 "Active",
                 "✅" if self.host_video_enabled else "❌",
                 "✅" if self.host_audio_enabled else "❌",
+                "✅" if self.host_screen_share_enabled else "❌",
                 "Host Controls"
             ))
             
@@ -2146,6 +2172,97 @@ class LANCommunicationServer:
         if self.running and hasattr(self, 'server_info_label'):
             self.server_info_label.config(text=f"🌐 Server: {self.get_local_ip()}:{self.tcp_port}")
             
+        # Update video grid
+        self.update_video_grid()
+            
+    def update_video_grid(self):
+        """Update the dynamic video grid layout"""
+        if not hasattr(self, 'video_grid_frame'):
+            return
+            
+        # Clear existing video labels (except host)
+        for client_id, video_label in self.video_labels.items():
+            video_label.destroy()
+        self.video_labels.clear()
+        
+        # Calculate grid layout
+        total_participants = len(self.clients) + 1  # +1 for host
+        if total_participants <= 1:
+            # Only host, show full screen
+            self.host_video_label.pack(expand=True, fill=tk.BOTH)
+            return
+        
+        # Calculate optimal grid
+        if total_participants <= 4:
+            self.video_grid_columns = 2
+        elif total_participants <= 9:
+            self.video_grid_columns = 3
+        else:
+            self.video_grid_columns = 4
+            
+        # Create grid layout
+        self.create_video_grid_layout()
+        
+    def create_video_grid_layout(self):
+        """Create the video grid layout"""
+        # Clear the grid frame
+        for widget in self.video_grid_frame.winfo_children():
+            widget.destroy()
+            
+        # Create grid rows
+        total_participants = len(self.clients) + 1  # +1 for host
+        rows = (total_participants + self.video_grid_columns - 1) // self.video_grid_columns
+        
+        # Configure grid weights
+        for i in range(rows):
+            self.video_grid_frame.grid_rowconfigure(i, weight=1)
+        for i in range(self.video_grid_columns):
+            self.video_grid_frame.grid_columnconfigure(i, weight=1)
+        
+        # Add host video (always first)
+        self.host_video_label = tk.Label(self.video_grid_frame, 
+                                        text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                        font=('Segoe UI', 12),
+                                        fg='#888888', bg='#000000',
+                                        relief='solid', bd=1)
+        self.host_video_label.grid(row=0, column=0, sticky='nsew', padx=2, pady=2)
+        
+        # Add client videos
+        row, col = 0, 1
+        for client_id, client_info in self.clients.items():
+            if col >= self.video_grid_columns:
+                row += 1
+                col = 0
+                
+            # Create video label for client
+            video_label = tk.Label(self.video_grid_frame, 
+                                  text=f"📹 {client_info['name']}\n\nVideo Off",
+                                  font=('Segoe UI', 10),
+                                  fg='#888888', bg='#000000',
+                                  relief='solid', bd=1)
+            video_label.grid(row=row, column=col, sticky='nsew', padx=2, pady=2)
+            
+            # Store reference
+            self.video_labels[client_id] = video_label
+            
+            col += 1
+            
+    def update_client_video_display(self, client_id, frame_data=None):
+        """Update a specific client's video display"""
+        if client_id in self.video_labels:
+            video_label = self.video_labels[client_id]
+            if frame_data is not None:
+                # Update with actual video frame
+                try:
+                    # Convert frame data to image and display
+                    # This would be implemented with actual video processing
+                    video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo On")
+                except:
+                    pass
+            else:
+                # Show video off state
+                video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo Off")
+                
     def toggle_host_video(self):
         """Toggle Host video on/off"""
         if not self.host_video_enabled:
@@ -2239,32 +2356,55 @@ class LANCommunicationServer:
     def update_video_display_from_queue(self):
         """Update video display from queue in main thread"""
         try:
-            if self.host_video_enabled:
-                # Get frame from queue
-                frame_rgb = self.video_frame_queue.get_nowait()
-                
-                # Create photo
-                pil_image = Image.fromarray(frame_rgb)
-                photo = ImageTk.PhotoImage(pil_image)
-                
-                # Update display
-                if hasattr(self, 'host_video_label'):
-                    self.host_video_label.configure(image=photo, text="")
-                    self.host_video_label.image = photo  # Keep reference
-                    print("Video display updated successfully")
-                else:
-                    print("ERROR: host_video_label not found!")
+            # Check for screen sharing frames first (priority over video)
+            if self.host_screen_share_enabled:
+                try:
+                    # Get screen frame from queue
+                    frame_rgb = self.screen_frame_queue.get_nowait()
                     
-        except queue.Empty:
-            # No frame available
-            pass
+                    # Create photo
+                    pil_image = Image.fromarray(frame_rgb)
+                    photo = ImageTk.PhotoImage(pil_image)
+                    
+                    # Update display
+                    if hasattr(self, 'host_video_label'):
+                        self.host_video_label.configure(image=photo, text="")
+                        self.host_video_label.image = photo  # Keep reference
+                        print("Screen sharing display updated successfully - Host can see their screen!")
+                    else:
+                        print("ERROR: host_video_label not found!")
+                except queue.Empty:
+                    # No screen frame available, skip this update
+                    pass
+            
+            # Check for video frames (only if screen sharing is not active)
+            elif self.host_video_enabled:
+                try:
+                    # Get frame from queue
+                    frame_rgb = self.video_frame_queue.get_nowait()
+                    
+                    # Create photo
+                    pil_image = Image.fromarray(frame_rgb)
+                    photo = ImageTk.PhotoImage(pil_image)
+                    
+                    # Update display
+                    if hasattr(self, 'host_video_label'):
+                        self.host_video_label.configure(image=photo, text="")
+                        self.host_video_label.image = photo  # Keep reference
+                        print("Video display updated successfully")
+                    else:
+                        print("ERROR: host_video_label not found!")
+                except queue.Empty:
+                    # No video frame available, skip this update
+                    pass
+                    
         except Exception as e:
             print(f"Error updating video display: {e}")
             import traceback
             traceback.print_exc()
         
         # Schedule next update
-        if self.host_video_enabled:
+        if self.host_video_enabled or self.host_screen_share_enabled:
             self.root.after(33, self.update_video_display_from_queue)  # ~30 FPS
         else:
             self.root.after(100, self.update_video_display_from_queue)  # Check less frequently when stopped
@@ -2382,11 +2522,17 @@ class LANCommunicationServer:
             
     def toggle_host_presentation(self):
         """Toggle Host presentation mode"""
+        print("Toggle host presentation called")
         if self.presenter_id != self.host_id:
             # Become presenter
             if self.presenter_id is None:
+                print("Starting presentation...")
                 self.presenter_id = self.host_id
                 self.host_present_btn.config(text="🖥️ Presenting", bg='#fd7e14')
+                
+                # Start screen sharing
+                print("Calling start_host_screen_share...")
+                self.start_host_screen_share()
                 
                 # Notify clients
                 presenter_notification = {
@@ -2402,8 +2548,12 @@ class LANCommunicationServer:
                 messagebox.showwarning("Presenter Active", "Another participant is currently presenting")
         else:
             # Stop presenting
+            print("Stopping presentation...")
             self.presenter_id = None
             self.host_present_btn.config(text="🖥️ Present", bg='#fd7e14')
+            
+            # Stop screen sharing
+            self.stop_host_screen_share()
             
             stop_msg = {
                 'type': 'presentation_stopped',
@@ -2485,6 +2635,7 @@ class LANCommunicationServer:
             'host_id': self.host_id,
             'video_enabled': self.host_video_enabled,
             'audio_enabled': self.host_audio_enabled,
+            'screen_share_enabled': self.host_screen_share_enabled,
             'is_presenter': self.presenter_id == self.host_id
         }
         self.broadcast_message(status_msg)
@@ -2585,6 +2736,9 @@ class LANCommunicationServer:
                 self.presenter_id = self.host_id
                 self.host_present_btn.config(text="🖥️\nPresenting", bg='#fd7e14')
                 
+                # Start screen sharing
+                self.start_host_screen_share()
+                
                 # Notify clients
                 presenter_notification = {
                     'type': 'presenter_changed',
@@ -2601,6 +2755,9 @@ class LANCommunicationServer:
             # Stop presenting
             self.presenter_id = None
             self.host_present_btn.config(text="🖥️\nPresent", bg='#404040')
+            
+            # Stop screen sharing
+            self.stop_host_screen_share()
             
             stop_msg = {
                 'type': 'presentation_stopped',
@@ -2667,6 +2824,7 @@ class LANCommunicationServer:
             'host_id': self.host_id,
             'video_enabled': self.host_video_enabled,
             'audio_enabled': self.host_audio_enabled,
+            'screen_share_enabled': self.host_screen_share_enabled,
             'is_presenter': self.presenter_id == self.host_id
         }
         self.broadcast_message(status_msg)
@@ -2705,6 +2863,8 @@ class LANCommunicationServer:
         self.host_video_btn.config(state=tk.DISABLED, text="📹 Start Video")
         self.host_audio_btn.config(state=tk.DISABLED, text="🎤 Start Audio")
         self.host_present_btn.config(state=tk.DISABLED, text="🖥️ Present")
+        if hasattr(self, 'host_stop_screen_btn'):
+            self.host_stop_screen_btn.config(state=tk.DISABLED)
         self.chat_entry.config(state=tk.DISABLED)
         self.chat_send_btn.config(state=tk.DISABLED)
         
@@ -2737,6 +2897,174 @@ class LANCommunicationServer:
         if self.running:
             self.stop_server()
         self.root.destroy()
+        
+    def start_host_screen_share(self):
+        """Start Host screen sharing"""
+        try:
+            print("Initializing screen sharing...")
+            self.host_screen_share_enabled = True
+            
+            # Stop video if it's running to prevent conflicts
+            if self.host_video_enabled:
+                print("Stopping video to start screen sharing...")
+                self.stop_host_video()
+            
+            # Update host video label to show screen sharing status
+            self.host_video_label.config(text="🖥️ Screen Sharing\n\nCapturing your screen...", 
+                                       font=('Segoe UI', 14),
+                                       fg='#888888', bg='#000000')
+            
+            # Enable stop screen sharing button
+            if hasattr(self, 'host_stop_screen_btn'):
+                self.host_stop_screen_btn.config(state=tk.NORMAL)
+            
+            print("Starting screen sharing thread...")
+            # Start screen sharing thread
+            screen_thread = threading.Thread(target=self.host_screen_loop, daemon=True)
+            screen_thread.start()
+            
+            self.log_message("Host screen sharing started")
+            self.update_clients_display()
+            print("Screen sharing initialization complete")
+            
+        except Exception as e:
+            print(f"Screen sharing error: {e}")
+            messagebox.showerror("Screen Share Error", f"Failed to start screen sharing: {str(e)}")
+            
+    def stop_host_screen_share(self):
+        """Stop Host screen sharing"""
+        print("Stopping screen sharing...")
+        self.host_screen_share_enabled = False
+        
+        # Reset presenter state
+        if self.presenter_id == self.host_id:
+            self.presenter_id = None
+            self.host_present_btn.config(text="🖥️ Present", bg='#fd7e14')
+        
+        # Disable stop screen sharing button
+        if hasattr(self, 'host_stop_screen_btn'):
+            self.host_stop_screen_btn.config(state=tk.DISABLED)
+        
+        # Clear screen display
+        self.host_video_label.config(image="", text="Screen sharing stopped")
+        
+        # Notify clients that presentation stopped
+        stop_msg = {
+            'type': 'presentation_stopped',
+            'former_presenter': self.host_id
+        }
+        self.broadcast_message(stop_msg)
+        
+        # Optionally restart video if it was running before
+        # (This is commented out to avoid automatic video restart)
+        # if self.host_video_enabled:
+        #     self.start_host_video()
+        
+        self.log_message("Host screen sharing stopped")
+        self.update_clients_display()
+        print("Screen sharing stopped successfully")
+        
+    def host_screen_loop(self):
+        """Host screen sharing loop"""
+        print("Starting host screen loop...")
+        frame_count = 0
+        
+        # Use a simpler approach with PIL ImageGrab instead of mss to avoid thread issues
+        try:
+            from PIL import ImageGrab
+            print("Using PIL ImageGrab for screen capture")
+        except ImportError:
+            print("PIL ImageGrab not available, trying mss...")
+            try:
+                screen_capture = mss.mss()
+                print(f"Available monitors: {len(screen_capture.monitors)}")
+            except Exception as e:
+                print(f"Error creating screen capture: {e}")
+                return
+        
+        while self.host_screen_share_enabled:
+            try:
+                # Try PIL ImageGrab first (simpler and more reliable)
+                try:
+                    from PIL import ImageGrab
+                    screenshot = ImageGrab.grab()
+                    frame_rgb = np.array(screenshot)
+                    print(f"PIL ImageGrab captured: {frame_rgb.shape}")
+                except:
+                    # Fallback to mss if PIL fails
+                    if len(screen_capture.monitors) > 1:
+                        screenshot = screen_capture.grab(screen_capture.monitors[1])
+                    else:
+                        screenshot = screen_capture.grab(screen_capture.monitors[0])
+                    frame = np.array(screenshot)
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+                
+                frame_count += 1
+                if frame_count % 10 == 1:  # Print every 10th frame to reduce spam
+                    print(f"Captured screen: {frame_rgb.shape}")
+                
+                # Resize for better performance (maintain aspect ratio)
+                height, width = frame_rgb.shape[:2]
+                if width > 1280:
+                    scale = 1280 / width
+                    new_width = 1280
+                    new_height = int(height * scale)
+                    frame_rgb = cv2.resize(frame_rgb, (new_width, new_height))
+                    if frame_count % 10 == 1:
+                        print(f"Resized to: {frame_rgb.shape}")
+                
+                # Add to queue for display (only if queue is not full)
+                if not self.screen_frame_queue.full():
+                    self.screen_frame_queue.put(frame_rgb)
+                    if frame_count % 10 == 1:
+                        print(f"Screen frame added to queue: {frame_rgb.shape}")
+                else:
+                    # Skip this frame if queue is full to prevent lag
+                    if frame_count % 10 == 1:
+                        print("Screen frame queue full, skipping frame")
+                
+                # Broadcast to clients via UDP
+                self.broadcast_host_screen_data(frame_rgb)
+                
+                time.sleep(1/10)  # ~10 FPS for screen sharing (reduced for better performance)
+                
+            except Exception as e:
+                print(f"Error in screen sharing loop: {e}")
+                import traceback
+                traceback.print_exc()
+                break
+        
+        # Clean up screen capture if using mss
+        try:
+            if 'screen_capture' in locals():
+                screen_capture.close()
+        except:
+            pass
+        
+        print("Host screen loop ended")
+                
+    def broadcast_host_screen_data(self, frame):
+        """Broadcast Host screen data to all clients"""
+        try:
+            # Encode frame as JPEG
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+            result, encoded_img = cv2.imencode('.jpg', frame, encode_param)
+            
+            if result:
+                # Create packet with frame data
+                timestamp = int(time.time() * 1000) % (2**32)
+                packet = struct.pack('!II', self.host_id, timestamp) + encoded_img.tobytes()
+                
+                # Send to all clients
+                for client_id, client_info in self.clients.items():
+                    try:
+                        client_address = (client_info['address'][0], self.udp_video_port)
+                        self.udp_video_socket.sendto(packet, client_address)
+                    except:
+                        pass
+                        
+        except Exception as e:
+            print(f"Error broadcasting Host screen: {e}")
         
     def run(self):
         """Run the server application"""
