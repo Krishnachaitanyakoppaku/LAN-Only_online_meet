@@ -82,24 +82,54 @@ class LANCommunicationServer:
         controls_inner = ttk.Frame(control_frame)
         controls_inner.pack(fill=tk.X, padx=10, pady=10)
         
-        self.start_btn = ttk.Button(controls_inner, text="Start Server", command=self.start_server)
+        # Server management
+        server_mgmt = ttk.Frame(controls_inner)
+        server_mgmt.pack(fill=tk.X, pady=(0, 10))
+        
+        self.start_btn = ttk.Button(server_mgmt, text="Start Server", command=self.start_server)
         self.start_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        self.stop_btn = ttk.Button(controls_inner, text="Stop Server", command=self.stop_server, state=tk.DISABLED)
+        self.stop_btn = ttk.Button(server_mgmt, text="Stop Server", command=self.stop_server, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        self.status_label = ttk.Label(controls_inner, text="Server Stopped")
+        self.status_label = ttk.Label(server_mgmt, text="Server Stopped")
         self.status_label.pack(side=tk.LEFT, padx=(20, 0))
         
+        # Host participant controls
+        host_controls = ttk.Frame(controls_inner)
+        host_controls.pack(fill=tk.X)
+        
+        ttk.Label(host_controls, text="Host Controls:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.host_video_btn = ttk.Button(host_controls, text="Start Video", command=self.toggle_host_video, state=tk.DISABLED)
+        self.host_video_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.host_audio_btn = ttk.Button(host_controls, text="Start Audio", command=self.toggle_host_audio, state=tk.DISABLED)
+        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.host_present_btn = ttk.Button(host_controls, text="Start Presenting", command=self.toggle_host_presentation, state=tk.DISABLED)
+        self.host_present_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Host video and server info
+        middle_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        middle_paned.pack(fill=tk.X, pady=(0, 10))
+        
+        # Host video section
+        host_video_frame = ttk.LabelFrame(middle_paned, text="Host Video")
+        middle_paned.add(host_video_frame, weight=1)
+        
+        self.host_video_label = ttk.Label(host_video_frame, text="Host video off")
+        self.host_video_label.pack(expand=True, padx=10, pady=10)
+        
         # Server info
-        info_frame = ttk.LabelFrame(main_frame, text="Server Information")
-        info_frame.pack(fill=tk.X, pady=(0, 10))
+        info_frame = ttk.LabelFrame(middle_paned, text="Server Information")
+        middle_paned.add(info_frame, weight=1)
         
         info_inner = ttk.Frame(info_frame)
-        info_inner.pack(fill=tk.X, padx=10, pady=10)
+        info_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.server_info_text = tk.Text(info_inner, height=4, state=tk.DISABLED)
-        self.server_info_text.pack(fill=tk.X)
+        self.server_info_text.pack(fill=tk.BOTH, expand=True)
         
         # Connected clients
         clients_frame = ttk.LabelFrame(main_frame, text="Connected Clients")
