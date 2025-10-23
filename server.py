@@ -55,6 +55,27 @@ class LANCommunicationServer:
         self.chat_history = []
         self.shared_files = {}  # {filename: file_info}
         
+        # Meeting logs and analytics
+        self.activity_logs = []
+        self.participant_logs = {}  # {client_id: {join_time, leave_time, etc}}
+        
+        # Video display
+        self.current_photo = None
+        self.video_frame_queue = queue.Queue(maxsize=2)
+        self.file_transfer_logs = []
+        self.meeting_settings = {
+            'allow_video': True,
+            'allow_audio': True,
+            'allow_screen_share': True,
+            'allow_file_sharing': True,
+            'allow_chat': True,
+            'max_participants': 50,
+            'meeting_password': '',
+            'waiting_room': False,
+            'mute_on_join': False,
+            'video_off_on_join': False
+        }
+        
         # Threading
         self.client_threads = []
         self.message_queue = queue.Queue()
@@ -70,137 +91,759 @@ class LANCommunicationServer:
     def setup_gui(self):
         """Initialize the server GUI"""
         self.root = tk.Tk()
-        self.root.title("LAN Communication Server")
-        self.root.geometry("800x600")
+        self.root.title("LAN Meeting Server - Host")
+        self.root.geometry("1200x800")
+        self.root.minsize(1000, 700)
+        self.root.configure(bg='#1e1e1e')
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # Main frame
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Configure modern style
+        self.setup_modern_style()
         
-        # Server controls
-        control_frame = ttk.LabelFrame(main_frame, text="Server Controls")
-        control_frame.pack(fill=tk.X, pady=(0, 10))
+        # Create main interface
+        self.create_main_interface()
         
-        controls_inner = ttk.Frame(control_frame)
-        controls_inner.pack(fill=tk.X, padx=10, pady=10)
+        # Start video display timer
+        self.start_video_display_timer()
         
-        # Server management
-        server_mgmt = ttk.Frame(controls_inner)
-        server_mgmt.pack(fill=tk.X, pady=(0, 10))
+    def setup_modern_style(self):
+        """Setup modern dark theme styling"""
+        style = ttk.Style()
+        style.theme_use('clam')
         
-        self.start_btn = ttk.Button(server_mgmt, text="Start Server", command=self.start_server)
-        self.start_btn.pack(side=tk.LEFT, padx=(0, 10))
+        # Configure colors for modern dark theme
+        style.configure('Modern.TFrame', background='#2d2d2d', relief='flat')
+        style.configure('Header.TFrame', background='#1e1e1e', relief='flat')
+        style.configure('Video.TFrame', background='#000000', relief='flat')
         
-        self.stop_btn = ttk.Button(server_mgmt, text="Stop Server", command=self.stop_server, state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=(0, 10))
+        # Notebook styling
+        style.configure('TNotebook', background='#1e1e1e', borderwidth=0)
+        style.configure('TNotebook.Tab', 
+                       background='#2d2d2d', 
+                       foreground='white',
+                       padding=[20, 10],
+                       font=('Segoe UI', 10, 'bold'))
+        style.map('TNotebook.Tab',
+                 background=[('selected', '#0078d4'), ('active', '#3d3d3d')])
         
-        self.status_label = ttk.Label(server_mgmt, text="Server Stopped")
-        self.status_label.pack(side=tk.LEFT, padx=(20, 0))
+        # Modern buttons
+        style.configure('Modern.TButton',
+                       background='#0078d4',
+                       foreground='white',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(15, 8))
+        style.map('Modern.TButton',
+                 background=[('active', '#106ebe'), ('pressed', '#005a9e')])
         
-        # Host participant controls
-        host_controls = ttk.Frame(controls_inner)
-        host_controls.pack(fill=tk.X)
+        # Danger button (red)
+        style.configure('Danger.TButton',
+                       background='#d13438',
+                       foreground='white',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(15, 8))
+        style.map('Danger.TButton',
+                 background=[('active', '#b71c1c'), ('pressed', '#8b0000')])
         
-        ttk.Label(host_controls, text="Host Controls:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(0, 10))
+        # Success button (green)
+        style.configure('Success.TButton',
+                       background='#107c10',
+                       foreground='white',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(15, 8))
+        style.map('Success.TButton',
+                 background=[('active', '#0e6e0e'), ('pressed', '#0c5d0c')])
         
-        self.host_video_btn = ttk.Button(host_controls, text="Start Video", command=self.toggle_host_video, state=tk.DISABLED)
-        self.host_video_btn.pack(side=tk.LEFT, padx=(0, 5))
+        # Warning button (orange)
+        style.configure('Warning.TButton',
+                       background='#fd7e14',
+                       foreground='white',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(15, 8))
+        style.map('Warning.TButton',
+                 background=[('active', '#e8590c'), ('pressed', '#d63384')])
         
-        self.host_audio_btn = ttk.Button(host_controls, text="Start Audio", command=self.toggle_host_audio, state=tk.DISABLED)
-        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 5))
+        # Modern labels
+        style.configure('Modern.TLabel',
+                       background='#2d2d2d',
+                       foreground='white',
+                       font=('Segoe UI', 10))
         
-        self.host_present_btn = ttk.Button(host_controls, text="Start Presenting", command=self.toggle_host_presentation, state=tk.DISABLED)
-        self.host_present_btn.pack(side=tk.LEFT, padx=(0, 5))
+        style.configure('Header.TLabel',
+                       background='#2d2d2d',
+                       foreground='white',
+                       font=('Segoe UI', 12, 'bold'))
         
-        # Host video and server info
-        middle_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
-        middle_paned.pack(fill=tk.X, pady=(0, 10))
+        style.configure('Title.TLabel',
+                       background='#2d2d2d',
+                       foreground='white',
+                       font=('Segoe UI', 16, 'bold'))
+        
+        # Treeview styling
+        style.configure('Modern.Treeview',
+                       background='#3d3d3d',
+                       foreground='white',
+                       fieldbackground='#3d3d3d',
+                       borderwidth=0)
+        style.configure('Modern.Treeview.Heading',
+                       background='#2d2d2d',
+                       foreground='white',
+                       font=('Segoe UI', 10, 'bold'))
+        
+        # Text widget styling
+        style.configure('Modern.TText',
+                       background='#3d3d3d',
+                       foreground='white',
+                       borderwidth=0)
+        
+    def create_main_interface(self):
+        """Create the main server interface"""
+        # Main container
+        main_container = tk.Frame(self.root, bg='#1e1e1e')
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Header with server controls
+        header_frame = tk.Frame(main_container, bg='#2d2d2d', height=80)
+        header_frame.pack(fill=tk.X, pady=(0, 20))
+        header_frame.pack_propagate(False)
+        
+        # Left side - Title and status
+        left_header = tk.Frame(header_frame, bg='#2d2d2d')
+        left_header.pack(side=tk.LEFT, fill=tk.Y, padx=20, pady=15)
+        
+        tk.Label(left_header, text="LAN Meeting Server", 
+                font=('Segoe UI', 18, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W)
+        
+        self.server_status_label = tk.Label(left_header, text="● Server Stopped", 
+                                           font=('Segoe UI', 12), 
+                                           fg='#ff6b6b', bg='#2d2d2d')
+        self.server_status_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Right side - Server controls
+        right_header = tk.Frame(header_frame, bg='#2d2d2d')
+        right_header.pack(side=tk.RIGHT, fill=tk.Y, padx=20, pady=15)
+        
+        self.start_server_btn = tk.Button(right_header, text="🚀 Start Server", 
+                                         command=self.start_server,
+                                         bg='#107c10', fg='white', 
+                                         font=('Segoe UI', 12, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         padx=25, pady=10,
+                                         cursor='hand2')
+        self.start_server_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.stop_server_btn = tk.Button(right_header, text="⏹ Stop Server", 
+                                        command=self.stop_server,
+                                        bg='#d13438', fg='white', 
+                                        font=('Segoe UI', 12, 'bold'),
+                                        relief='flat', borderwidth=0,
+                                        padx=25, pady=10,
+                                        cursor='hand2', state=tk.DISABLED)
+        self.stop_server_btn.pack(side=tk.LEFT)
+        
+        # Settings button
+        self.settings_btn = tk.Button(right_header, text="⚙️ Settings", 
+                                     command=self.open_settings,
+                                     bg='#0078d4', fg='white', 
+                                     font=('Segoe UI', 12, 'bold'),
+                                     relief='flat', borderwidth=0,
+                                     padx=25, pady=10,
+                                     cursor='hand2')
+        self.settings_btn.pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Main content area
+        content_frame = tk.Frame(main_container, bg='#1e1e1e')
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Left panel - Host video and controls
+        left_panel = tk.Frame(content_frame, bg='#2d2d2d', width=600)
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
         # Host video section
-        host_video_frame = ttk.LabelFrame(middle_paned, text="Host Video")
-        middle_paned.add(host_video_frame, weight=1)
+        video_frame = tk.LabelFrame(left_panel, text="📹 Host Video", 
+                                   bg='#2d2d2d', fg='white',
+                                   font=('Segoe UI', 12, 'bold'))
+        video_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
         
-        self.host_video_label = ttk.Label(host_video_frame, text="Host video off")
-        self.host_video_label.pack(expand=True, padx=10, pady=10)
+        self.host_video_label = tk.Label(video_frame, 
+                                        text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                        font=('Segoe UI', 14),
+                                        fg='#888888', bg='#000000')
+        self.host_video_label.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        
+        # Host controls
+        controls_frame = tk.LabelFrame(left_panel, text="🎛️ Host Controls", 
+                                      bg='#2d2d2d', fg='white',
+                                      font=('Segoe UI', 12, 'bold'))
+        controls_frame.pack(fill=tk.X, padx=15, pady=(0, 15))
+        
+        controls_inner = tk.Frame(controls_frame, bg='#2d2d2d')
+        controls_inner.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Media control buttons
+        self.host_video_btn = tk.Button(controls_inner, text="📹 Start Video", 
+                                       command=self.toggle_host_video,
+                                       bg='#404040', fg='white', 
+                                       font=('Segoe UI', 11, 'bold'),
+                                       relief='flat', borderwidth=0,
+                                       padx=20, pady=8,
+                                       cursor='hand2', state=tk.DISABLED)
+        self.host_video_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.host_audio_btn = tk.Button(controls_inner, text="🎤 Start Audio", 
+                                       command=self.toggle_host_audio,
+                                       bg='#404040', fg='white', 
+                                       font=('Segoe UI', 11, 'bold'),
+                                       relief='flat', borderwidth=0,
+                                       padx=20, pady=8,
+                                       cursor='hand2', state=tk.DISABLED)
+        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.host_present_btn = tk.Button(controls_inner, text="🖥️ Present", 
+                                         command=self.toggle_host_presentation,
+                                         bg='#fd7e14', fg='white', 
+                                         font=('Segoe UI', 11, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         padx=20, pady=8,
+                                         cursor='hand2', state=tk.DISABLED)
+        self.host_present_btn.pack(side=tk.LEFT)
+        
+        # Right panel - Participants and chat
+        right_panel = tk.Frame(content_frame, bg='#2d2d2d', width=400)
+        right_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        right_panel.pack_propagate(False)
         
         # Server info
-        info_frame = ttk.LabelFrame(middle_paned, text="Server Information")
-        middle_paned.add(info_frame, weight=1)
+        info_frame = tk.LabelFrame(right_panel, text="📊 Server Info", 
+                                  bg='#2d2d2d', fg='white',
+                                  font=('Segoe UI', 12, 'bold'))
+        info_frame.pack(fill=tk.X, padx=15, pady=15)
         
-        info_inner = ttk.Frame(info_frame)
-        info_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        info_inner = tk.Frame(info_frame, bg='#2d2d2d')
+        info_inner.pack(fill=tk.X, padx=15, pady=10)
         
-        self.server_info_text = tk.Text(info_inner, height=4, state=tk.DISABLED)
-        self.server_info_text.pack(fill=tk.BOTH, expand=True)
+        self.server_info_label = tk.Label(info_inner, text="🌐 Server: Not Running", 
+                                         font=('Segoe UI', 10), 
+                                         fg='white', bg='#2d2d2d')
+        self.server_info_label.pack(anchor=tk.W)
         
-        # Connected clients
-        clients_frame = ttk.LabelFrame(main_frame, text="Connected Clients")
-        clients_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        self.participants_count_label = tk.Label(info_inner, text="👥 Participants: 0", 
+                                                font=('Segoe UI', 10), 
+                                                fg='white', bg='#2d2d2d')
+        self.participants_count_label.pack(anchor=tk.W, pady=(5, 0))
         
-        # Clients list with scrollbar
-        clients_inner = ttk.Frame(clients_frame)
-        clients_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Participants list
+        participants_frame = tk.LabelFrame(right_panel, text="👥 Participants", 
+                                          bg='#2d2d2d', fg='white',
+                                          font=('Segoe UI', 12, 'bold'))
+        participants_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
         
-        self.clients_tree = ttk.Treeview(clients_inner, columns=('ID', 'Name', 'IP', 'Status'), show='headings')
-        self.clients_tree.heading('ID', text='ID')
-        self.clients_tree.heading('Name', text='Name')
-        self.clients_tree.heading('IP', text='IP Address')
-        self.clients_tree.heading('Status', text='Status')
+        participants_inner = tk.Frame(participants_frame, bg='#2d2d2d')
+        participants_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        self.clients_tree.column('ID', width=50)
-        self.clients_tree.column('Name', width=150)
-        self.clients_tree.column('IP', width=120)
-        self.clients_tree.column('Status', width=100)
+        self.participants_listbox = tk.Listbox(participants_inner, 
+                                              bg='#3d3d3d', fg='white',
+                                              selectbackground='#0078d4',
+                                              font=('Segoe UI', 10),
+                                              relief='flat', borderwidth=0)
+        self.participants_listbox.pack(fill=tk.BOTH, expand=True)
         
-        clients_scrollbar = ttk.Scrollbar(clients_inner, orient="vertical", command=self.clients_tree.yview)
-        self.clients_tree.configure(yscrollcommand=clients_scrollbar.set)
+        # Group chat
+        chat_frame = tk.LabelFrame(right_panel, text="💬 Group Chat", 
+                                  bg='#2d2d2d', fg='white',
+                                  font=('Segoe UI', 12, 'bold'))
+        chat_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
         
-        self.clients_tree.pack(side="left", fill="both", expand=True)
-        clients_scrollbar.pack(side="right", fill="y")
-        
-        # Bottom section with chat and activity log
-        bottom_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
-        bottom_paned.pack(fill=tk.BOTH, expand=True)
-        
-        # Host chat section
-        chat_frame = ttk.LabelFrame(bottom_paned, text="Group Chat")
-        bottom_paned.add(chat_frame, weight=1)
-        
-        chat_inner = ttk.Frame(chat_frame)
+        chat_inner = tk.Frame(chat_frame, bg='#2d2d2d')
         chat_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        self.chat_display = tk.Text(chat_inner, height=8, state=tk.DISABLED, wrap=tk.WORD)
-        chat_scrollbar = ttk.Scrollbar(chat_inner, orient="vertical", command=self.chat_display.yview)
-        self.chat_display.configure(yscrollcommand=chat_scrollbar.set)
-        
-        self.chat_display.pack(side="left", fill="both", expand=True)
-        chat_scrollbar.pack(side="right", fill="y")
+        # Chat display
+        self.chat_display = tk.Text(chat_inner, 
+                                   bg='#3d3d3d', fg='white',
+                                   font=('Segoe UI', 9),
+                                   relief='flat', borderwidth=0,
+                                   wrap=tk.WORD, state=tk.DISABLED,
+                                   height=8)
+        self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # Chat input
-        chat_input_frame = ttk.Frame(chat_frame)
-        chat_input_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        chat_input_frame = tk.Frame(chat_inner, bg='#2d2d2d')
+        chat_input_frame.pack(fill=tk.X)
         
-        self.chat_entry = ttk.Entry(chat_input_frame, state=tk.DISABLED)
-        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_entry = tk.Entry(chat_input_frame, 
+                                  bg='#3d3d3d', fg='white',
+                                  font=('Segoe UI', 10),
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='white',
+                                  state=tk.DISABLED)
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.chat_entry.bind("<Return>", self.send_host_chat_message)
         
-        self.chat_send_btn = ttk.Button(chat_input_frame, text="Send", command=self.send_host_chat_message, state=tk.DISABLED)
+        self.chat_send_btn = tk.Button(chat_input_frame, text="Send", 
+                                      command=self.send_host_chat_message,
+                                      bg='#0078d4', fg='white', 
+                                      font=('Segoe UI', 10, 'bold'),
+                                      relief='flat', borderwidth=0,
+                                      padx=15, pady=6,
+                                      cursor='hand2', state=tk.DISABLED)
         self.chat_send_btn.pack(side=tk.RIGHT)
         
-        # Activity log
-        log_frame = ttk.LabelFrame(bottom_paned, text="Activity Log")
-        bottom_paned.add(log_frame, weight=1)
+        # Add hover effects
+        self.add_button_hover_effects()
         
-        log_inner = ttk.Frame(log_frame)
-        log_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def add_button_hover_effects(self):
+        """Add hover effects to buttons"""
+        def on_enter(event, color):
+            event.widget.configure(bg=color)
         
-        self.log_text = tk.Text(log_inner, height=8, state=tk.DISABLED)
-        log_scrollbar = ttk.Scrollbar(log_inner, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+        def on_leave(event, original_color):
+            event.widget.configure(bg=original_color)
         
-        self.log_text.pack(side="left", fill="both", expand=True)
-        log_scrollbar.pack(side="right", fill="y")
+        # Start button hover
+        self.start_server_btn.bind("<Enter>", lambda e: on_enter(e, '#0e6e0e'))
+        self.start_server_btn.bind("<Leave>", lambda e: on_leave(e, '#107c10'))
+        
+        # Stop button hover
+        self.stop_server_btn.bind("<Enter>", lambda e: on_enter(e, '#b71c1c'))
+        self.stop_server_btn.bind("<Leave>", lambda e: on_leave(e, '#d13438'))
+        
+        # Settings button hover
+        self.settings_btn.bind("<Enter>", lambda e: on_enter(e, '#106ebe'))
+        self.settings_btn.bind("<Leave>", lambda e: on_leave(e, '#0078d4'))
+        
+    def open_settings(self):
+        """Open settings window"""
+        settings_window = tk.Toplevel(self.root)
+        settings_window.title("Meeting Settings")
+        settings_window.geometry("600x500")
+        settings_window.configure(bg='#2d2d2d')
+        settings_window.transient(self.root)
+        settings_window.grab_set()
+        
+        # Settings content
+        settings_frame = tk.Frame(settings_window, bg='#2d2d2d')
+        settings_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        tk.Label(settings_frame, text="Meeting Settings", 
+                font=('Segoe UI', 16, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(pady=(0, 20))
+        
+        # General settings
+        general_frame = tk.LabelFrame(settings_frame, text="General Settings", 
+                                     bg='#2d2d2d', fg='white',
+                                     font=('Segoe UI', 12, 'bold'))
+        general_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        general_inner = tk.Frame(general_frame, bg='#2d2d2d')
+        general_inner.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Max participants
+        tk.Label(general_inner, text="Max Participants:", 
+                font=('Segoe UI', 10), fg='white', bg='#2d2d2d').grid(row=0, column=0, sticky=tk.W, pady=5)
+        
+        self.max_participants_var = tk.StringVar(value="50")
+        max_participants_spinbox = tk.Spinbox(general_inner, from_=2, to=100, 
+                                             textvariable=self.max_participants_var,
+                                             bg='#3d3d3d', fg='white', 
+                                             font=('Segoe UI', 10), relief='flat', borderwidth=0,
+                                             insertbackground='white', width=10)
+        max_participants_spinbox.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        
+        # Permissions
+        permissions_frame = tk.LabelFrame(settings_frame, text="Participant Permissions", 
+                                         bg='#2d2d2d', fg='white',
+                                         font=('Segoe UI', 12, 'bold'))
+        permissions_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        permissions_inner = tk.Frame(permissions_frame, bg='#2d2d2d')
+        permissions_inner.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Permission checkboxes
+        self.allow_video_var = tk.BooleanVar(value=True)
+        self.allow_audio_var = tk.BooleanVar(value=True)
+        self.allow_chat_var = tk.BooleanVar(value=True)
+        
+        tk.Checkbutton(permissions_inner, text="📹 Allow Video", variable=self.allow_video_var,
+                      bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
+                      font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
+        
+        tk.Checkbutton(permissions_inner, text="🎤 Allow Audio", variable=self.allow_audio_var,
+                      bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
+                      font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
+        
+        tk.Checkbutton(permissions_inner, text="💬 Allow Chat", variable=self.allow_chat_var,
+                      bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
+                      font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
+        
+        # Apply button
+        tk.Button(settings_frame, text="💾 Apply Settings", 
+                 command=lambda: self.apply_settings_and_close(settings_window),
+                 bg='#107c10', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=10,
+                 cursor='hand2').pack(pady=20)
+        
+    def apply_settings_and_close(self, window):
+        """Apply settings and close window"""
+        try:
+            # Update meeting settings
+            self.meeting_settings.update({
+                'max_participants': int(self.max_participants_var.get()),
+                'allow_video': self.allow_video_var.get(),
+                'allow_audio': self.allow_audio_var.get(),
+                'allow_chat': self.allow_chat_var.get()
+            })
+            
+            self.log_message("Meeting settings updated successfully")
+            messagebox.showinfo("Settings Applied", "Meeting settings have been updated!")
+            window.destroy()
+            
+        except Exception as e:
+            self.log_message(f"Error applying settings: {str(e)}")
+            messagebox.showerror("Settings Error", f"Failed to apply settings: {str(e)}")
+            
+    def create_main_meeting_tab(self):
+        """Create the main meeting interface tab"""
+        main_frame = ttk.Frame(self.notebook, style='Modern.TFrame')
+        self.notebook.add(main_frame, text="🏠 Main Meeting")
+        
+        # Top control bar
+        control_bar = ttk.Frame(main_frame, style='Header.TFrame')
+        control_bar.pack(fill=tk.X, padx=20, pady=20)
+        
+        # Left side - Server status
+        left_controls = ttk.Frame(control_bar, style='Header.TFrame')
+        left_controls.pack(side=tk.LEFT, fill=tk.Y)
+        
+        ttk.Label(left_controls, text="LAN Meeting Server", 
+                 style='Title.TLabel').pack(anchor=tk.W)
+        
+        self.server_status_label = ttk.Label(left_controls, text="● Server Stopped", 
+                                           style='Modern.TLabel')
+        self.server_status_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Right side - Server controls
+        right_controls = ttk.Frame(control_bar, style='Header.TFrame')
+        right_controls.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.start_server_btn = ttk.Button(right_controls, text="🚀 Start Server", 
+                                          command=self.start_server,
+                                          style='Success.TButton')
+        self.start_server_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.stop_server_btn = ttk.Button(right_controls, text="⏹ Stop Server", 
+                                         command=self.stop_server,
+                                         style='Danger.TButton',
+                                         state=tk.DISABLED)
+        self.stop_server_btn.pack(side=tk.LEFT)
+        
+        # Main content area
+        content_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        content_paned.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+        
+        # Left panel - Video and controls
+        left_panel = ttk.Frame(content_paned, style='Modern.TFrame')
+        content_paned.add(left_panel, weight=2)
+        
+        # Host video section
+        video_frame = ttk.LabelFrame(left_panel, text="📹 Host Video", style='Modern.TLabelframe')
+        video_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        self.host_video_label = tk.Label(video_frame, 
+                                        text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                        font=('Segoe UI', 14),
+                                        fg='#888888', bg='#000000')
+        self.host_video_label.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        
+        # Host controls
+        host_controls_frame = ttk.LabelFrame(left_panel, text="🎛️ Host Controls", style='Modern.TLabelframe')
+        host_controls_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        controls_inner = ttk.Frame(host_controls_frame, style='Modern.TFrame')
+        controls_inner.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Media control buttons
+        media_buttons = ttk.Frame(controls_inner, style='Modern.TFrame')
+        media_buttons.pack(fill=tk.X)
+        
+        self.host_video_btn = ttk.Button(media_buttons, text="📹 Start Video", 
+                                        command=self.toggle_host_video,
+                                        style='Modern.TButton',
+                                        state=tk.DISABLED)
+        self.host_video_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.host_audio_btn = ttk.Button(media_buttons, text="🎤 Start Audio", 
+                                        command=self.toggle_host_audio,
+                                        style='Modern.TButton',
+                                        state=tk.DISABLED)
+        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.host_present_btn = ttk.Button(media_buttons, text="🖥️ Present", 
+                                          command=self.toggle_host_presentation,
+                                          style='Warning.TButton',
+                                          state=tk.DISABLED)
+        self.host_present_btn.pack(side=tk.LEFT)
+        
+        # Right panel - Participants and chat
+        right_panel = ttk.Frame(content_paned, style='Modern.TFrame')
+        content_paned.add(right_panel, weight=1)
+        
+        # Quick stats
+        stats_frame = ttk.LabelFrame(right_panel, text="📊 Quick Stats", style='Modern.TLabelframe')
+        stats_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        stats_inner = ttk.Frame(stats_frame, style='Modern.TFrame')
+        stats_inner.pack(fill=tk.X, padx=15, pady=10)
+        
+        self.participants_count_label = ttk.Label(stats_inner, text="👥 Participants: 0", 
+                                                 style='Modern.TLabel')
+        self.participants_count_label.pack(anchor=tk.W)
+        
+        self.server_info_label = ttk.Label(stats_inner, text="🌐 Server: Not Running", 
+                                          style='Modern.TLabel')
+        self.server_info_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Participants list
+        participants_frame = ttk.LabelFrame(right_panel, text="👥 Active Participants", style='Modern.TLabelframe')
+        participants_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Participants treeview
+        participants_inner = ttk.Frame(participants_frame, style='Modern.TFrame')
+        participants_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.participants_tree = ttk.Treeview(participants_inner, 
+                                             columns=('Name', 'Status', 'Join Time'), 
+                                             show='headings',
+                                             style='Modern.Treeview')
+        self.participants_tree.heading('Name', text='Name')
+        self.participants_tree.heading('Status', text='Status')
+        self.participants_tree.heading('Join Time', text='Join Time')
+        
+        self.participants_tree.column('Name', width=150)
+        self.participants_tree.column('Status', width=100)
+        self.participants_tree.column('Join Time', width=100)
+        
+        participants_scrollbar = ttk.Scrollbar(participants_inner, orient="vertical", 
+                                              command=self.participants_tree.yview)
+        self.participants_tree.configure(yscrollcommand=participants_scrollbar.set)
+        
+        self.participants_tree.pack(side="left", fill="both", expand=True)
+        participants_scrollbar.pack(side="right", fill="y")
+        
+        # Group chat
+        chat_frame = ttk.LabelFrame(right_panel, text="💬 Group Chat", style='Modern.TLabelframe')
+        chat_frame.pack(fill=tk.BOTH, expand=True)
+        
+        chat_inner = ttk.Frame(chat_frame, style='Modern.TFrame')
+        chat_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Chat display
+        self.chat_display = tk.Text(chat_inner, 
+                                   bg='#3d3d3d', fg='white',
+                                   font=('Segoe UI', 10),
+                                   relief='flat', borderwidth=0,
+                                   wrap=tk.WORD, state=tk.DISABLED,
+                                   height=8)
+        self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Chat input
+        chat_input_frame = ttk.Frame(chat_inner, style='Modern.TFrame')
+        chat_input_frame.pack(fill=tk.X)
+        
+        self.chat_entry = tk.Entry(chat_input_frame, 
+                                  bg='#3d3d3d', fg='white',
+                                  font=('Segoe UI', 10),
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='white',
+                                  state=tk.DISABLED)
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.chat_entry.bind("<Return>", self.send_host_chat_message)
+        
+        self.chat_send_btn = ttk.Button(chat_input_frame, text="Send", 
+                                       command=self.send_host_chat_message,
+                                       style='Modern.TButton',
+                                       state=tk.DISABLED)
+        self.chat_send_btn.pack(side=tk.RIGHT)
+        
+
+
+        
+    def create_video_section(self, parent):
+        """Create the main video conference area"""
+        video_container = tk.Frame(parent, bg='#1e1e1e')
+        video_container.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+        
+        # Main video area
+        main_video_frame = tk.Frame(video_container, bg='#000000', relief='solid', bd=1)
+        main_video_frame.pack(fill=tk.BOTH, expand=True, padx=(0, 20))
+        
+        # Host video display
+        self.host_video_label = tk.Label(main_video_frame, 
+                                        text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                        font=('Segoe UI', 16),
+                                        fg='#888888', bg='#000000')
+        self.host_video_label.pack(expand=True)
+        
+        # Right sidebar
+        sidebar = tk.Frame(video_container, bg='#2d2d2d', width=350)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y)
+        sidebar.pack_propagate(False)
+        
+        # Participants section
+        self.create_participants_section(sidebar)
+        
+        # Chat section
+        self.create_chat_section(sidebar)
+        
+    def create_participants_section(self, parent):
+        """Create participants list section"""
+        participants_frame = tk.Frame(parent, bg='#2d2d2d')
+        participants_frame.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Header
+        header_frame = tk.Frame(participants_frame, bg='#2d2d2d')
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(header_frame, text="👥 Participants", 
+                font=('Segoe UI', 14, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(side=tk.LEFT)
+        
+        self.participant_count = tk.Label(header_frame, text="1", 
+                                         font=('Segoe UI', 12, 'bold'), 
+                                         fg='#0078d4', bg='#2d2d2d')
+        self.participant_count.pack(side=tk.RIGHT)
+        
+        # Participants list
+        list_frame = tk.Frame(participants_frame, bg='#2d2d2d')
+        list_frame.pack(fill=tk.X)
+        
+        self.participants_listbox = tk.Listbox(list_frame, 
+                                              bg='#3d3d3d', fg='white',
+                                              selectbackground='#0078d4',
+                                              font=('Segoe UI', 10),
+                                              relief='flat', borderwidth=0,
+                                              height=8)
+        self.participants_listbox.pack(fill=tk.X)
+        
+    def create_chat_section(self, parent):
+        """Create chat section"""
+        chat_frame = tk.Frame(parent, bg='#2d2d2d')
+        chat_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        
+        # Chat header
+        chat_header = tk.Frame(chat_frame, bg='#2d2d2d')
+        chat_header.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(chat_header, text="💬 Group Chat", 
+                font=('Segoe UI', 14, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(side=tk.LEFT)
+        
+        # Chat display
+        self.chat_display = tk.Text(chat_frame, 
+                                   bg='#3d3d3d', fg='white',
+                                   font=('Segoe UI', 10),
+                                   relief='flat', borderwidth=0,
+                                   wrap=tk.WORD, state=tk.DISABLED,
+                                   height=12)
+        self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Chat input
+        input_frame = tk.Frame(chat_frame, bg='#2d2d2d')
+        input_frame.pack(fill=tk.X)
+        
+        self.chat_entry = tk.Entry(input_frame, 
+                                  bg='#3d3d3d', fg='white',
+                                  font=('Segoe UI', 10),
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='white',
+                                  state=tk.DISABLED)
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.chat_entry.bind("<Return>", self.send_host_chat_message)
+        
+        self.chat_send_btn = tk.Button(input_frame, text="Send", 
+                                      command=self.send_host_chat_message,
+                                      bg='#0078d4', fg='white', 
+                                      font=('Segoe UI', 10, 'bold'),
+                                      relief='flat', borderwidth=0,
+                                      padx=15, pady=8,
+                                      cursor='hand2', state=tk.DISABLED)
+        self.chat_send_btn.pack(side=tk.RIGHT)
+        
+    def create_bottom_section(self, parent):
+        """Create bottom controls section"""
+        bottom_frame = tk.Frame(parent, bg='#2d2d2d', height=100)
+        bottom_frame.pack(fill=tk.X, pady=(20, 0))
+        bottom_frame.pack_propagate(False)
+        
+        # Host controls
+        controls_frame = tk.Frame(bottom_frame, bg='#2d2d2d')
+        controls_frame.pack(expand=True)
+        
+        # Media controls
+        media_frame = tk.Frame(controls_frame, bg='#2d2d2d')
+        media_frame.pack(pady=20)
+        
+        # Video button
+        self.host_video_btn = tk.Button(media_frame, text="📹\nVideo", 
+                                       command=self.toggle_host_video,
+                                       bg='#404040', fg='white', 
+                                       font=('Segoe UI', 10, 'bold'),
+                                       relief='flat', borderwidth=0,
+                                       width=8, height=3,
+                                       cursor='hand2', state=tk.DISABLED)
+        self.host_video_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Audio button
+        self.host_audio_btn = tk.Button(media_frame, text="🎤\nAudio", 
+                                       command=self.toggle_host_audio,
+                                       bg='#404040', fg='white', 
+                                       font=('Segoe UI', 10, 'bold'),
+                                       relief='flat', borderwidth=0,
+                                       width=8, height=3,
+                                       cursor='hand2', state=tk.DISABLED)
+        self.host_audio_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Present button
+        self.host_present_btn = tk.Button(media_frame, text="🖥️\nPresent", 
+                                         command=self.toggle_host_presentation,
+                                         bg='#404040', fg='white', 
+                                         font=('Segoe UI', 10, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         width=8, height=3,
+                                         cursor='hand2', state=tk.DISABLED)
+        self.host_present_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Server info
+        info_frame = tk.Frame(controls_frame, bg='#2d2d2d')
+        info_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.server_info_label = tk.Label(info_frame, text="Server Information", 
+                                         font=('Segoe UI', 10), 
+                                         fg='#888888', bg='#2d2d2d')
+        self.server_info_label.pack()
+        
+    def add_button_hover_effects(self):
+        """Add hover effects to buttons"""
+        def on_enter(event, color='#0d6efd'):
+            event.widget.configure(bg=color)
+        
+        def on_leave(event, color):
+            event.widget.configure(bg=color)
+        
+        # Start server button hover
+        if hasattr(self, 'start_server_btn'):
+            self.start_server_btn.bind("<Enter>", lambda e: on_enter(e, '#0e6e0e'))
+            self.start_server_btn.bind("<Leave>", lambda e: on_leave(e, '#107c10'))
+        
+        # Stop server button hover
+        if hasattr(self, 'stop_server_btn'):
+            self.stop_server_btn.bind("<Enter>", lambda e: on_enter(e, '#b71c1c'))
+            self.stop_server_btn.bind("<Leave>", lambda e: on_leave(e, '#d13438'))
         
     def log_message(self, message):
         """Add message to activity log"""
@@ -225,24 +868,253 @@ class LANCommunicationServer:
         except:
             return "127.0.0.1"
             
-    def update_server_info(self):
-        """Update server information display"""
-        if self.running:
-            local_ip = self.get_local_ip()
-            total_participants = len(self.clients) + 1  # +1 for Host
-            info = f"""Server Status: RUNNING
-Local IP: {local_ip}
-TCP Port: {self.tcp_port} (Control, Chat, Files)
-UDP Video Port: {self.udp_video_port}
-UDP Audio Port: {self.udp_audio_port}
-Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
-        else:
-            info = "Server Status: STOPPED"
+    def log_message(self, message):
+        """Add message to activity log"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
+        
+        # Add to activity logs list
+        self.activity_logs.append({
+            'timestamp': timestamp,
+            'message': message,
+            'type': 'info'
+        })
+        
+        # Update activity log display if it exists
+        if hasattr(self, 'activity_log_text'):
+            self.activity_log_text.config(state=tk.NORMAL)
+            self.activity_log_text.insert(tk.END, log_entry + "\n")
+            self.activity_log_text.see(tk.END)
+            self.activity_log_text.config(state=tk.DISABLED)
+        
+        print(log_entry)  # Console logging
+        
+    def apply_meeting_settings(self):
+        """Apply meeting settings"""
+        try:
+            # Update meeting settings
+            self.meeting_settings.update({
+                'allow_video': self.allow_video_var.get(),
+                'allow_audio': self.allow_audio_var.get(),
+                'allow_screen_share': self.allow_screen_share_var.get(),
+                'allow_file_sharing': self.allow_file_sharing_var.get(),
+                'allow_chat': self.allow_chat_var.get(),
+                'max_participants': int(self.max_participants_var.get()),
+                'meeting_password': self.meeting_password_entry.get(),
+                'waiting_room': self.waiting_room_var.get(),
+                'mute_on_join': self.mute_on_join_var.get(),
+                'video_off_on_join': self.video_off_on_join_var.get()
+            })
             
-        self.server_info_text.config(state=tk.NORMAL)
-        self.server_info_text.delete(1.0, tk.END)
-        self.server_info_text.insert(1.0, info)
-        self.server_info_text.config(state=tk.DISABLED)
+            self.log_message("Meeting settings updated successfully")
+            messagebox.showinfo("Settings Applied", "Meeting settings have been updated successfully!")
+            
+        except Exception as e:
+            self.log_message(f"Error applying settings: {str(e)}")
+            messagebox.showerror("Settings Error", f"Failed to apply settings: {str(e)}")
+            
+    def mute_all_participants(self):
+        """Mute all participants"""
+        try:
+            mute_msg = {'type': 'force_mute_all'}
+            self.broadcast_message(mute_msg)
+            self.log_message("All participants muted by host")
+            messagebox.showinfo("Action Complete", "All participants have been muted")
+        except Exception as e:
+            self.log_message(f"Error muting all participants: {str(e)}")
+            
+    def disable_all_video(self):
+        """Disable video for all participants"""
+        try:
+            disable_video_msg = {'type': 'force_disable_video_all'}
+            self.broadcast_message(disable_video_msg)
+            self.log_message("Video disabled for all participants by host")
+            messagebox.showinfo("Action Complete", "Video has been disabled for all participants")
+        except Exception as e:
+            self.log_message(f"Error disabling video for all participants: {str(e)}")
+            
+    def remove_all_participants(self):
+        """Remove all participants"""
+        if messagebox.askyesno("Confirm Action", "Are you sure you want to remove all participants?"):
+            try:
+                for client_id in list(self.clients.keys()):
+                    self.disconnect_client(client_id)
+                self.log_message("All participants removed by host")
+                messagebox.showinfo("Action Complete", "All participants have been removed")
+            except Exception as e:
+                self.log_message(f"Error removing all participants: {str(e)}")
+                
+    def mute_selected_participant(self):
+        """Mute selected participant"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = item['values'][0]
+            try:
+                mute_msg = {'type': 'force_mute', 'target_client': client_id}
+                self.send_to_client(client_id, mute_msg)
+                self.log_message(f"Participant {client_id} muted by host")
+            except Exception as e:
+                self.log_message(f"Error muting participant: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+            
+    def disable_selected_video(self):
+        """Disable video for selected participant"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = item['values'][0]
+            try:
+                disable_msg = {'type': 'force_disable_video', 'target_client': client_id}
+                self.send_to_client(client_id, disable_msg)
+                self.log_message(f"Video disabled for participant {client_id} by host")
+            except Exception as e:
+                self.log_message(f"Error disabling video: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+            
+    def stop_selected_presenting(self):
+        """Stop presenting for selected participant"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = item['values'][0]
+            if self.presenter_id == int(client_id):
+                try:
+                    self.presenter_id = None
+                    stop_msg = {'type': 'force_stop_presenting'}
+                    self.send_to_client(client_id, stop_msg)
+                    self.log_message(f"Presentation stopped for participant {client_id} by host")
+                except Exception as e:
+                    self.log_message(f"Error stopping presentation: {str(e)}")
+            else:
+                messagebox.showinfo("Not Presenting", "Selected participant is not currently presenting")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+            
+    def remove_selected_participant(self):
+        """Remove selected participant"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if messagebox.askyesno("Confirm Removal", f"Remove participant '{client_name}'?"):
+                try:
+                    self.disconnect_client(client_id)
+                    self.log_message(f"Participant {client_name} removed by host")
+                except Exception as e:
+                    self.log_message(f"Error removing participant: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+            
+    def export_logs(self):
+        """Export activity logs to file"""
+        try:
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                title="Export Activity Logs"
+            )
+            
+            if filename:
+                with open(filename, 'w') as f:
+                    f.write("LAN Meeting Server - Activity Logs\n")
+                    f.write("=" * 50 + "\n\n")
+                    
+                    for log_entry in self.activity_logs:
+                        f.write(f"[{log_entry['timestamp']}] {log_entry['message']}\n")
+                        
+                self.log_message(f"Activity logs exported to {filename}")
+                messagebox.showinfo("Export Complete", f"Logs exported to {filename}")
+                
+        except Exception as e:
+            self.log_message(f"Error exporting logs: {str(e)}")
+            messagebox.showerror("Export Error", f"Failed to export logs: {str(e)}")
+            
+    def clear_logs(self):
+        """Clear activity logs"""
+        if messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all activity logs?"):
+            try:
+                self.activity_logs.clear()
+                if hasattr(self, 'activity_log_text'):
+                    self.activity_log_text.config(state=tk.NORMAL)
+                    self.activity_log_text.delete(1.0, tk.END)
+                    self.activity_log_text.config(state=tk.DISABLED)
+                self.log_message("Activity logs cleared by host")
+            except Exception as e:
+                self.log_message(f"Error clearing logs: {str(e)}")
+                
+    def share_file_as_host(self):
+        """Share file as host"""
+        try:
+            filename = filedialog.askopenfilename(
+                title="Select file to share",
+                filetypes=[("All files", "*.*")]
+            )
+            
+            if filename:
+                file_info = {
+                    'name': os.path.basename(filename),
+                    'size': os.path.getsize(filename),
+                    'shared_by': 'Host',
+                    'share_time': datetime.now().isoformat(),
+                    'downloads': 0,
+                    'path': filename
+                }
+                
+                self.shared_files[file_info['name']] = file_info
+                self.update_files_display()
+                
+                # Notify clients
+                file_notification = {
+                    'type': 'file_shared',
+                    'file_info': file_info
+                }
+                self.broadcast_message(file_notification)
+                
+                self.log_message(f"Host shared file: {file_info['name']}")
+                
+        except Exception as e:
+            self.log_message(f"Error sharing file: {str(e)}")
+            messagebox.showerror("File Share Error", f"Failed to share file: {str(e)}")
+            
+    def clear_all_files(self):
+        """Clear all shared files"""
+        if messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all shared files?"):
+            try:
+                self.shared_files.clear()
+                self.update_files_display()
+                
+                # Notify clients
+                clear_msg = {'type': 'files_cleared'}
+                self.broadcast_message(clear_msg)
+                
+                self.log_message("All shared files cleared by host")
+            except Exception as e:
+                self.log_message(f"Error clearing files: {str(e)}")
+                
+    def update_files_display(self):
+        """Update files display"""
+        if hasattr(self, 'files_tree'):
+            # Clear existing items
+            for item in self.files_tree.get_children():
+                self.files_tree.delete(item)
+                
+            # Add files
+            for file_info in self.shared_files.values():
+                size_mb = f"{file_info['size'] / (1024*1024):.2f} MB"
+                share_time = datetime.fromisoformat(file_info['share_time']).strftime("%H:%M:%S")
+                
+                self.files_tree.insert('', 'end', values=(
+                    file_info['name'],
+                    size_mb,
+                    file_info['shared_by'],
+                    share_time,
+                    file_info['downloads']
+                ))
         
     def start_server(self):
         """Start the communication server"""
@@ -270,13 +1142,9 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             threading.Thread(target=self.process_messages, daemon=True).start()
             
             # Update GUI
-            self.start_btn.config(state=tk.DISABLED)
-            self.stop_btn.config(state=tk.NORMAL)
-            self.status_label.config(text="Server Running")
-            self.update_server_info()
-            
-            self.log_message("Server started successfully")
-            self.log_message(f"Listening on {self.get_local_ip()}:{self.tcp_port}")
+            self.start_server_btn.config(state=tk.DISABLED)
+            self.stop_server_btn.config(state=tk.NORMAL)
+            self.server_status_label.config(text="● Server Running")
             
             # Enable host controls
             self.host_video_btn.config(state=tk.NORMAL)
@@ -285,11 +1153,23 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             self.chat_entry.config(state=tk.NORMAL)
             self.chat_send_btn.config(state=tk.NORMAL)
             
+            self.log_message("Server started successfully")
+            self.log_message(f"Listening on {self.get_local_ip()}:{self.tcp_port}")
+            
+            # Update server info
+            self.server_info_label.config(text=f"🌐 Server: {self.get_local_ip()}:{self.tcp_port}")
+            self.participants_count_label.config(text="👥 Participants: 1")
+            
+            # Update UI
+            self.start_server_btn.config(state=tk.DISABLED)
+            self.stop_server_btn.config(state=tk.NORMAL)
+            self.server_status_label.config(text="● Server Running", fg='#51cf66')
+            
             # Add Host to the session
             self.add_host_to_session()
             
-            messagebox.showinfo("Server Started", 
-                              f"Server is running on {self.get_local_ip()}:{self.tcp_port}")
+            # Update server info
+            self.server_info_label.config(text=f"🌐 Server: {self.get_local_ip()}:{self.tcp_port} | 👥 Participants: 1")
             
         except Exception as e:
             self.log_message(f"Failed to start server: {str(e)}")
@@ -304,6 +1184,7 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
                 self.next_client_id += 1
                 
                 # Create client info
+                join_time = datetime.now().strftime("%H:%M:%S")
                 client_info = {
                     'id': client_id,
                     'socket': client_socket,
@@ -312,10 +1193,18 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
                     'status': 'Connected',
                     'video_enabled': False,
                     'audio_enabled': False,
-                    'last_seen': time.time()
+                    'last_seen': time.time(),
+                    'join_time': join_time
                 }
                 
                 self.clients[client_id] = client_info
+                
+                # Log participant join
+                self.participant_logs[client_id] = {
+                    'join_time': datetime.now().isoformat(),
+                    'name': f'Client_{client_id}',
+                    'ip': address[0]
+                }
                 
                 # Start client handler thread
                 client_thread = threading.Thread(
@@ -635,43 +1524,88 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         self.log_message("Host joined the session as a participant")
         
     def update_clients_display(self):
-        """Update the clients display in GUI"""
-        # Clear existing items
-        for item in self.clients_tree.get_children():
-            self.clients_tree.delete(item)
+        """Update the participants display in all tabs"""
+        total_participants = len(self.clients) + 1  # +1 for Host
+        
+        # Update main tab participants tree
+        if hasattr(self, 'participants_tree'):
+            # Clear existing items
+            for item in self.participants_tree.get_children():
+                self.participants_tree.delete(item)
             
-        # Add Host first
-        host_status = "Active"
-        if self.host_video_enabled:
-            host_status += " (Video)"
-        if self.host_audio_enabled:
-            host_status += " (Audio)"
-        if self.presenter_id == self.host_id:
-            host_status += " [Presenter]"
+            # Add Host first
+            host_status = "Active"
+            if self.host_video_enabled:
+                host_status += " 📹"
+            if self.host_audio_enabled:
+                host_status += " 🎤"
+            if self.presenter_id == self.host_id:
+                host_status += " [Presenter]"
             
-        self.clients_tree.insert('', 'end', values=(
-            self.host_id,
-            self.host_name,
-            "Server",
-            host_status
-        ))
-            
-        # Add current clients
-        for client_id, client_info in self.clients.items():
-            status = client_info['status']
-            if client_info.get('video_enabled'):
-                status += " (Video)"
-            if client_info.get('audio_enabled'):
-                status += " (Audio)"
-            if self.presenter_id == client_id:
-                status += " [Presenter]"
-                
-            self.clients_tree.insert('', 'end', values=(
-                client_id,
-                client_info['name'],
-                client_info['address'][0],
-                status
+            join_time = datetime.now().strftime("%H:%M:%S") if self.running else "N/A"
+            self.participants_tree.insert('', 'end', values=(
+                "🏠 Host",
+                host_status,
+                join_time
             ))
+            
+            # Add current clients
+            for client_id, client_info in self.clients.items():
+                name = client_info['name']
+                status = "Active"
+                
+                if client_info.get('video_enabled'):
+                    status += " 📹"
+                if client_info.get('audio_enabled'):
+                    status += " 🎤"
+                if self.presenter_id == client_id:
+                    status += " [Presenter]"
+                
+                join_time = client_info.get('join_time', 'Unknown')
+                self.participants_tree.insert('', 'end', values=(
+                    f"👤 {name}",
+                    status,
+                    join_time
+                ))
+        
+        # Update detailed participants tree
+        if hasattr(self, 'detailed_participants_tree'):
+            # Clear existing items
+            for item in self.detailed_participants_tree.get_children():
+                self.detailed_participants_tree.delete(item)
+            
+            # Add Host
+            self.detailed_participants_tree.insert('', 'end', values=(
+                self.host_id,
+                "Host",
+                "Server",
+                datetime.now().strftime("%H:%M:%S") if self.running else "N/A",
+                "Active",
+                "✅" if self.host_video_enabled else "❌",
+                "✅" if self.host_audio_enabled else "❌",
+                "Host Controls"
+            ))
+            
+            # Add clients
+            for client_id, client_info in self.clients.items():
+                self.detailed_participants_tree.insert('', 'end', values=(
+                    client_id,
+                    client_info['name'],
+                    client_info['address'][0],
+                    client_info.get('join_time', 'Unknown'),
+                    client_info['status'],
+                    "✅" if client_info.get('video_enabled') else "❌",
+                    "✅" if client_info.get('audio_enabled') else "❌",
+                    "Available"
+                ))
+        
+        # Update participant counts
+        if hasattr(self, 'participants_count_label'):
+            self.participants_count_label.config(text=f"👥 Participants: {total_participants}")
+        
+        # Update server info
+        if self.running and hasattr(self, 'server_info_label'):
+            self.server_info_label.config(text=f"🌐 Server: {self.get_local_ip()}:{self.tcp_port}")
             
     def toggle_host_video(self):
         """Toggle Host video on/off"""
@@ -685,11 +1619,11 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         try:
             self.video_cap = cv2.VideoCapture(0)
             if not self.video_cap.isOpened():
-                messagebox.showerror("Error", "Cannot access camera")
+                messagebox.showerror("Camera Error", "Cannot access camera")
                 return
                 
             self.host_video_enabled = True
-            self.host_video_btn.config(text="Stop Video")
+            self.host_video_btn.config(text="📹 Video On", bg='#51cf66')
             
             # Start video streaming thread
             threading.Thread(target=self.host_video_loop, daemon=True).start()
@@ -699,19 +1633,22 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             self.update_clients_display()
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start Host video: {str(e)}")
+            messagebox.showerror("Video Error", f"Failed to start Host video: {str(e)}")
             
     def stop_host_video(self):
         """Stop Host video"""
         self.host_video_enabled = False
-        self.host_video_btn.config(text="Start Video")
+        self.host_video_btn.config(text="📹 Start Video", bg='#404040')
         
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
             
         # Clear video display
-        self.host_video_label.config(image="", text="Host video off")
+        self.host_video_label.config(image="", 
+                                    text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                    font=('Segoe UI', 14),
+                                    fg='#888888', bg='#000000')
         
         # Notify clients
         self.broadcast_host_status_update()
@@ -719,20 +1656,32 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         
     def host_video_loop(self):
         """Host video streaming loop"""
+        print("Starting host video loop...")  # Debug output
         while self.host_video_enabled and self.video_cap:
             try:
                 ret, frame = self.video_cap.read()
                 if not ret:
+                    print("Failed to read frame from camera")
                     break
                     
-                # Resize and display locally
-                display_frame = cv2.resize(frame, (200, 150))
+                print(f"Frame captured: {frame.shape}")  # Debug output
+                
+                # Save first frame as test (only once)
+                if not hasattr(self, 'test_frame_saved'):
+                    cv2.imwrite('test_frame.jpg', frame)
+                    print("Test frame saved as test_frame.jpg")
+                    self.test_frame_saved = True
+                    
+                # Resize and convert for display
+                display_frame = cv2.resize(frame, (400, 300))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
-                pil_image = Image.fromarray(display_frame_rgb)
-                photo = ImageTk.PhotoImage(pil_image)
-                
-                self.root.after(0, lambda p=photo: self.update_host_video_display(p))
+                # Put frame in queue for display
+                try:
+                    self.video_frame_queue.put_nowait(display_frame_rgb)
+                except queue.Full:
+                    # Skip frame if queue is full
+                    pass
                 
                 # Broadcast to clients via UDP
                 self.broadcast_host_video_frame(frame)
@@ -742,11 +1691,44 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             except Exception as e:
                 print(f"Host video streaming error: {e}")
                 break
+        print("Host video loop ended")
                 
-    def update_host_video_display(self, photo):
-        """Update Host video display"""
-        self.host_video_label.config(image=photo, text="")
-        self.host_video_label.image = photo
+    def start_video_display_timer(self):
+        """Start the video display update timer"""
+        self.update_video_display_from_queue()
+        
+    def update_video_display_from_queue(self):
+        """Update video display from queue in main thread"""
+        try:
+            if self.host_video_enabled:
+                # Get frame from queue
+                frame_rgb = self.video_frame_queue.get_nowait()
+                
+                # Create photo
+                pil_image = Image.fromarray(frame_rgb)
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Update display
+                if hasattr(self, 'host_video_label'):
+                    self.host_video_label.configure(image=photo, text="")
+                    self.host_video_label.image = photo  # Keep reference
+                    print("Video display updated successfully")
+                else:
+                    print("ERROR: host_video_label not found!")
+                    
+        except queue.Empty:
+            # No frame available
+            pass
+        except Exception as e:
+            print(f"Error updating video display: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Schedule next update
+        if self.host_video_enabled:
+            self.root.after(33, self.update_video_display_from_queue)  # ~30 FPS
+        else:
+            self.root.after(100, self.update_video_display_from_queue)  # Check less frequently when stopped
         
     def broadcast_host_video_frame(self, frame):
         """Broadcast Host video frame to all clients"""
@@ -797,7 +1779,7 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             )
             
             self.host_audio_enabled = True
-            self.host_audio_btn.config(text="Stop Audio")
+            self.host_audio_btn.config(text="🎤 Mic On", bg='#51cf66')
             
             # Start audio streaming thread
             threading.Thread(target=self.host_audio_loop, daemon=True).start()
@@ -807,12 +1789,12 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             self.update_clients_display()
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start Host audio: {str(e)}")
+            messagebox.showerror("Audio Error", f"Failed to start Host audio: {str(e)}")
             
     def stop_host_audio(self):
         """Stop Host audio"""
         self.host_audio_enabled = False
-        self.host_audio_btn.config(text="Start Audio")
+        self.host_audio_btn.config(text="🎤 Start Audio", bg='#404040')
         
         if self.audio_stream:
             self.audio_stream.stop_stream()
@@ -865,7 +1847,7 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             # Become presenter
             if self.presenter_id is None:
                 self.presenter_id = self.host_id
-                self.host_present_btn.config(text="Stop Presenting")
+                self.host_present_btn.config(text="🖥️ Presenting", bg='#fd7e14')
                 
                 # Notify clients
                 presenter_notification = {
@@ -882,7 +1864,7 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         else:
             # Stop presenting
             self.presenter_id = None
-            self.host_present_btn.config(text="Start Presenting")
+            self.host_present_btn.config(text="🖥️ Present", bg='#fd7e14')
             
             stop_msg = {
                 'type': 'presentation_stopped',
@@ -913,7 +1895,7 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             self.log_message(f"Host chat: {message}")
             
     def update_chat_display(self):
-        """Update chat display with history"""
+        """Update modern chat display with history"""
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.delete(1.0, tk.END)
         
@@ -925,13 +1907,215 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             if timestamp:
                 try:
                     time_obj = datetime.fromisoformat(timestamp)
-                    time_str = time_obj.strftime("%H:%M:%S")
+                    time_str = time_obj.strftime("%H:%M")
                 except:
-                    time_str = "??:??:??"
+                    time_str = "??:??"
             else:
-                time_str = "??:??:??"
+                time_str = "??:??"
+            
+            # Add sender icon
+            sender_icon = "🏠" if sender == "Host" else "👤"
+            if sender == "System":
+                sender_icon = "ℹ️"
                 
-            chat_line = f"[{time_str}] {sender}: {message}\n"
+            chat_line = f"{sender_icon} {sender} • {time_str}\n{message}\n\n"
+            self.chat_display.insert(tk.END, chat_line)
+            
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+        
+    def add_host_to_session(self):
+        """Add Host as a participant in the session"""
+        # Add Host to chat history
+        host_join_msg = {
+            'type': 'chat',
+            'client_id': self.host_id,
+            'name': self.host_name,
+            'message': 'Host has joined the meeting',
+            'timestamp': datetime.now().isoformat()
+        }
+        self.chat_history.append(host_join_msg)
+        self.update_chat_display()
+        
+        self.log_message("Host joined the session as a participant")
+        
+    def broadcast_host_status_update(self):
+        """Broadcast Host status update to all clients"""
+        status_msg = {
+            'type': 'host_status_update',
+            'host_id': self.host_id,
+            'video_enabled': self.host_video_enabled,
+            'audio_enabled': self.host_audio_enabled,
+            'is_presenter': self.presenter_id == self.host_id
+        }
+        self.broadcast_message(status_msg)
+    def toggle_host_audio(self):
+        """Toggle Host audio on/off"""
+        if not self.host_audio_enabled:
+            self.start_host_audio()
+        else:
+            self.stop_host_audio()
+            
+    def start_host_audio(self):
+        """Start Host audio"""
+        try:
+            self.audio = pyaudio.PyAudio()
+            
+            # Audio configuration
+            chunk = 1024
+            format = pyaudio.paInt16
+            channels = 1
+            rate = 44100
+            
+            self.audio_stream = self.audio.open(
+                format=format,
+                channels=channels,
+                rate=rate,
+                input=True,
+                frames_per_buffer=chunk
+            )
+            
+            self.host_audio_enabled = True
+            self.host_audio_btn.config(text="🎤\nMic On", bg='#51cf66')
+            
+            # Start audio streaming thread
+            threading.Thread(target=self.host_audio_loop, daemon=True).start()
+            
+            # Notify clients
+            self.broadcast_host_status_update()
+            self.update_clients_display()
+            
+        except Exception as e:
+            messagebox.showerror("Audio Error", f"Failed to start Host audio: {str(e)}")
+            
+    def stop_host_audio(self):
+        """Stop Host audio"""
+        self.host_audio_enabled = False
+        self.host_audio_btn.config(text="🎤\nAudio", bg='#404040')
+        
+        if self.audio_stream:
+            self.audio_stream.stop_stream()
+            self.audio_stream.close()
+            self.audio_stream = None
+            
+        if self.audio:
+            self.audio.terminate()
+            self.audio = None
+            
+        # Notify clients
+        self.broadcast_host_status_update()
+        self.update_clients_display()
+        
+    def host_audio_loop(self):
+        """Host audio streaming loop"""
+        while self.host_audio_enabled and self.audio_stream:
+            try:
+                # Read audio data
+                data = self.audio_stream.read(1024)
+                
+                # Broadcast to clients via UDP
+                self.broadcast_host_audio_data(data)
+                
+            except Exception as e:
+                print(f"Host audio streaming error: {e}")
+                break
+                
+    def broadcast_host_audio_data(self, audio_data):
+        """Broadcast Host audio data to all clients"""
+        try:
+            # Create packet
+            timestamp = int(time.time() * 1000) % (2**32)
+            packet = struct.pack('!II', self.host_id, timestamp) + audio_data
+            
+            # Send to all clients
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_address = (client_info['address'][0], self.udp_audio_port)
+                    self.udp_audio_socket.sendto(packet, client_address)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error broadcasting Host audio: {e}")
+            
+    def toggle_host_presentation(self):
+        """Toggle Host presentation mode"""
+        if self.presenter_id != self.host_id:
+            # Become presenter
+            if self.presenter_id is None:
+                self.presenter_id = self.host_id
+                self.host_present_btn.config(text="🖥️\nPresenting", bg='#fd7e14')
+                
+                # Notify clients
+                presenter_notification = {
+                    'type': 'presenter_changed',
+                    'presenter_id': self.host_id,
+                    'presenter_name': self.host_name
+                }
+                self.broadcast_message(presenter_notification)
+                
+                self.log_message("Host became presenter")
+                self.update_clients_display()
+            else:
+                messagebox.showwarning("Presenter Active", "Another participant is currently presenting")
+        else:
+            # Stop presenting
+            self.presenter_id = None
+            self.host_present_btn.config(text="🖥️\nPresent", bg='#404040')
+            
+            stop_msg = {
+                'type': 'presentation_stopped',
+                'former_presenter': self.host_id
+            }
+            self.broadcast_message(stop_msg)
+            
+            self.log_message("Host stopped presenting")
+            self.update_clients_display()
+            
+    def send_host_chat_message(self, event=None):
+        """Send chat message from Host"""
+        message = self.chat_entry.get().strip()
+        if message:
+            chat_msg = {
+                'type': 'chat',
+                'client_id': self.host_id,
+                'name': self.host_name,
+                'message': message,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            self.chat_history.append(chat_msg)
+            self.broadcast_message(chat_msg)
+            self.update_chat_display()
+            
+            self.chat_entry.delete(0, tk.END)
+            self.log_message(f"Host chat: {message}")
+            
+    def update_chat_display(self):
+        """Update modern chat display with history"""
+        self.chat_display.config(state=tk.NORMAL)
+        self.chat_display.delete(1.0, tk.END)
+        
+        for msg in self.chat_history:
+            timestamp = msg.get('timestamp', '')
+            sender = msg.get('name', 'Unknown')
+            message = msg.get('message', '')
+            
+            if timestamp:
+                try:
+                    time_obj = datetime.fromisoformat(timestamp)
+                    time_str = time_obj.strftime("%H:%M")
+                except:
+                    time_str = "??:??"
+            else:
+                time_str = "??:??"
+            
+            # Add sender icon
+            sender_icon = "🏠" if sender == "Host" else "👤"
+            if sender == "System":
+                sender_icon = "ℹ️"
+                
+            chat_line = f"{sender_icon} {sender} • {time_str}\n{message}\n\n"
             self.chat_display.insert(tk.END, chat_line)
             
         self.chat_display.see(tk.END)
@@ -974,14 +2158,14 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
             pass
             
         # Update GUI
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        self.status_label.config(text="Server Stopped")
+        self.start_server_btn.config(state=tk.NORMAL)
+        self.stop_server_btn.config(state=tk.DISABLED)
+        self.server_status_label.config(text="● Server Stopped")
         
         # Disable host controls
-        self.host_video_btn.config(state=tk.DISABLED)
-        self.host_audio_btn.config(state=tk.DISABLED)
-        self.host_present_btn.config(state=tk.DISABLED)
+        self.host_video_btn.config(state=tk.DISABLED, text="📹 Start Video")
+        self.host_audio_btn.config(state=tk.DISABLED, text="🎤 Start Audio")
+        self.host_present_btn.config(state=tk.DISABLED, text="🖥️ Present")
         self.chat_entry.config(state=tk.DISABLED)
         self.chat_send_btn.config(state=tk.DISABLED)
         
@@ -990,8 +2174,22 @@ Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         self.chat_display.delete(1.0, tk.END)
         self.chat_display.config(state=tk.DISABLED)
         
-        self.update_server_info()
-        self.update_clients_display()
+        # Reset video display
+        self.host_video_label.config(image="", 
+                                    text="📹 Host Video\n\nClick 'Start Server' to begin",
+                                    font=('Segoe UI', 14),
+                                    fg='#888888', bg='#000000')
+        
+        # Clear participants
+        if hasattr(self, 'participants_tree'):
+            for item in self.participants_tree.get_children():
+                self.participants_tree.delete(item)
+        if hasattr(self, 'detailed_participants_tree'):
+            for item in self.detailed_participants_tree.get_children():
+                self.detailed_participants_tree.delete(item)
+                
+        self.participants_count_label.config(text="👥 Participants: 0")
+        self.server_info_label.config(text="🌐 Server: Not Running")
         
         self.log_message("Server stopped")
         

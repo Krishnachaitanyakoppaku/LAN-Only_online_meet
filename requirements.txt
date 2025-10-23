@@ -1,19 +1,17 @@
-# LAN Communication System Requirements
+# LAN Communication System - Modern Interface Requirements
 
-# Core dependencies
+# Core dependencies for networking and media
 opencv-python>=4.8.0
 pillow>=10.0.0
 numpy>=1.24.0
 pyaudio>=0.2.11
 
-# GUI (included with Python)
+# GUI framework (included with Python)
 # tkinter - comes with Python standard library
 
 # Optional for enhanced features
 # mss>=9.0.1  # For screen capture
 # pydub>=0.25.1  # For audio processing
-# cryptography>=41.0.0  # For file encryption (future feature)
 
-# Development and testing
-# pytest>=7.4.0
-# pytest-cov>=4.1.0
+# Installation command:
+# pip install opencv-python pillow numpy pyaudio

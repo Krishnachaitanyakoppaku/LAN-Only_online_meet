@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LAN Communication Client
+LAN Communication Client - Modern Interface
 A comprehensive multi-user communication client for LAN environments
 
 Features:
@@ -22,7 +22,7 @@ import pyaudio
 import numpy as np
 from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, scrolledtext
+from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
 import io
 import base64
@@ -69,226 +69,361 @@ class LANCommunicationClient:
         self.setup_gui()
         
     def setup_gui(self):
-        """Initialize the client GUI"""
+        """Initialize the modern client GUI"""
         self.root = tk.Tk()
-        self.root.title("LAN Communication Client")
-        self.root.geometry("1200x800")
+        self.root.title("LAN Meeting")
+        self.root.geometry("1400x900")
+        self.root.minsize(1200, 800)
+        self.root.configure(bg='#1e1e1e')
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # Create main notebook for different sections
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Configure modern style
+        self.setup_modern_style()
         
-        # Connection tab
-        self.setup_connection_tab()
+        # Main container
+        self.main_container = tk.Frame(self.root, bg='#1e1e1e')
+        self.main_container.pack(fill=tk.BOTH, expand=True)
         
-        # Main communication tab
-        self.setup_communication_tab()
+        # Show connection screen initially
+        self.show_connection_screen()
         
-        # File sharing tab
-        self.setup_file_sharing_tab()
+    def setup_modern_style(self):
+        """Setup modern dark theme styling"""
+        style = ttk.Style()
+        style.theme_use('clam')
         
-    def setup_connection_tab(self):
-        """Setup the connection tab"""
-        conn_frame = ttk.Frame(self.notebook)
-        self.notebook.add(conn_frame, text="Connection")
+        # Configure colors for modern dark theme
+        style.configure('Modern.TFrame', background='#2d2d2d', relief='flat')
+        style.configure('Header.TFrame', background='#1e1e1e', relief='flat')
+        
+        # Modern buttons
+        style.configure('Modern.TButton',
+                       background='#0078d4',
+                       foreground='white',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(20, 10))
+        
+        # Modern labels
+        style.configure('Modern.TLabel',
+                       background='#2d2d2d',
+                       foreground='white',
+                       font=('Segoe UI', 10))
+        
+    def show_connection_screen(self):
+        """Show the connection screen"""
+        # Clear main container
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
+            
+        # Connection screen
+        conn_frame = tk.Frame(self.main_container, bg='#1e1e1e')
+        conn_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Center container
+        center_frame = tk.Frame(conn_frame, bg='#2d2d2d', padx=50, pady=50)
+        center_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        
+        # Title
+        title_label = tk.Label(center_frame, text="Join LAN Meeting", 
+                              font=('Segoe UI', 24, 'bold'), 
+                              fg='white', bg='#2d2d2d')
+        title_label.pack(pady=(0, 30))
         
         # Connection form
-        form_frame = ttk.LabelFrame(conn_frame, text="Connect to Server")
-        form_frame.pack(fill=tk.X, padx=20, pady=20)
-        
-        form_inner = ttk.Frame(form_frame)
-        form_inner.pack(padx=20, pady=20)
+        form_frame = tk.Frame(center_frame, bg='#2d2d2d')
+        form_frame.pack(pady=20)
         
         # Server IP
-        ttk.Label(form_inner, text="Server IP:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.server_ip_entry = ttk.Entry(form_inner, width=20)
-        self.server_ip_entry.grid(row=0, column=1, padx=5, pady=5)
+        tk.Label(form_frame, text="Server IP Address", 
+                font=('Segoe UI', 12), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 5))
+        
+        self.server_ip_entry = tk.Entry(form_frame, 
+                                       font=('Segoe UI', 12),
+                                       bg='#3d3d3d', fg='white',
+                                       relief='flat', borderwidth=0,
+                                       insertbackground='white',
+                                       width=30)
+        self.server_ip_entry.pack(pady=(0, 20), ipady=10)
         self.server_ip_entry.insert(0, "127.0.0.1")
         
         # Client name
-        ttk.Label(form_inner, text="Your Name:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.name_entry = ttk.Entry(form_inner, width=20)
-        self.name_entry.grid(row=1, column=1, padx=5, pady=5)
-        self.name_entry.insert(0, "User")
+        tk.Label(form_frame, text="Your Name", 
+                font=('Segoe UI', 12), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 5))
+        
+        self.name_entry = tk.Entry(form_frame, 
+                                  font=('Segoe UI', 12),
+                                  bg='#3d3d3d', fg='white',
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='white',
+                                  width=30)
+        self.name_entry.pack(pady=(0, 30), ipady=10)
+        self.name_entry.insert(0, "Participant")
         
         # Connect button
-        self.connect_btn = ttk.Button(form_inner, text="Connect", command=self.connect_to_server)
-        self.connect_btn.grid(row=2, column=0, columnspan=2, pady=10)
+        self.connect_btn = tk.Button(form_frame, text="🚀 Join Meeting", 
+                                    command=self.connect_to_server,
+                                    bg='#0078d4', fg='white', 
+                                    font=('Segoe UI', 14, 'bold'),
+                                    relief='flat', borderwidth=0,
+                                    padx=40, pady=15,
+                                    cursor='hand2')
+        self.connect_btn.pack(pady=10)
         
         # Status
-        self.conn_status_label = ttk.Label(form_inner, text="Not connected")
-        self.conn_status_label.grid(row=3, column=0, columnspan=2, pady=5)
+        self.conn_status_label = tk.Label(form_frame, text="Ready to connect", 
+                                         font=('Segoe UI', 10), 
+                                         fg='#888888', bg='#2d2d2d')
+        self.conn_status_label.pack(pady=(10, 0))
         
         # Instructions
         instructions = """
-Instructions:
-1. Make sure the server is running
-2. Enter the server's IP address
-3. Enter your name
-4. Click 'Connect'
+🌐 Connect to a LAN Meeting Server
 
-Features Available After Connection:
-• Video Conferencing with multiple participants
-• Audio Conferencing with real-time mixing
-• Screen/Slide Sharing (presenter mode)
-• Group Text Chat
-• File Sharing between participants
+• Make sure the server is running
+• Enter the server's IP address  
+• Enter your display name
+• Click 'Join Meeting' to connect
 
-Note: This application works only on LAN (Local Area Network)
+This application works on Local Area Network (LAN) only
         """
         
-        ttk.Label(conn_frame, text=instructions, justify=tk.LEFT).pack(pady=20)
+        tk.Label(center_frame, text=instructions, 
+                font=('Segoe UI', 10), 
+                fg='#888888', bg='#2d2d2d',
+                justify=tk.LEFT).pack(pady=(30, 0))
         
-    def setup_communication_tab(self):
-        """Setup the main communication tab"""
-        self.comm_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.comm_frame, text="Communication", state=tk.DISABLED)
+        # Add hover effect to connect button
+        def on_enter(event):
+            self.connect_btn.configure(bg='#106ebe')
+        def on_leave(event):
+            self.connect_btn.configure(bg='#0078d4')
+            
+        self.connect_btn.bind("<Enter>", on_enter)
+        self.connect_btn.bind("<Leave>", on_leave)
         
-        # Main container with paned window
-        main_paned = ttk.PanedWindow(self.comm_frame, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Bind Enter key to connect
+        self.root.bind('<Return>', lambda e: self.connect_to_server())
         
-        # Left panel for video and controls
-        left_panel = ttk.Frame(main_paned)
-        main_paned.add(left_panel, weight=3)
+    def show_meeting_screen(self):
+        """Show the main meeting interface"""
+        # Clear main container
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
+            
+        # Main meeting interface
+        meeting_frame = tk.Frame(self.main_container, bg='#1e1e1e')
+        meeting_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Video section
-        video_frame = ttk.LabelFrame(left_panel, text="Video Conference")
-        video_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        # Top header
+        self.create_meeting_header(meeting_frame)
         
-        # Main video area (presenter or main speaker)
-        self.main_video_frame = ttk.LabelFrame(video_frame, text="Main View")
-        self.main_video_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Main content area
+        content_area = tk.Frame(meeting_frame, bg='#1e1e1e')
+        content_area.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
         
-        self.main_video_label = ttk.Label(self.main_video_frame, text="No video feed")
+        # Video area
+        self.create_meeting_video_section(content_area)
+        
+        # Bottom controls
+        self.create_meeting_controls(content_area)
+        
+    def create_meeting_header(self, parent):
+        """Create meeting header"""
+        header = tk.Frame(parent, bg='#1e1e1e', height=70)
+        header.pack(fill=tk.X, padx=20, pady=(20, 0))
+        header.pack_propagate(False)
+        
+        # Left side - Meeting info
+        left_header = tk.Frame(header, bg='#1e1e1e')
+        left_header.pack(side=tk.LEFT, fill=tk.Y)
+        
+        meeting_title = tk.Label(left_header, text="LAN Meeting", 
+                                font=('Segoe UI', 18, 'bold'), 
+                                fg='white', bg='#1e1e1e')
+        meeting_title.pack(anchor=tk.W)
+        
+        self.meeting_status = tk.Label(left_header, text="● Connected", 
+                                      font=('Segoe UI', 11), 
+                                      fg='#51cf66', bg='#1e1e1e')
+        self.meeting_status.pack(anchor=tk.W, pady=(2, 0))
+        
+        # Right side - Leave button
+        right_header = tk.Frame(header, bg='#1e1e1e')
+        right_header.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.leave_btn = tk.Button(right_header, text="📞 Leave Meeting", 
+                                  command=self.disconnect,
+                                  bg='#d13438', fg='white', 
+                                  font=('Segoe UI', 11, 'bold'),
+                                  relief='flat', borderwidth=0,
+                                  padx=25, pady=12,
+                                  cursor='hand2')
+        self.leave_btn.pack(side=tk.RIGHT, pady=10)
+        
+    def create_meeting_video_section(self, parent):
+        """Create the video conference area"""
+        video_container = tk.Frame(parent, bg='#1e1e1e')
+        video_container.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+        
+        # Main video area
+        main_video_frame = tk.Frame(video_container, bg='#000000', relief='solid', bd=1)
+        main_video_frame.pack(fill=tk.BOTH, expand=True, padx=(0, 20))
+        
+        # Main video display
+        self.main_video_label = tk.Label(main_video_frame, 
+                                        text="🎥 Waiting for video...",
+                                        font=('Segoe UI', 16),
+                                        fg='#888888', bg='#000000')
         self.main_video_label.pack(expand=True)
         
-        # Participants video grid
-        participants_frame = ttk.LabelFrame(video_frame, text="Participants")
-        participants_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
-        
-        # Scrollable frame for participant videos
-        canvas = tk.Canvas(participants_frame, height=120)
-        scrollbar = ttk.Scrollbar(participants_frame, orient="horizontal", command=canvas.xview)
-        self.participants_scroll_frame = ttk.Frame(canvas)
-        
-        self.participants_scroll_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=self.participants_scroll_frame, anchor="nw")
-        canvas.configure(xscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="top", fill="both", expand=True)
-        scrollbar.pack(side="bottom", fill="x")
+        # Right sidebar
+        sidebar = tk.Frame(video_container, bg='#2d2d2d', width=350)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y)
+        sidebar.pack_propagate(False)
         
         # Your video preview
-        your_video_frame = ttk.LabelFrame(video_frame, text="Your Video")
-        your_video_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        self.create_your_video_section(sidebar)
         
-        self.your_video_label = ttk.Label(your_video_frame, text="Camera off")
-        self.your_video_label.pack(pady=5)
-        
-        # Controls
-        controls_frame = ttk.LabelFrame(left_panel, text="Controls")
-        controls_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        controls_inner = ttk.Frame(controls_frame)
-        controls_inner.pack(fill=tk.X, padx=10, pady=10)
-        
-        # Media controls
-        media_frame = ttk.Frame(controls_inner)
-        media_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.video_btn = ttk.Button(media_frame, text="Start Video", command=self.toggle_video)
-        self.video_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.audio_btn = ttk.Button(media_frame, text="Start Audio", command=self.toggle_audio)
-        self.audio_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # Presentation controls
-        present_frame = ttk.Frame(controls_inner)
-        present_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.present_btn = ttk.Button(present_frame, text="Start Presenting", command=self.toggle_presentation)
-        self.present_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        self.screen_share_btn = ttk.Button(present_frame, text="Share Screen", command=self.toggle_screen_share, state=tk.DISABLED)
-        self.screen_share_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
-        # Disconnect
-        self.disconnect_btn = ttk.Button(controls_inner, text="Disconnect", command=self.disconnect)
-        self.disconnect_btn.pack(side=tk.RIGHT)
-        
-        # Right panel for chat and participants
-        right_panel = ttk.Frame(main_paned)
-        main_paned.add(right_panel, weight=1)
-        
-        # Participants list
-        participants_list_frame = ttk.LabelFrame(right_panel, text="Participants")
-        participants_list_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        self.participants_listbox = tk.Listbox(participants_list_frame, height=6)
-        self.participants_listbox.pack(fill=tk.X, padx=5, pady=5)
+        # Participants section
+        self.create_meeting_participants_section(sidebar)
         
         # Chat section
-        chat_frame = ttk.LabelFrame(right_panel, text="Group Chat")
-        chat_frame.pack(fill=tk.BOTH, expand=True)
+        self.create_meeting_chat_section(sidebar)
+        
+    def create_your_video_section(self, parent):
+        """Create your video preview section"""
+        your_video_frame = tk.Frame(parent, bg='#2d2d2d')
+        your_video_frame.pack(fill=tk.X, padx=15, pady=15)
+        
+        # Header
+        tk.Label(your_video_frame, text="📹 Your Video", 
+                font=('Segoe UI', 12, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 10))
+        
+        # Video preview
+        preview_frame = tk.Frame(your_video_frame, bg='#000000', height=120)
+        preview_frame.pack(fill=tk.X)
+        preview_frame.pack_propagate(False)
+        
+        self.your_video_label = tk.Label(preview_frame, 
+                                        text="📹 Camera Off",
+                                        font=('Segoe UI', 10),
+                                        fg='#888888', bg='#000000')
+        self.your_video_label.pack(expand=True)
+        
+    def create_meeting_participants_section(self, parent):
+        """Create participants section"""
+        participants_frame = tk.Frame(parent, bg='#2d2d2d')
+        participants_frame.pack(fill=tk.X, padx=15, pady=(0, 15))
+        
+        # Header
+        header_frame = tk.Frame(participants_frame, bg='#2d2d2d')
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        tk.Label(header_frame, text="👥 Participants", 
+                font=('Segoe UI', 12, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(side=tk.LEFT)
+        
+        self.participant_count_label = tk.Label(header_frame, text="0", 
+                                               font=('Segoe UI', 11, 'bold'), 
+                                               fg='#0078d4', bg='#2d2d2d')
+        self.participant_count_label.pack(side=tk.RIGHT)
+        
+        # Participants list
+        self.participants_listbox = tk.Listbox(participants_frame, 
+                                              bg='#3d3d3d', fg='white',
+                                              selectbackground='#0078d4',
+                                              font=('Segoe UI', 9),
+                                              relief='flat', borderwidth=0,
+                                              height=6)
+        self.participants_listbox.pack(fill=tk.X)
+        
+    def create_meeting_chat_section(self, parent):
+        """Create chat section"""
+        chat_frame = tk.Frame(parent, bg='#2d2d2d')
+        chat_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        
+        # Chat header
+        tk.Label(chat_frame, text="💬 Group Chat", 
+                font=('Segoe UI', 12, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 10))
         
         # Chat display
-        self.chat_display = scrolledtext.ScrolledText(chat_frame, height=15, state=tk.DISABLED, wrap=tk.WORD)
-        self.chat_display.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.chat_display = tk.Text(chat_frame, 
+                                   bg='#3d3d3d', fg='white',
+                                   font=('Segoe UI', 9),
+                                   relief='flat', borderwidth=0,
+                                   wrap=tk.WORD, state=tk.DISABLED,
+                                   height=10)
+        self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # Chat input
-        chat_input_frame = ttk.Frame(chat_frame)
-        chat_input_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        input_frame = tk.Frame(chat_frame, bg='#2d2d2d')
+        input_frame.pack(fill=tk.X)
         
-        self.chat_entry = ttk.Entry(chat_input_frame)
-        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_entry = tk.Entry(input_frame, 
+                                  bg='#3d3d3d', fg='white',
+                                  font=('Segoe UI', 9),
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='white')
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.chat_entry.bind("<Return>", self.send_chat_message)
         
-        ttk.Button(chat_input_frame, text="Send", command=self.send_chat_message).pack(side=tk.RIGHT)
+        self.chat_send_btn = tk.Button(input_frame, text="Send", 
+                                      command=self.send_chat_message,
+                                      bg='#0078d4', fg='white', 
+                                      font=('Segoe UI', 9, 'bold'),
+                                      relief='flat', borderwidth=0,
+                                      padx=15, pady=6,
+                                      cursor='hand2')
+        self.chat_send_btn.pack(side=tk.RIGHT)
         
-    def setup_file_sharing_tab(self):
-        """Setup the file sharing tab"""
-        self.file_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.file_frame, text="File Sharing", state=tk.DISABLED)
+    def create_meeting_controls(self, parent):
+        """Create bottom meeting controls"""
+        controls_frame = tk.Frame(parent, bg='#2d2d2d', height=100)
+        controls_frame.pack(fill=tk.X, pady=(20, 0))
+        controls_frame.pack_propagate(False)
         
-        # Upload section
-        upload_frame = ttk.LabelFrame(self.file_frame, text="Share File")
-        upload_frame.pack(fill=tk.X, padx=10, pady=10)
+        # Center the controls
+        center_controls = tk.Frame(controls_frame, bg='#2d2d2d')
+        center_controls.pack(expand=True)
         
-        upload_inner = ttk.Frame(upload_frame)
-        upload_inner.pack(fill=tk.X, padx=10, pady=10)
+        # Media controls
+        media_frame = tk.Frame(center_controls, bg='#2d2d2d')
+        media_frame.pack(pady=20)
         
-        ttk.Button(upload_inner, text="Select File to Share", command=self.select_file_to_share).pack(side=tk.LEFT)
+        # Video button
+        self.video_btn = tk.Button(media_frame, text="📹\nVideo", 
+                                  command=self.toggle_video,
+                                  bg='#404040', fg='white', 
+                                  font=('Segoe UI', 10, 'bold'),
+                                  relief='flat', borderwidth=0,
+                                  width=8, height=3,
+                                  cursor='hand2')
+        self.video_btn.pack(side=tk.LEFT, padx=10)
         
-        self.selected_file_label = ttk.Label(upload_inner, text="No file selected")
-        self.selected_file_label.pack(side=tk.LEFT, padx=(10, 0))
+        # Audio button
+        self.audio_btn = tk.Button(media_frame, text="🎤\nAudio", 
+                                  command=self.toggle_audio,
+                                  bg='#404040', fg='white', 
+                                  font=('Segoe UI', 10, 'bold'),
+                                  relief='flat', borderwidth=0,
+                                  width=8, height=3,
+                                  cursor='hand2')
+        self.audio_btn.pack(side=tk.LEFT, padx=10)
         
-        # Available files section
-        files_frame = ttk.LabelFrame(self.file_frame, text="Available Files")
-        files_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
-        
-        # Files list
-        self.files_tree = ttk.Treeview(files_frame, columns=('Name', 'Size', 'Sender'), show='headings')
-        self.files_tree.heading('Name', text='File Name')
-        self.files_tree.heading('Size', text='Size')
-        self.files_tree.heading('Sender', text='Shared By')
-        
-        files_scrollbar = ttk.Scrollbar(files_frame, orient="vertical", command=self.files_tree.yview)
-        self.files_tree.configure(yscrollcommand=files_scrollbar.set)
-        
-        self.files_tree.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        files_scrollbar.pack(side="right", fill="y", pady=5)
-        
-        # Download button
-        download_frame = ttk.Frame(self.file_frame)
-        download_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        ttk.Button(download_frame, text="Download Selected File", command=self.download_selected_file).pack()
+        # Present button
+        self.present_btn = tk.Button(media_frame, text="🖥️\nPresent", 
+                                    command=self.toggle_presentation,
+                                    bg='#404040', fg='white', 
+                                    font=('Segoe UI', 10, 'bold'),
+                                    relief='flat', borderwidth=0,
+                                    width=8, height=3,
+                                    cursor='hand2')
+        self.present_btn.pack(side=tk.LEFT, padx=10)
         
     def connect_to_server(self):
         """Connect to the communication server"""
@@ -297,9 +432,12 @@ Note: This application works only on LAN (Local Area Network)
             self.client_name = self.name_entry.get().strip()
             
             if not self.server_host or not self.client_name:
-                messagebox.showerror("Error", "Please enter server IP and your name")
+                messagebox.showerror("Connection Error", "Please enter server IP and your name")
                 return
                 
+            self.conn_status_label.config(text="Connecting...", fg='#ffd43b')
+            self.connect_btn.config(state=tk.DISABLED)
+            
             # Create TCP socket
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.tcp_socket.connect((self.server_host, self.tcp_port))
@@ -323,22 +461,13 @@ Note: This application works only on LAN (Local Area Network)
             }
             self.send_tcp_message(join_msg)
             
-            # Update GUI
-            self.conn_status_label.config(text="Connected!")
-            self.connect_btn.config(state=tk.DISABLED)
-            self.server_ip_entry.config(state=tk.DISABLED)
-            self.name_entry.config(state=tk.DISABLED)
-            
-            # Enable communication tabs
-            self.notebook.tab(1, state=tk.NORMAL)
-            self.notebook.tab(2, state=tk.NORMAL)
-            self.notebook.select(1)
-            
-            messagebox.showinfo("Connected", "Successfully connected to the server!")
+            # Switch to meeting screen
+            self.show_meeting_screen()
             
         except Exception as e:
+            self.conn_status_label.config(text="Connection failed", fg='#ff6b6b')
+            self.connect_btn.config(state=tk.NORMAL)
             messagebox.showerror("Connection Error", f"Failed to connect: {str(e)}")
-            self.conn_status_label.config(text="Connection failed")
             
     def send_tcp_message(self, message):
         """Send TCP message to server"""
@@ -417,8 +546,7 @@ Note: This application works only on LAN (Local Area Network)
             
         elif msg_type == 'presenter_granted':
             self.is_presenter = True
-            self.root.after(0, lambda: self.present_btn.config(text="Stop Presenting"))
-            self.root.after(0, lambda: self.screen_share_btn.config(state=tk.NORMAL))
+            self.root.after(0, lambda: self.present_btn.config(text="🖥️\nPresenting", bg='#fd7e14'))
             self.root.after(0, lambda: self.add_chat_message("System", "You are now the presenter"))
             
         elif msg_type == 'presenter_denied':
@@ -433,8 +561,7 @@ Note: This application works only on LAN (Local Area Network)
         elif msg_type == 'presentation_stopped':
             if self.is_presenter:
                 self.is_presenter = False
-                self.root.after(0, lambda: self.present_btn.config(text="Start Presenting"))
-                self.root.after(0, lambda: self.screen_share_btn.config(state=tk.DISABLED))
+                self.root.after(0, lambda: self.present_btn.config(text="🖥️\nPresent", bg='#404040'))
             self.presenter_id = None
             self.root.after(0, lambda: self.add_chat_message("System", "Presentation stopped"))
             
@@ -445,7 +572,7 @@ Note: This application works only on LAN (Local Area Network)
                 self.clients_list[host_id]['video_enabled'] = message.get('video_enabled', False)
                 self.clients_list[host_id]['audio_enabled'] = message.get('audio_enabled', False)
                 self.root.after(0, self.update_participants_list)
-            
+                
     def udp_video_receiver(self):
         """Receive UDP video streams"""
         # This would handle incoming video streams from other clients
@@ -468,11 +595,11 @@ Note: This application works only on LAN (Local Area Network)
         try:
             self.video_cap = cv2.VideoCapture(0)
             if not self.video_cap.isOpened():
-                messagebox.showerror("Error", "Cannot access camera")
+                messagebox.showerror("Camera Error", "Cannot access camera")
                 return
                 
             self.video_enabled = True
-            self.video_btn.config(text="Stop Video")
+            self.video_btn.config(text="📹\nVideo On", bg='#51cf66')
             
             # Start video streaming thread
             threading.Thread(target=self.video_stream_loop, daemon=True).start()
@@ -482,19 +609,21 @@ Note: This application works only on LAN (Local Area Network)
             self.send_tcp_message(status_msg)
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start video: {str(e)}")
+            messagebox.showerror("Video Error", f"Failed to start video: {str(e)}")
             
     def stop_video(self):
         """Stop video capture and streaming"""
         self.video_enabled = False
-        self.video_btn.config(text="Start Video")
+        self.video_btn.config(text="📹\nVideo", bg='#404040')
         
         if self.video_cap:
             self.video_cap.release()
             self.video_cap = None
             
         # Clear video display
-        self.your_video_label.config(image="", text="Camera off")
+        self.your_video_label.config(image="", text="📹 Camera Off",
+                                    font=('Segoe UI', 10),
+                                    fg='#888888', bg='#000000')
         
         # Notify server
         status_msg = {'type': 'video_status', 'enabled': False}
@@ -509,7 +638,7 @@ Note: This application works only on LAN (Local Area Network)
                     break
                     
                 # Resize and display locally
-                display_frame = cv2.resize(frame, (200, 150))
+                display_frame = cv2.resize(frame, (200, 100))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 pil_image = Image.fromarray(display_frame_rgb)
                 photo = ImageTk.PhotoImage(pil_image)
@@ -557,7 +686,7 @@ Note: This application works only on LAN (Local Area Network)
             )
             
             self.audio_enabled = True
-            self.audio_btn.config(text="Stop Audio")
+            self.audio_btn.config(text="🎤\nMic On", bg='#51cf66')
             
             # Start audio streaming thread
             threading.Thread(target=self.audio_stream_loop, daemon=True).start()
@@ -567,12 +696,12 @@ Note: This application works only on LAN (Local Area Network)
             self.send_tcp_message(status_msg)
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start audio: {str(e)}")
+            messagebox.showerror("Audio Error", f"Failed to start audio: {str(e)}")
             
     def stop_audio(self):
         """Stop audio capture and streaming"""
         self.audio_enabled = False
-        self.audio_btn.config(text="Start Audio")
+        self.audio_btn.config(text="🎤\nAudio", bg='#404040')
         
         if self.audio_stream:
             self.audio_stream.stop_stream()
@@ -612,24 +741,6 @@ Note: This application works only on LAN (Local Area Network)
             stop_msg = {'type': 'stop_presenting'}
             self.send_tcp_message(stop_msg)
             
-    def toggle_screen_share(self):
-        """Toggle screen sharing"""
-        if not self.screen_sharing:
-            self.start_screen_share()
-        else:
-            self.stop_screen_share()
-            
-    def start_screen_share(self):
-        """Start screen sharing"""
-        self.screen_sharing = True
-        self.screen_share_btn.config(text="Stop Sharing")
-        # Implementation for screen capture and sharing
-        
-    def stop_screen_share(self):
-        """Stop screen sharing"""
-        self.screen_sharing = False
-        self.screen_share_btn.config(text="Share Screen")
-        
     def send_chat_message(self, event=None):
         """Send chat message"""
         message = self.chat_entry.get().strip()
@@ -643,8 +754,16 @@ Note: This application works only on LAN (Local Area Network)
             
     def add_chat_message(self, sender, message):
         """Add message to chat display"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        chat_line = f"[{timestamp}] {sender}: {message}\n"
+        timestamp = datetime.now().strftime("%H:%M")
+        
+        # Add sender icon
+        sender_icon = "🏠" if sender == "Host" else "👤"
+        if sender == "System":
+            sender_icon = "ℹ️"
+        elif sender == "You":
+            sender_icon = "👤"
+            
+        chat_line = f"{sender_icon} {sender} • {timestamp}\n{message}\n\n"
         
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.insert(tk.END, chat_line)
@@ -662,12 +781,20 @@ Note: This application works only on LAN (Local Area Network)
             message = msg.get('message', '')
             
             if timestamp:
-                time_obj = datetime.fromisoformat(timestamp)
-                time_str = time_obj.strftime("%H:%M:%S")
+                try:
+                    time_obj = datetime.fromisoformat(timestamp)
+                    time_str = time_obj.strftime("%H:%M")
+                except:
+                    time_str = "??:??"
             else:
-                time_str = "??:??:??"
+                time_str = "??:??"
+            
+            # Add sender icon
+            sender_icon = "🏠" if sender == "Host" else "👤"
+            if sender == "System":
+                sender_icon = "ℹ️"
                 
-            chat_line = f"[{time_str}] {sender}: {message}\n"
+            chat_line = f"{sender_icon} {sender} • {time_str}\n{message}\n\n"
             self.chat_display.insert(tk.END, chat_line)
             
         self.chat_display.see(tk.END)
@@ -683,16 +810,15 @@ Note: This application works only on LAN (Local Area Network)
         
         for client_id, client_info in sorted_participants:
             name = client_info.get('name', f'Client_{client_id}')
-            status = client_info.get('status', 'Unknown')
             
             # Add status indicators
-            status_indicators = []
+            status_icons = []
             if client_info.get('video_enabled'):
-                status_indicators.append("Video")
+                status_icons.append("📹")
             if client_info.get('audio_enabled'):
-                status_indicators.append("Audio")
-            if status_indicators:
-                status += f" ({', '.join(status_indicators)})"
+                status_icons.append("🎤")
+            if status_icons:
+                name += f" {' '.join(status_icons)}"
             
             if client_id == str(self.client_id):
                 name += " (You)"
@@ -701,25 +827,11 @@ Note: This application works only on LAN (Local Area Network)
             if client_id == str(self.presenter_id):
                 name += " [Presenter]"
                 
-            self.participants_listbox.insert(tk.END, f"{name} - {status}")
-            
-    def select_file_to_share(self):
-        """Select file to share"""
-        filename = filedialog.askopenfilename(
-            title="Select file to share",
-            filetypes=[("All files", "*.*")]
-        )
+            self.participants_listbox.insert(tk.END, name)
         
-        if filename:
-            self.selected_file_label.config(text=os.path.basename(filename))
-            # Implementation for file sharing
-            
-    def download_selected_file(self):
-        """Download selected file"""
-        selection = self.files_tree.selection()
-        if selection:
-            # Implementation for file download
-            pass
+        # Update participant count
+        total_participants = len(self.clients_list)
+        self.participant_count_label.config(text=str(total_participants))
             
     def disconnect(self):
         """Disconnect from server"""
@@ -743,22 +855,8 @@ Note: This application works only on LAN (Local Area Network)
         except:
             pass
             
-        # Reset GUI
-        self.notebook.tab(1, state=tk.DISABLED)
-        self.notebook.tab(2, state=tk.DISABLED)
-        self.notebook.select(0)
-        
-        self.connect_btn.config(state=tk.NORMAL)
-        self.server_ip_entry.config(state=tk.NORMAL)
-        self.name_entry.config(state=tk.NORMAL)
-        self.conn_status_label.config(text="Disconnected")
-        
-        # Clear displays
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.delete(1.0, tk.END)
-        self.chat_display.config(state=tk.DISABLED)
-        
-        self.participants_listbox.delete(0, tk.END)
+        # Show connection screen
+        self.show_connection_screen()
         
     def on_closing(self):
         """Handle window closing"""
