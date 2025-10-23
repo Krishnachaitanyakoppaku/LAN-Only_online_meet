@@ -36,6 +36,12 @@ class LANCommunicationServer:
         self.clients = {}  # {client_id: client_info}
         self.next_client_id = 1
         
+        # Host participant info
+        self.host_id = 0  # Server acts as participant with ID 0
+        self.host_name = "Host"
+        self.host_video_enabled = False
+        self.host_audio_enabled = False
+        
         # Sockets
         self.tcp_socket = None
         self.udp_video_socket = None
@@ -49,6 +55,11 @@ class LANCommunicationServer:
         # Threading
         self.client_threads = []
         self.message_queue = queue.Queue()
+        
+        # Media devices for Host
+        self.video_cap = None
+        self.audio_stream = None
+        self.audio = None
         
         # GUI
         self.setup_gui()
