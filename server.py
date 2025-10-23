@@ -22,6 +22,9 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import queue
+import cv2
+import pyaudio
+from PIL import Image, ImageTk
 
 class LANCommunicationServer:
     def __init__(self):
@@ -156,9 +159,38 @@ class LANCommunicationServer:
         self.clients_tree.pack(side="left", fill="both", expand=True)
         clients_scrollbar.pack(side="right", fill="y")
         
+        # Bottom section with chat and activity log
+        bottom_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        bottom_paned.pack(fill=tk.BOTH, expand=True)
+        
+        # Host chat section
+        chat_frame = ttk.LabelFrame(bottom_paned, text="Group Chat")
+        bottom_paned.add(chat_frame, weight=1)
+        
+        chat_inner = ttk.Frame(chat_frame)
+        chat_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.chat_display = tk.Text(chat_inner, height=8, state=tk.DISABLED, wrap=tk.WORD)
+        chat_scrollbar = ttk.Scrollbar(chat_inner, orient="vertical", command=self.chat_display.yview)
+        self.chat_display.configure(yscrollcommand=chat_scrollbar.set)
+        
+        self.chat_display.pack(side="left", fill="both", expand=True)
+        chat_scrollbar.pack(side="right", fill="y")
+        
+        # Chat input
+        chat_input_frame = ttk.Frame(chat_frame)
+        chat_input_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        self.chat_entry = ttk.Entry(chat_input_frame, state=tk.DISABLED)
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_entry.bind("<Return>", self.send_host_chat_message)
+        
+        self.chat_send_btn = ttk.Button(chat_input_frame, text="Send", command=self.send_host_chat_message, state=tk.DISABLED)
+        self.chat_send_btn.pack(side=tk.RIGHT)
+        
         # Activity log
-        log_frame = ttk.LabelFrame(main_frame, text="Activity Log")
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        log_frame = ttk.LabelFrame(bottom_paned, text="Activity Log")
+        bottom_paned.add(log_frame, weight=1)
         
         log_inner = ttk.Frame(log_frame)
         log_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -197,12 +229,13 @@ class LANCommunicationServer:
         """Update server information display"""
         if self.running:
             local_ip = self.get_local_ip()
+            total_participants = len(self.clients) + 1  # +1 for Host
             info = f"""Server Status: RUNNING
 Local IP: {local_ip}
 TCP Port: {self.tcp_port} (Control, Chat, Files)
 UDP Video Port: {self.udp_video_port}
 UDP Audio Port: {self.udp_audio_port}
-Connected Clients: {len(self.clients)}"""
+Total Participants: {total_participants} (Host + {len(self.clients)} clients)"""
         else:
             info = "Server Status: STOPPED"
             
@@ -244,6 +277,16 @@ Connected Clients: {len(self.clients)}"""
             
             self.log_message("Server started successfully")
             self.log_message(f"Listening on {self.get_local_ip()}:{self.tcp_port}")
+            
+            # Enable host controls
+            self.host_video_btn.config(state=tk.NORMAL)
+            self.host_audio_btn.config(state=tk.NORMAL)
+            self.host_present_btn.config(state=tk.NORMAL)
+            self.chat_entry.config(state=tk.NORMAL)
+            self.chat_send_btn.config(state=tk.NORMAL)
+            
+            # Add Host to the session
+            self.add_host_to_session()
             
             messagebox.showinfo("Server Started", 
                               f"Server is running on {self.get_local_ip()}:{self.tcp_port}")
@@ -340,13 +383,31 @@ Connected Clients: {len(self.clients)}"""
             self.clients[client_id]['status'] = 'Active'
             
             # Send welcome message and current session state
+            all_participants = {
+                str(self.host_id): {
+                    'name': self.host_name, 
+                    'status': 'Active',
+                    'video_enabled': self.host_video_enabled,
+                    'audio_enabled': self.host_audio_enabled
+                }
+            }
+            
+            # Add other clients
+            for cid, info in self.clients.items():
+                all_participants[str(cid)] = {
+                    'name': info['name'], 
+                    'status': info['status'],
+                    'video_enabled': info.get('video_enabled', False),
+                    'audio_enabled': info.get('audio_enabled', False)
+                }
+            
             welcome_msg = {
                 'type': 'welcome',
                 'client_id': client_id,
-                'clients': {cid: {'name': info['name'], 'status': info['status']} 
-                           for cid, info in self.clients.items()},
+                'clients': all_participants,
                 'chat_history': self.chat_history,
-                'presenter_id': self.presenter_id
+                'presenter_id': self.presenter_id,
+                'host_id': self.host_id
             }
             self.send_to_client(client_id, welcome_msg)
             
@@ -558,24 +619,344 @@ Connected Clients: {len(self.clients)}"""
         self.update_clients_display()
         self.update_server_info()
         
+    def add_host_to_session(self):
+        """Add Host as a participant in the session"""
+        # Add Host to chat history
+        host_join_msg = {
+            'type': 'chat',
+            'client_id': self.host_id,
+            'name': self.host_name,
+            'message': 'Host has joined the meeting',
+            'timestamp': datetime.now().isoformat()
+        }
+        self.chat_history.append(host_join_msg)
+        self.update_chat_display()
+        
+        self.log_message("Host joined the session as a participant")
+        
     def update_clients_display(self):
         """Update the clients display in GUI"""
         # Clear existing items
         for item in self.clients_tree.get_children():
             self.clients_tree.delete(item)
             
+        # Add Host first
+        host_status = "Active"
+        if self.host_video_enabled:
+            host_status += " (Video)"
+        if self.host_audio_enabled:
+            host_status += " (Audio)"
+        if self.presenter_id == self.host_id:
+            host_status += " [Presenter]"
+            
+        self.clients_tree.insert('', 'end', values=(
+            self.host_id,
+            self.host_name,
+            "Server",
+            host_status
+        ))
+            
         # Add current clients
         for client_id, client_info in self.clients.items():
+            status = client_info['status']
+            if client_info.get('video_enabled'):
+                status += " (Video)"
+            if client_info.get('audio_enabled'):
+                status += " (Audio)"
+            if self.presenter_id == client_id:
+                status += " [Presenter]"
+                
             self.clients_tree.insert('', 'end', values=(
                 client_id,
                 client_info['name'],
                 client_info['address'][0],
-                client_info['status']
+                status
             ))
             
+    def toggle_host_video(self):
+        """Toggle Host video on/off"""
+        if not self.host_video_enabled:
+            self.start_host_video()
+        else:
+            self.stop_host_video()
+            
+    def start_host_video(self):
+        """Start Host video"""
+        try:
+            self.video_cap = cv2.VideoCapture(0)
+            if not self.video_cap.isOpened():
+                messagebox.showerror("Error", "Cannot access camera")
+                return
+                
+            self.host_video_enabled = True
+            self.host_video_btn.config(text="Stop Video")
+            
+            # Start video streaming thread
+            threading.Thread(target=self.host_video_loop, daemon=True).start()
+            
+            # Notify clients about Host video status
+            self.broadcast_host_status_update()
+            self.update_clients_display()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start Host video: {str(e)}")
+            
+    def stop_host_video(self):
+        """Stop Host video"""
+        self.host_video_enabled = False
+        self.host_video_btn.config(text="Start Video")
+        
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+            
+        # Clear video display
+        self.host_video_label.config(image="", text="Host video off")
+        
+        # Notify clients
+        self.broadcast_host_status_update()
+        self.update_clients_display()
+        
+    def host_video_loop(self):
+        """Host video streaming loop"""
+        while self.host_video_enabled and self.video_cap:
+            try:
+                ret, frame = self.video_cap.read()
+                if not ret:
+                    break
+                    
+                # Resize and display locally
+                display_frame = cv2.resize(frame, (200, 150))
+                display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                
+                pil_image = Image.fromarray(display_frame_rgb)
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                self.root.after(0, lambda p=photo: self.update_host_video_display(p))
+                
+                # Broadcast to clients via UDP
+                self.broadcast_host_video_frame(frame)
+                
+                time.sleep(0.033)  # ~30 FPS
+                
+            except Exception as e:
+                print(f"Host video streaming error: {e}")
+                break
+                
+    def update_host_video_display(self, photo):
+        """Update Host video display"""
+        self.host_video_label.config(image=photo, text="")
+        self.host_video_label.image = photo
+        
+    def broadcast_host_video_frame(self, frame):
+        """Broadcast Host video frame to all clients"""
+        try:
+            # Compress frame
+            frame_resized = cv2.resize(frame, (640, 480))
+            _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            
+            # Create packet
+            sequence = int(time.time() * 1000) % (2**32)  # Use timestamp as sequence
+            packet = struct.pack('!III', self.host_id, sequence, len(encoded)) + encoded.tobytes()
+            
+            # Send to all clients
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_address = (client_info['address'][0], self.udp_video_port)
+                    self.udp_video_socket.sendto(packet, client_address)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error broadcasting Host video: {e}")
+            
+    def toggle_host_audio(self):
+        """Toggle Host audio on/off"""
+        if not self.host_audio_enabled:
+            self.start_host_audio()
+        else:
+            self.stop_host_audio()
+            
+    def start_host_audio(self):
+        """Start Host audio"""
+        try:
+            self.audio = pyaudio.PyAudio()
+            
+            # Audio configuration
+            chunk = 1024
+            format = pyaudio.paInt16
+            channels = 1
+            rate = 44100
+            
+            self.audio_stream = self.audio.open(
+                format=format,
+                channels=channels,
+                rate=rate,
+                input=True,
+                frames_per_buffer=chunk
+            )
+            
+            self.host_audio_enabled = True
+            self.host_audio_btn.config(text="Stop Audio")
+            
+            # Start audio streaming thread
+            threading.Thread(target=self.host_audio_loop, daemon=True).start()
+            
+            # Notify clients
+            self.broadcast_host_status_update()
+            self.update_clients_display()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start Host audio: {str(e)}")
+            
+    def stop_host_audio(self):
+        """Stop Host audio"""
+        self.host_audio_enabled = False
+        self.host_audio_btn.config(text="Start Audio")
+        
+        if self.audio_stream:
+            self.audio_stream.stop_stream()
+            self.audio_stream.close()
+            self.audio_stream = None
+            
+        if self.audio:
+            self.audio.terminate()
+            self.audio = None
+            
+        # Notify clients
+        self.broadcast_host_status_update()
+        self.update_clients_display()
+        
+    def host_audio_loop(self):
+        """Host audio streaming loop"""
+        while self.host_audio_enabled and self.audio_stream:
+            try:
+                # Read audio data
+                data = self.audio_stream.read(1024)
+                
+                # Broadcast to clients via UDP
+                self.broadcast_host_audio_data(data)
+                
+            except Exception as e:
+                print(f"Host audio streaming error: {e}")
+                break
+                
+    def broadcast_host_audio_data(self, audio_data):
+        """Broadcast Host audio data to all clients"""
+        try:
+            # Create packet
+            timestamp = int(time.time() * 1000) % (2**32)
+            packet = struct.pack('!II', self.host_id, timestamp) + audio_data
+            
+            # Send to all clients
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_address = (client_info['address'][0], self.udp_audio_port)
+                    self.udp_audio_socket.sendto(packet, client_address)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error broadcasting Host audio: {e}")
+            
+    def toggle_host_presentation(self):
+        """Toggle Host presentation mode"""
+        if self.presenter_id != self.host_id:
+            # Become presenter
+            if self.presenter_id is None:
+                self.presenter_id = self.host_id
+                self.host_present_btn.config(text="Stop Presenting")
+                
+                # Notify clients
+                presenter_notification = {
+                    'type': 'presenter_changed',
+                    'presenter_id': self.host_id,
+                    'presenter_name': self.host_name
+                }
+                self.broadcast_message(presenter_notification)
+                
+                self.log_message("Host became presenter")
+                self.update_clients_display()
+            else:
+                messagebox.showwarning("Presenter Active", "Another participant is currently presenting")
+        else:
+            # Stop presenting
+            self.presenter_id = None
+            self.host_present_btn.config(text="Start Presenting")
+            
+            stop_msg = {
+                'type': 'presentation_stopped',
+                'former_presenter': self.host_id
+            }
+            self.broadcast_message(stop_msg)
+            
+            self.log_message("Host stopped presenting")
+            self.update_clients_display()
+            
+    def send_host_chat_message(self, event=None):
+        """Send chat message from Host"""
+        message = self.chat_entry.get().strip()
+        if message:
+            chat_msg = {
+                'type': 'chat',
+                'client_id': self.host_id,
+                'name': self.host_name,
+                'message': message,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            self.chat_history.append(chat_msg)
+            self.broadcast_message(chat_msg)
+            self.update_chat_display()
+            
+            self.chat_entry.delete(0, tk.END)
+            self.log_message(f"Host chat: {message}")
+            
+    def update_chat_display(self):
+        """Update chat display with history"""
+        self.chat_display.config(state=tk.NORMAL)
+        self.chat_display.delete(1.0, tk.END)
+        
+        for msg in self.chat_history:
+            timestamp = msg.get('timestamp', '')
+            sender = msg.get('name', 'Unknown')
+            message = msg.get('message', '')
+            
+            if timestamp:
+                try:
+                    time_obj = datetime.fromisoformat(timestamp)
+                    time_str = time_obj.strftime("%H:%M:%S")
+                except:
+                    time_str = "??:??:??"
+            else:
+                time_str = "??:??:??"
+                
+            chat_line = f"[{time_str}] {sender}: {message}\n"
+            self.chat_display.insert(tk.END, chat_line)
+            
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+        
+    def broadcast_host_status_update(self):
+        """Broadcast Host status update to all clients"""
+        status_msg = {
+            'type': 'host_status_update',
+            'host_id': self.host_id,
+            'video_enabled': self.host_video_enabled,
+            'audio_enabled': self.host_audio_enabled,
+            'is_presenter': self.presenter_id == self.host_id
+        }
+        self.broadcast_message(status_msg)
+        
     def stop_server(self):
         """Stop the communication server"""
         self.running = False
+        
+        # Stop Host media
+        if self.host_video_enabled:
+            self.stop_host_video()
+        if self.host_audio_enabled:
+            self.stop_host_audio()
         
         # Disconnect all clients
         for client_id in list(self.clients.keys()):
@@ -596,6 +977,19 @@ Connected Clients: {len(self.clients)}"""
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.status_label.config(text="Server Stopped")
+        
+        # Disable host controls
+        self.host_video_btn.config(state=tk.DISABLED)
+        self.host_audio_btn.config(state=tk.DISABLED)
+        self.host_present_btn.config(state=tk.DISABLED)
+        self.chat_entry.config(state=tk.DISABLED)
+        self.chat_send_btn.config(state=tk.DISABLED)
+        
+        # Clear displays
+        self.chat_display.config(state=tk.NORMAL)
+        self.chat_display.delete(1.0, tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+        
         self.update_server_info()
         self.update_clients_display()
         

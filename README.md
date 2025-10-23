@@ -101,6 +101,8 @@ pip install -r requirements.txt
 python server.py
 ```
 - Click "Start Server" in the GUI
+- Server joins as "Host" participant automatically
+- Use Host controls to enable video/audio/presentation
 - Note the displayed IP address for clients to connect
 
 ### 3. Connect Clients
@@ -125,14 +127,23 @@ python client.py
    - Launch `server.py`
    - Click "Start Server"
    - Share the displayed IP address with participants
+   - Server automatically joins as "Host" participant
 
-2. **Monitoring Sessions**
-   - View connected clients in real-time
-   - Monitor activity logs
+2. **Host Participation**
+   - Enable/disable video with "Start/Stop Video"
+   - Enable/disable audio with "Start/Stop Audio"
+   - Request presenter role with "Start Presenting"
+   - Participate in group chat
+   - Host appears first in all participant lists
+
+3. **Monitoring Sessions**
+   - View all participants (including Host) in real-time
+   - Monitor activity logs and chat messages
    - Manage server resources
 
-3. **Stopping the Server**
+4. **Stopping the Server**
    - Click "Stop Server" to gracefully disconnect all clients
+   - Host automatically leaves the session
    - Close the application
 
 ### Client Operations

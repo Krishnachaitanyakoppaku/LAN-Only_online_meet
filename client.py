@@ -60,6 +60,7 @@ class LANCommunicationClient:
         self.clients_list = {}
         self.chat_history = []
         self.presenter_id = None
+        self.host_id = 0  # Server/Host ID
         
         # Threading
         self.running = False
@@ -388,6 +389,7 @@ Note: This application works only on LAN (Local Area Network)
             self.clients_list = message.get('clients', {})
             self.chat_history = message.get('chat_history', [])
             self.presenter_id = message.get('presenter_id')
+            self.host_id = message.get('host_id', 0)
             
             # Update GUI
             self.root.after(0, self.update_participants_list)
@@ -435,6 +437,14 @@ Note: This application works only on LAN (Local Area Network)
                 self.root.after(0, lambda: self.screen_share_btn.config(state=tk.DISABLED))
             self.presenter_id = None
             self.root.after(0, lambda: self.add_chat_message("System", "Presentation stopped"))
+            
+        elif msg_type == 'host_status_update':
+            # Update Host status in clients list
+            host_id = str(message.get('host_id', 0))
+            if host_id in self.clients_list:
+                self.clients_list[host_id]['video_enabled'] = message.get('video_enabled', False)
+                self.clients_list[host_id]['audio_enabled'] = message.get('audio_enabled', False)
+                self.root.after(0, self.update_participants_list)
             
     def udp_video_receiver(self):
         """Receive UDP video streams"""
@@ -667,12 +677,27 @@ Note: This application works only on LAN (Local Area Network)
         """Update participants list"""
         self.participants_listbox.delete(0, tk.END)
         
-        for client_id, client_info in self.clients_list.items():
+        # Sort participants with Host first
+        sorted_participants = sorted(self.clients_list.items(), 
+                                   key=lambda x: (int(x[0]) != getattr(self, 'host_id', 0), int(x[0])))
+        
+        for client_id, client_info in sorted_participants:
             name = client_info.get('name', f'Client_{client_id}')
             status = client_info.get('status', 'Unknown')
             
+            # Add status indicators
+            status_indicators = []
+            if client_info.get('video_enabled'):
+                status_indicators.append("Video")
+            if client_info.get('audio_enabled'):
+                status_indicators.append("Audio")
+            if status_indicators:
+                status += f" ({', '.join(status_indicators)})"
+            
             if client_id == str(self.client_id):
                 name += " (You)"
+            elif client_id == str(getattr(self, 'host_id', 0)):
+                name = f"🏠 {name}"  # Host indicator
             if client_id == str(self.presenter_id):
                 name += " [Presenter]"
                 
