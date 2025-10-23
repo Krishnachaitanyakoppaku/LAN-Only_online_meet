@@ -61,6 +61,7 @@ class LANCommunicationClient:
         self.chat_history = []
         self.presenter_id = None
         self.host_id = 0  # Server/Host ID
+        self.shared_files = {}  # {filename: file_info}
         
         # Threading
         self.running = False
@@ -293,6 +294,9 @@ This application works on Local Area Network (LAN) only
         # Chat section
         self.create_meeting_chat_section(sidebar)
         
+        # File sharing section
+        self.create_file_sharing_section(sidebar)
+        
     def create_your_video_section(self, parent):
         """Create your video preview section"""
         your_video_frame = tk.Frame(parent, bg='#2d2d2d')
@@ -381,6 +385,50 @@ This application works on Local Area Network (LAN) only
                                       cursor='hand2')
         self.chat_send_btn.pack(side=tk.RIGHT)
         
+    def create_file_sharing_section(self, parent):
+        """Create file sharing section"""
+        file_frame = tk.Frame(parent, bg='#2d2d2d')
+        file_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
+        
+        # File sharing header
+        tk.Label(file_frame, text="📁 File Sharing", 
+                font=('Segoe UI', 12, 'bold'), 
+                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 10))
+        
+        # Shared files list
+        files_list_frame = tk.Frame(file_frame, bg='#2d2d2d')
+        files_list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        self.shared_files_listbox = tk.Listbox(files_list_frame, 
+                                             bg='#3d3d3d', fg='white',
+                                             selectbackground='#0078d4',
+                                             font=('Segoe UI', 9),
+                                             relief='flat', borderwidth=0,
+                                             height=6)
+        self.shared_files_listbox.pack(fill=tk.BOTH, expand=True)
+        
+        # File sharing controls
+        file_controls_frame = tk.Frame(file_frame, bg='#2d2d2d')
+        file_controls_frame.pack(fill=tk.X)
+        
+        self.share_file_btn = tk.Button(file_controls_frame, text="📤 Share File", 
+                                       command=self.share_file,
+                                       bg='#0078d4', fg='white', 
+                                       font=('Segoe UI', 9, 'bold'),
+                                       relief='flat', borderwidth=0,
+                                       padx=10, pady=6,
+                                       cursor='hand2', state=tk.DISABLED)
+        self.share_file_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.download_file_btn = tk.Button(file_controls_frame, text="📥 Download", 
+                                          command=self.download_selected_file,
+                                          bg='#107c10', fg='white', 
+                                          font=('Segoe UI', 9, 'bold'),
+                                          relief='flat', borderwidth=0,
+                                          padx=10, pady=6,
+                                          cursor='hand2', state=tk.DISABLED)
+        self.download_file_btn.pack(side=tk.LEFT)
+        
     def create_meeting_controls(self, parent):
         """Create bottom meeting controls"""
         controls_frame = tk.Frame(parent, bg='#2d2d2d', height=100)
@@ -463,6 +511,10 @@ This application works on Local Area Network (LAN) only
             
             # Switch to meeting screen
             self.show_meeting_screen()
+            
+            # Enable file sharing controls
+            self.share_file_btn.config(state=tk.NORMAL)
+            self.download_file_btn.config(state=tk.NORMAL)
             
         except Exception as e:
             self.conn_status_label.config(text="Connection failed", fg='#ff6b6b')
@@ -572,6 +624,34 @@ This application works on Local Area Network (LAN) only
                 self.clients_list[host_id]['video_enabled'] = message.get('video_enabled', False)
                 self.clients_list[host_id]['audio_enabled'] = message.get('audio_enabled', False)
                 self.root.after(0, self.update_participants_list)
+                
+        elif msg_type == 'file_shared':
+            # New file shared
+            file_info = message.get('file_info', {})
+            if file_info:
+                self.shared_files[file_info['name']] = file_info
+                self.root.after(0, self.update_shared_files_list)
+                self.root.after(0, lambda: self.add_chat_message("System", f"File '{file_info['name']}' shared by {file_info['shared_by']}"))
+                
+        elif msg_type == 'file_removed':
+            # File removed
+            file_name = message.get('file_name')
+            if file_name in self.shared_files:
+                del self.shared_files[file_name]
+                self.root.after(0, self.update_shared_files_list)
+                self.root.after(0, lambda: self.add_chat_message("System", f"File '{file_name}' removed"))
+                
+        elif msg_type == 'files_cleared':
+            # All files cleared
+            self.shared_files.clear()
+            self.root.after(0, self.update_shared_files_list)
+            self.root.after(0, lambda: self.add_chat_message("System", "All shared files cleared"))
+            
+        elif msg_type == 'chat_history_cleared':
+            # Chat history cleared
+            self.chat_history.clear()
+            self.root.after(0, self.update_chat_display)
+            self.root.after(0, lambda: self.add_chat_message("System", "Chat history cleared by host"))
                 
     def udp_video_receiver(self):
         """Receive UDP video streams"""
@@ -832,6 +912,85 @@ This application works on Local Area Network (LAN) only
         # Update participant count
         total_participants = len(self.clients_list)
         self.participant_count_label.config(text=str(total_participants))
+        
+    def update_shared_files_list(self):
+        """Update shared files list"""
+        if hasattr(self, 'shared_files_listbox'):
+            self.shared_files_listbox.delete(0, tk.END)
+            
+            for file_name, file_info in self.shared_files.items():
+                size_mb = f"{file_info['size'] / (1024*1024):.2f} MB"
+                shared_by = file_info.get('shared_by', 'Unknown')
+                display_text = f"{file_name} ({size_mb}) - {shared_by}"
+                self.shared_files_listbox.insert(tk.END, display_text)
+                
+    def share_file(self):
+        """Share a file with the group"""
+        try:
+            filename = filedialog.askopenfilename(
+                title="Select file to share",
+                filetypes=[("All files", "*.*")]
+            )
+            
+            if filename:
+                file_info = {
+                    'name': os.path.basename(filename),
+                    'size': os.path.getsize(filename),
+                    'shared_by': self.client_name,
+                    'share_time': datetime.now().isoformat(),
+                    'downloads': 0,
+                    'path': filename
+                }
+                
+                # Send file info to server
+                share_msg = {
+                    'type': 'share_file',
+                    'file_info': file_info
+                }
+                self.send_tcp_message(share_msg)
+                
+                # Add to local list
+                self.shared_files[file_info['name']] = file_info
+                self.update_shared_files_list()
+                
+                self.add_chat_message("You", f"Shared file: {file_info['name']}")
+                
+        except Exception as e:
+            messagebox.showerror("File Share Error", f"Failed to share file: {str(e)}")
+            
+    def download_selected_file(self):
+        """Download selected file"""
+        selection = self.shared_files_listbox.curselection()
+        if selection:
+            file_name = list(self.shared_files.keys())[selection[0]]
+            file_info = self.shared_files[file_name]
+            
+            try:
+                # Open file dialog to choose download location
+                download_path = filedialog.asksaveasfilename(
+                    initialname=file_name,
+                    title="Save File As"
+                )
+                
+                if download_path:
+                    # Copy file to chosen location
+                    import shutil
+                    shutil.copy2(file_info['path'], download_path)
+                    
+                    # Notify server about download
+                    download_msg = {
+                        'type': 'file_downloaded',
+                        'file_name': file_name
+                    }
+                    self.send_tcp_message(download_msg)
+                    
+                    self.add_chat_message("You", f"Downloaded: {file_name}")
+                    messagebox.showinfo("Download Complete", f"File saved to {download_path}")
+                    
+            except Exception as e:
+                messagebox.showerror("Download Error", f"Failed to download file: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a file first")
             
     def disconnect(self):
         """Disconnect from server"""

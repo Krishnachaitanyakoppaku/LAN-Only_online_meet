@@ -312,13 +312,13 @@ class LANCommunicationServer:
                                          cursor='hand2', state=tk.DISABLED)
         self.host_present_btn.pack(side=tk.LEFT)
         
-        # Right panel - Participants and chat
-        right_panel = tk.Frame(content_frame, bg='#2d2d2d', width=400)
+        # Right panel - Participants, chat, and activity monitoring
+        right_panel = tk.Frame(content_frame, bg='#2d2d2d', width=450)
         right_panel.pack(side=tk.RIGHT, fill=tk.Y)
         right_panel.pack_propagate(False)
         
-        # Server info
-        info_frame = tk.LabelFrame(right_panel, text="📊 Server Info", 
+        # Server info and statistics
+        info_frame = tk.LabelFrame(right_panel, text="📊 Server Info & Statistics", 
                                   bg='#2d2d2d', fg='white',
                                   font=('Segoe UI', 12, 'bold'))
         info_frame.pack(fill=tk.X, padx=15, pady=15)
@@ -336,8 +336,18 @@ class LANCommunicationServer:
                                                 fg='white', bg='#2d2d2d')
         self.participants_count_label.pack(anchor=tk.W, pady=(5, 0))
         
-        # Participants list
-        participants_frame = tk.LabelFrame(right_panel, text="👥 Participants", 
+        self.chat_messages_count_label = tk.Label(info_inner, text="💬 Messages: 0", 
+                                                 font=('Segoe UI', 10), 
+                                                 fg='white', bg='#2d2d2d')
+        self.chat_messages_count_label.pack(anchor=tk.W, pady=(2, 0))
+        
+        self.files_shared_count_label = tk.Label(info_inner, text="📁 Files: 0", 
+                                                font=('Segoe UI', 10), 
+                                                fg='white', bg='#2d2d2d')
+        self.files_shared_count_label.pack(anchor=tk.W, pady=(2, 0))
+        
+        # Participants list with enhanced info
+        participants_frame = tk.LabelFrame(right_panel, text="👥 Active Participants", 
                                           bg='#2d2d2d', fg='white',
                                           font=('Segoe UI', 12, 'bold'))
         participants_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 10))
@@ -345,15 +355,16 @@ class LANCommunicationServer:
         participants_inner = tk.Frame(participants_frame, bg='#2d2d2d')
         participants_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # Enhanced participants listbox with more info
         self.participants_listbox = tk.Listbox(participants_inner, 
                                               bg='#3d3d3d', fg='white',
                                               selectbackground='#0078d4',
-                                              font=('Segoe UI', 10),
+                                              font=('Segoe UI', 9),
                                               relief='flat', borderwidth=0)
         self.participants_listbox.pack(fill=tk.BOTH, expand=True)
         
-        # Group chat
-        chat_frame = tk.LabelFrame(right_panel, text="💬 Group Chat", 
+        # Group chat with enhanced features
+        chat_frame = tk.LabelFrame(right_panel, text="💬 Group Chat & Activity", 
                                   bg='#2d2d2d', fg='white',
                                   font=('Segoe UI', 12, 'bold'))
         chat_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 15))
@@ -361,16 +372,16 @@ class LANCommunicationServer:
         chat_inner = tk.Frame(chat_frame, bg='#2d2d2d')
         chat_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Chat display
+        # Chat display with activity monitoring
         self.chat_display = tk.Text(chat_inner, 
                                    bg='#3d3d3d', fg='white',
                                    font=('Segoe UI', 9),
                                    relief='flat', borderwidth=0,
                                    wrap=tk.WORD, state=tk.DISABLED,
-                                   height=8)
+                                   height=10)
         self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
-        # Chat input
+        # Chat input with enhanced controls
         chat_input_frame = tk.Frame(chat_inner, bg='#2d2d2d')
         chat_input_frame.pack(fill=tk.X)
         
@@ -416,29 +427,54 @@ class LANCommunicationServer:
         self.settings_btn.bind("<Leave>", lambda e: on_leave(e, '#0078d4'))
         
     def open_settings(self):
-        """Open settings window"""
+        """Open comprehensive settings window"""
         settings_window = tk.Toplevel(self.root)
-        settings_window.title("Meeting Settings")
-        settings_window.geometry("600x500")
+        settings_window.title("Meeting Settings & Management")
+        settings_window.geometry("1000x700")
         settings_window.configure(bg='#2d2d2d')
         settings_window.transient(self.root)
         settings_window.grab_set()
         
-        # Settings content
-        settings_frame = tk.Frame(settings_window, bg='#2d2d2d')
-        settings_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # Create notebook for tabs
+        notebook = ttk.Notebook(settings_window)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        tk.Label(settings_frame, text="Meeting Settings", 
-                font=('Segoe UI', 16, 'bold'), 
-                fg='white', bg='#2d2d2d').pack(pady=(0, 20))
+        # General Settings Tab
+        self.create_general_settings_tab(notebook)
+        
+        # Participants Management Tab
+        self.create_participants_management_tab(notebook)
+        
+        # Chat Management Tab
+        self.create_chat_management_tab(notebook)
+        
+        # File Transfer Management Tab
+        self.create_file_management_tab(notebook)
+        
+        # Apply button
+        apply_frame = tk.Frame(settings_window, bg='#2d2d2d')
+        apply_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+        
+        tk.Button(apply_frame, text="💾 Apply All Settings", 
+                 command=lambda: self.apply_all_settings_and_close(settings_window),
+                 bg='#107c10', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=10,
+                 cursor='hand2').pack(side=tk.RIGHT)
+        
+    def create_general_settings_tab(self, notebook):
+        """Create general settings tab"""
+        general_frame = ttk.Frame(notebook)
+        notebook.add(general_frame, text="⚙️ General Settings")
         
         # General settings
-        general_frame = tk.LabelFrame(settings_frame, text="General Settings", 
-                                     bg='#2d2d2d', fg='white',
-                                     font=('Segoe UI', 12, 'bold'))
-        general_frame.pack(fill=tk.X, pady=(0, 15))
+        general_settings_frame = tk.LabelFrame(general_frame, text="Meeting Configuration", 
+                                              bg='#2d2d2d', fg='white',
+                                              font=('Segoe UI', 12, 'bold'))
+        general_settings_frame.pack(fill=tk.X, padx=15, pady=15)
         
-        general_inner = tk.Frame(general_frame, bg='#2d2d2d')
+        general_inner = tk.Frame(general_settings_frame, bg='#2d2d2d')
         general_inner.pack(fill=tk.X, padx=15, pady=15)
         
         # Max participants
@@ -454,10 +490,10 @@ class LANCommunicationServer:
         max_participants_spinbox.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
         
         # Permissions
-        permissions_frame = tk.LabelFrame(settings_frame, text="Participant Permissions", 
+        permissions_frame = tk.LabelFrame(general_frame, text="Participant Permissions", 
                                          bg='#2d2d2d', fg='white',
                                          font=('Segoe UI', 12, 'bold'))
-        permissions_frame.pack(fill=tk.X, pady=(0, 15))
+        permissions_frame.pack(fill=tk.X, padx=15, pady=(0, 15))
         
         permissions_inner = tk.Frame(permissions_frame, bg='#2d2d2d')
         permissions_inner.pack(fill=tk.X, padx=15, pady=15)
@@ -466,6 +502,8 @@ class LANCommunicationServer:
         self.allow_video_var = tk.BooleanVar(value=True)
         self.allow_audio_var = tk.BooleanVar(value=True)
         self.allow_chat_var = tk.BooleanVar(value=True)
+        self.allow_file_sharing_var = tk.BooleanVar(value=True)
+        self.allow_screen_share_var = tk.BooleanVar(value=True)
         
         tk.Checkbutton(permissions_inner, text="📹 Allow Video", variable=self.allow_video_var,
                       bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
@@ -479,33 +517,511 @@ class LANCommunicationServer:
                       bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
                       font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
         
-        # Apply button
-        tk.Button(settings_frame, text="💾 Apply Settings", 
-                 command=lambda: self.apply_settings_and_close(settings_window),
-                 bg='#107c10', fg='white', 
-                 font=('Segoe UI', 12, 'bold'),
-                 relief='flat', borderwidth=0,
-                 padx=25, pady=10,
-                 cursor='hand2').pack(pady=20)
+        tk.Checkbutton(permissions_inner, text="📁 Allow File Sharing", variable=self.allow_file_sharing_var,
+                      bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
+                      font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
         
-    def apply_settings_and_close(self, window):
-        """Apply settings and close window"""
+        tk.Checkbutton(permissions_inner, text="🖥️ Allow Screen Sharing", variable=self.allow_screen_share_var,
+                      bg='#2d2d2d', fg='white', selectcolor='#3d3d3d',
+                      font=('Segoe UI', 10), relief='flat', borderwidth=0).pack(anchor=tk.W, pady=2)
+        
+    def create_participants_management_tab(self, notebook):
+        """Create participants management tab"""
+        participants_frame = ttk.Frame(notebook)
+        notebook.add(participants_frame, text="👥 Participants")
+        
+        # Participants list with detailed info
+        participants_list_frame = tk.LabelFrame(participants_frame, text="Active Participants", 
+                                              bg='#2d2d2d', fg='white',
+                                              font=('Segoe UI', 12, 'bold'))
+        participants_list_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # Participants treeview
+        tree_frame = tk.Frame(participants_list_frame, bg='#2d2d2d')
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.detailed_participants_tree = ttk.Treeview(tree_frame, 
+                                                      columns=('ID', 'Name', 'IP', 'Join Time', 'Status', 'Video', 'Audio', 'Actions'), 
+                                                      show='headings',
+                                                      style='Modern.Treeview')
+        
+        # Configure columns
+        self.detailed_participants_tree.heading('ID', text='ID')
+        self.detailed_participants_tree.heading('Name', text='Name')
+        self.detailed_participants_tree.heading('IP', text='IP Address')
+        self.detailed_participants_tree.heading('Join Time', text='Join Time')
+        self.detailed_participants_tree.heading('Status', text='Status')
+        self.detailed_participants_tree.heading('Video', text='Video')
+        self.detailed_participants_tree.heading('Audio', text='Audio')
+        self.detailed_participants_tree.heading('Actions', text='Actions')
+        
+        self.detailed_participants_tree.column('ID', width=50)
+        self.detailed_participants_tree.column('Name', width=120)
+        self.detailed_participants_tree.column('IP', width=120)
+        self.detailed_participants_tree.column('Join Time', width=100)
+        self.detailed_participants_tree.column('Status', width=80)
+        self.detailed_participants_tree.column('Video', width=60)
+        self.detailed_participants_tree.column('Audio', width=60)
+        self.detailed_participants_tree.column('Actions', width=100)
+        
+        # Scrollbar for treeview
+        tree_scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", 
+                                      command=self.detailed_participants_tree.yview)
+        self.detailed_participants_tree.configure(yscrollcommand=tree_scrollbar.set)
+        
+        self.detailed_participants_tree.pack(side="left", fill="both", expand=True)
+        tree_scrollbar.pack(side="right", fill="y")
+        
+        # Participant management buttons
+        management_frame = tk.Frame(participants_list_frame, bg='#2d2d2d')
+        management_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Button(management_frame, text="🔇 Mute Selected", 
+                 command=self.mute_selected_participant,
+                 bg='#fd7e14', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(management_frame, text="📹 Disable Video", 
+                 command=self.disable_selected_video,
+                 bg='#fd7e14', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(management_frame, text="🖥️ Stop Presenting", 
+                 command=self.stop_selected_presenting,
+                 bg='#fd7e14', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(management_frame, text="❌ Remove Participant", 
+                 command=self.remove_selected_participant,
+                 bg='#d13438', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        # Bulk actions
+        bulk_frame = tk.Frame(participants_list_frame, bg='#2d2d2d')
+        bulk_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Button(bulk_frame, text="🔇 Mute All", 
+                 command=self.mute_all_participants,
+                 bg='#ff6b6b', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(bulk_frame, text="📹 Disable All Video", 
+                 command=self.disable_all_video,
+                 bg='#ff6b6b', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(bulk_frame, text="❌ Remove All", 
+                 command=self.remove_all_participants,
+                 bg='#d13438', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        # Update participants display
+        self.update_detailed_participants_display()
+        
+    def create_chat_management_tab(self, notebook):
+        """Create chat management tab"""
+        chat_frame = ttk.Frame(notebook)
+        notebook.add(chat_frame, text="💬 Chat Management")
+        
+        # Chat history and monitoring
+        chat_monitor_frame = tk.LabelFrame(chat_frame, text="Chat History & Monitoring", 
+                                          bg='#2d2d2d', fg='white',
+                                          font=('Segoe UI', 12, 'bold'))
+        chat_monitor_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # Chat display
+        chat_display_frame = tk.Frame(chat_monitor_frame, bg='#2d2d2d')
+        chat_display_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.chat_monitor_text = tk.Text(chat_display_frame, 
+                                        bg='#3d3d3d', fg='white',
+                                        font=('Segoe UI', 10),
+                                        relief='flat', borderwidth=0,
+                                        wrap=tk.WORD, state=tk.DISABLED,
+                                        height=15)
+        
+        chat_scrollbar = ttk.Scrollbar(chat_display_frame, orient="vertical", 
+                                      command=self.chat_monitor_text.yview)
+        self.chat_monitor_text.configure(yscrollcommand=chat_scrollbar.set)
+        
+        self.chat_monitor_text.pack(side="left", fill="both", expand=True)
+        chat_scrollbar.pack(side="right", fill="y")
+        
+        # Chat management controls
+        chat_controls_frame = tk.Frame(chat_monitor_frame, bg='#2d2d2d')
+        chat_controls_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Button(chat_controls_frame, text="📥 Export Chat Log", 
+                 command=self.export_chat_log,
+                 bg='#0078d4', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(chat_controls_frame, text="🗑️ Clear Chat History", 
+                 command=self.clear_chat_history,
+                 bg='#d13438', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(chat_controls_frame, text="📊 Chat Statistics", 
+                 command=self.show_chat_statistics,
+                 bg='#107c10', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        # Update chat display
+        self.update_chat_monitor_display()
+        
+    def create_file_management_tab(self, notebook):
+        """Create file management tab"""
+        file_frame = ttk.Frame(notebook)
+        notebook.add(file_frame, text="📁 File Management")
+        
+        # File sharing management
+        file_management_frame = tk.LabelFrame(file_frame, text="Shared Files Management", 
+                                             bg='#2d2d2d', fg='white',
+                                             font=('Segoe UI', 12, 'bold'))
+        file_management_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        # Files treeview
+        files_tree_frame = tk.Frame(file_management_frame, bg='#2d2d2d')
+        files_tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.files_tree = ttk.Treeview(files_tree_frame, 
+                                      columns=('Name', 'Size', 'Shared By', 'Share Time', 'Downloads'), 
+                                      show='headings',
+                                      style='Modern.Treeview')
+        
+        # Configure columns
+        self.files_tree.heading('Name', text='File Name')
+        self.files_tree.heading('Size', text='Size')
+        self.files_tree.heading('Shared By', text='Shared By')
+        self.files_tree.heading('Share Time', text='Share Time')
+        self.files_tree.heading('Downloads', text='Downloads')
+        
+        self.files_tree.column('Name', width=200)
+        self.files_tree.column('Size', width=100)
+        self.files_tree.column('Shared By', width=120)
+        self.files_tree.column('Share Time', width=120)
+        self.files_tree.column('Downloads', width=80)
+        
+        # Scrollbar for files treeview
+        files_scrollbar = ttk.Scrollbar(files_tree_frame, orient="vertical", 
+                                       command=self.files_tree.yview)
+        self.files_tree.configure(yscrollcommand=files_scrollbar.set)
+        
+        self.files_tree.pack(side="left", fill="both", expand=True)
+        files_scrollbar.pack(side="right", fill="y")
+        
+        # File management controls
+        file_controls_frame = tk.Frame(file_management_frame, bg='#2d2d2d')
+        file_controls_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Button(file_controls_frame, text="📤 Share File as Host", 
+                 command=self.share_file_as_host,
+                 bg='#0078d4', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(file_controls_frame, text="📥 Download Selected", 
+                 command=self.download_selected_file,
+                 bg='#107c10', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(file_controls_frame, text="🗑️ Remove Selected", 
+                 command=self.remove_selected_file,
+                 bg='#d13438', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(file_controls_frame, text="🗑️ Clear All Files", 
+                 command=self.clear_all_files,
+                 bg='#ff6b6b', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        # Update files display
+        self.update_files_display()
+        
+    def apply_all_settings_and_close(self, window):
+        """Apply all settings and close window"""
         try:
             # Update meeting settings
             self.meeting_settings.update({
                 'max_participants': int(self.max_participants_var.get()),
                 'allow_video': self.allow_video_var.get(),
                 'allow_audio': self.allow_audio_var.get(),
-                'allow_chat': self.allow_chat_var.get()
+                'allow_chat': self.allow_chat_var.get(),
+                'allow_file_sharing': self.allow_file_sharing_var.get(),
+                'allow_screen_share': self.allow_screen_share_var.get()
             })
             
-            self.log_message("Meeting settings updated successfully")
-            messagebox.showinfo("Settings Applied", "Meeting settings have been updated!")
+            self.log_message("All meeting settings updated successfully")
+            messagebox.showinfo("Settings Applied", "All meeting settings have been updated!")
             window.destroy()
             
         except Exception as e:
             self.log_message(f"Error applying settings: {str(e)}")
             messagebox.showerror("Settings Error", f"Failed to apply settings: {str(e)}")
+            
+    def update_detailed_participants_display(self):
+        """Update detailed participants display in settings"""
+        if hasattr(self, 'detailed_participants_tree'):
+            # Clear existing items
+            for item in self.detailed_participants_tree.get_children():
+                self.detailed_participants_tree.delete(item)
+            
+            # Add Host
+            self.detailed_participants_tree.insert('', 'end', values=(
+                self.host_id,
+                "Host",
+                "Server",
+                datetime.now().strftime("%H:%M:%S") if self.running else "N/A",
+                "Active",
+                "✅" if self.host_video_enabled else "❌",
+                "✅" if self.host_audio_enabled else "❌",
+                "Host Controls"
+            ))
+            
+            # Add clients
+            for client_id, client_info in self.clients.items():
+                self.detailed_participants_tree.insert('', 'end', values=(
+                    client_id,
+                    client_info['name'],
+                    client_info['address'][0],
+                    client_info.get('join_time', 'Unknown'),
+                    client_info['status'],
+                    "✅" if client_info.get('video_enabled') else "❌",
+                    "✅" if client_info.get('audio_enabled') else "❌",
+                    "Available"
+                ))
+                
+    def update_chat_monitor_display(self):
+        """Update chat monitor display"""
+        if hasattr(self, 'chat_monitor_text'):
+            self.chat_monitor_text.config(state=tk.NORMAL)
+            self.chat_monitor_text.delete(1.0, tk.END)
+            
+            for msg in self.chat_history:
+                timestamp = msg.get('timestamp', '')
+                sender = msg.get('name', 'Unknown')
+                message = msg.get('message', '')
+                
+                if timestamp:
+                    try:
+                        time_obj = datetime.fromisoformat(timestamp)
+                        time_str = time_obj.strftime("%H:%M:%S")
+                    except:
+                        time_str = "??:??:??"
+                else:
+                    time_str = "??:??:??"
+                
+                # Add sender icon
+                sender_icon = "🏠" if sender == "Host" else "👤"
+                if sender == "System":
+                    sender_icon = "ℹ️"
+                    
+                chat_line = f"[{time_str}] {sender_icon} {sender}: {message}\n"
+                self.chat_monitor_text.insert(tk.END, chat_line)
+                
+            self.chat_monitor_text.see(tk.END)
+            self.chat_monitor_text.config(state=tk.DISABLED)
+            
+    def export_chat_log(self):
+        """Export chat log to file"""
+        try:
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+                title="Export Chat Log"
+            )
+            
+            if filename:
+                with open(filename, 'w') as f:
+                    f.write("LAN Meeting Server - Chat Log\n")
+                    f.write("=" * 50 + "\n\n")
+                    
+                    for msg in self.chat_history:
+                        timestamp = msg.get('timestamp', '')
+                        sender = msg.get('name', 'Unknown')
+                        message = msg.get('message', '')
+                        
+                        if timestamp:
+                            try:
+                                time_obj = datetime.fromisoformat(timestamp)
+                                time_str = time_obj.strftime("%Y-%m-%d %H:%M:%S")
+                            except:
+                                time_str = timestamp
+                        else:
+                            time_str = "Unknown time"
+                            
+                        f.write(f"[{time_str}] {sender}: {message}\n")
+                        
+                self.log_message(f"Chat log exported to {filename}")
+                messagebox.showinfo("Export Complete", f"Chat log exported to {filename}")
+                
+        except Exception as e:
+            self.log_message(f"Error exporting chat log: {str(e)}")
+            messagebox.showerror("Export Error", f"Failed to export chat log: {str(e)}")
+            
+    def clear_chat_history(self):
+        """Clear chat history"""
+        if messagebox.askyesno("Confirm Clear", "Are you sure you want to clear all chat history?"):
+            try:
+                self.chat_history.clear()
+                self.update_chat_monitor_display()
+                self.update_chat_display()
+                
+                # Notify clients
+                clear_msg = {'type': 'chat_history_cleared'}
+                self.broadcast_message(clear_msg)
+                
+                self.log_message("Chat history cleared by host")
+                messagebox.showinfo("Chat Cleared", "Chat history has been cleared")
+            except Exception as e:
+                self.log_message(f"Error clearing chat history: {str(e)}")
+                
+    def show_chat_statistics(self):
+        """Show chat statistics"""
+        try:
+            total_messages = len(self.chat_history)
+            participants = {}
+            
+            for msg in self.chat_history:
+                sender = msg.get('name', 'Unknown')
+                if sender not in participants:
+                    participants[sender] = 0
+                participants[sender] += 1
+            
+            stats_window = tk.Toplevel(self.root)
+            stats_window.title("Chat Statistics")
+            stats_window.geometry("400x300")
+            stats_window.configure(bg='#2d2d2d')
+            stats_window.transient(self.root)
+            
+            stats_frame = tk.Frame(stats_window, bg='#2d2d2d')
+            stats_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+            
+            tk.Label(stats_frame, text="Chat Statistics", 
+                    font=('Segoe UI', 16, 'bold'), 
+                    fg='white', bg='#2d2d2d').pack(pady=(0, 20))
+            
+            tk.Label(stats_frame, text=f"Total Messages: {total_messages}", 
+                    font=('Segoe UI', 12), 
+                    fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=5)
+            
+            tk.Label(stats_frame, text=f"Active Participants: {len(participants)}", 
+                    font=('Segoe UI', 12), 
+                    fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=5)
+            
+            tk.Label(stats_frame, text="Messages per Participant:", 
+                    font=('Segoe UI', 12, 'bold'), 
+                    fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(20, 10))
+            
+            for sender, count in sorted(participants.items(), key=lambda x: x[1], reverse=True):
+                tk.Label(stats_frame, text=f"  {sender}: {count} messages", 
+                        font=('Segoe UI', 10), 
+                        fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=2)
+                
+        except Exception as e:
+            self.log_message(f"Error showing chat statistics: {str(e)}")
+            messagebox.showerror("Statistics Error", f"Failed to show statistics: {str(e)}")
+            
+    def download_selected_file(self):
+        """Download selected file"""
+        selection = self.files_tree.selection()
+        if selection:
+            item = self.files_tree.item(selection[0])
+            file_name = item['values'][0]
+            
+            if file_name in self.shared_files:
+                file_info = self.shared_files[file_name]
+                try:
+                    # Open file dialog to choose download location
+                    download_path = filedialog.asksaveasfilename(
+                        initialname=file_name,
+                        title="Save File As"
+                    )
+                    
+                    if download_path:
+                        # Copy file to chosen location
+                        import shutil
+                        shutil.copy2(file_info['path'], download_path)
+                        
+                        # Update download count
+                        file_info['downloads'] += 1
+                        self.update_files_display()
+                        
+                        self.log_message(f"File '{file_name}' downloaded to {download_path}")
+                        messagebox.showinfo("Download Complete", f"File saved to {download_path}")
+                        
+                except Exception as e:
+                    self.log_message(f"Error downloading file: {str(e)}")
+                    messagebox.showerror("Download Error", f"Failed to download file: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a file first")
+            
+    def remove_selected_file(self):
+        """Remove selected file"""
+        selection = self.files_tree.selection()
+        if selection:
+            item = self.files_tree.item(selection[0])
+            file_name = item['values'][0]
+            
+            if messagebox.askyesno("Confirm Removal", f"Remove file '{file_name}'?"):
+                try:
+                    if file_name in self.shared_files:
+                        del self.shared_files[file_name]
+                        self.update_files_display()
+                        
+                        # Notify clients
+                        remove_msg = {'type': 'file_removed', 'file_name': file_name}
+                        self.broadcast_message(remove_msg)
+                        
+                        self.log_message(f"File '{file_name}' removed by host")
+                        messagebox.showinfo("File Removed", f"File '{file_name}' has been removed")
+                        
+                except Exception as e:
+                    self.log_message(f"Error removing file: {str(e)}")
+                    messagebox.showerror("Removal Error", f"Failed to remove file: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a file first")
             
     def create_main_meeting_tab(self):
         """Create the main meeting interface tab"""
@@ -1383,6 +1899,30 @@ class LANCommunicationServer:
             }
             self.broadcast_message(status_msg, exclude=client_id)
             
+        elif msg_type == 'share_file':
+            # Client sharing a file
+            file_info = message.get('file_info', {})
+            if file_info:
+                self.shared_files[file_info['name']] = file_info
+                self.update_files_display()
+                
+                # Notify all clients
+                file_notification = {
+                    'type': 'file_shared',
+                    'file_info': file_info
+                }
+                self.broadcast_message(file_notification)
+                
+                self.log_message(f"File '{file_info['name']}' shared by {self.clients[client_id]['name']}")
+                
+        elif msg_type == 'file_downloaded':
+            # Client downloaded a file
+            file_name = message.get('file_name')
+            if file_name in self.shared_files:
+                self.shared_files[file_name]['downloads'] += 1
+                self.update_files_display()
+                self.log_message(f"File '{file_name}' downloaded by {self.clients[client_id]['name']}")
+            
         # Update last seen time
         self.clients[client_id]['last_seen'] = time.time()
         
@@ -1527,14 +2067,12 @@ class LANCommunicationServer:
         """Update the participants display in all tabs"""
         total_participants = len(self.clients) + 1  # +1 for Host
         
-        # Update main tab participants tree
-        if hasattr(self, 'participants_tree'):
-            # Clear existing items
-            for item in self.participants_tree.get_children():
-                self.participants_tree.delete(item)
+        # Update main participants listbox with enhanced info
+        if hasattr(self, 'participants_listbox'):
+            self.participants_listbox.delete(0, tk.END)
             
-            # Add Host first
-            host_status = "Active"
+            # Add Host first with enhanced status
+            host_status = "🏠 Host"
             if self.host_video_enabled:
                 host_status += " 📹"
             if self.host_audio_enabled:
@@ -1542,17 +2080,12 @@ class LANCommunicationServer:
             if self.presenter_id == self.host_id:
                 host_status += " [Presenter]"
             
-            join_time = datetime.now().strftime("%H:%M:%S") if self.running else "N/A"
-            self.participants_tree.insert('', 'end', values=(
-                "🏠 Host",
-                host_status,
-                join_time
-            ))
+            self.participants_listbox.insert(tk.END, host_status)
             
-            # Add current clients
+            # Add current clients with enhanced status
             for client_id, client_info in self.clients.items():
                 name = client_info['name']
-                status = "Active"
+                status = f"👤 {name}"
                 
                 if client_info.get('video_enabled'):
                     status += " 📹"
@@ -1561,12 +2094,10 @@ class LANCommunicationServer:
                 if self.presenter_id == client_id:
                     status += " [Presenter]"
                 
-                join_time = client_info.get('join_time', 'Unknown')
-                self.participants_tree.insert('', 'end', values=(
-                    f"👤 {name}",
-                    status,
-                    join_time
-                ))
+                # Add IP address for reference
+                status += f" ({client_info['address'][0]})"
+                
+                self.participants_listbox.insert(tk.END, status)
         
         # Update detailed participants tree
         if hasattr(self, 'detailed_participants_tree'):
@@ -1599,9 +2130,17 @@ class LANCommunicationServer:
                     "Available"
                 ))
         
-        # Update participant counts
+        # Update participant counts and statistics
         if hasattr(self, 'participants_count_label'):
             self.participants_count_label.config(text=f"👥 Participants: {total_participants}")
+        
+        # Update chat messages count
+        if hasattr(self, 'chat_messages_count_label'):
+            self.chat_messages_count_label.config(text=f"💬 Messages: {len(self.chat_history)}")
+        
+        # Update files shared count
+        if hasattr(self, 'files_shared_count_label'):
+            self.files_shared_count_label.config(text=f"📁 Files: {len(self.shared_files)}")
         
         # Update server info
         if self.running and hasattr(self, 'server_info_label'):
