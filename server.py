@@ -54,7 +54,9 @@ class LANCommunicationServer:
         self.host_id = 0  # Server acts as participant with ID 0
         self.host_name = "Host"
         self.host_video_enabled = False
-        self.host_audio_enabled = False
+        self.host_audio_enabled = False  # Keep for compatibility
+        self.host_microphone_enabled = False
+        self.host_speaker_enabled = True  # Speaker on by default
         self.host_screen_share_enabled = False
         
         # Sockets
@@ -1394,15 +1396,25 @@ class LANCommunicationServer:
                                        cursor='hand2', state=tk.DISABLED)
         self.host_video_btn.pack(side=tk.LEFT, padx=10)
         
-        # Audio button
-        self.host_audio_btn = tk.Button(media_frame, text="🎤\nAudio", 
-                                       command=self.toggle_host_audio,
-                                       bg='#404040', fg='white', 
-                                       font=('Segoe UI', 10, 'bold'),
-                                       relief='flat', borderwidth=0,
-                                       width=8, height=3,
-                                       cursor='hand2', state=tk.DISABLED)
-        self.host_audio_btn.pack(side=tk.LEFT, padx=10)
+        # Microphone button
+        self.host_mic_btn = tk.Button(media_frame, text="🎤\nMic", 
+                                     command=self.toggle_host_microphone,
+                                     bg='#404040', fg='white', 
+                                     font=('Segoe UI', 10, 'bold'),
+                                     relief='flat', borderwidth=0,
+                                     width=8, height=3,
+                                     cursor='hand2', state=tk.DISABLED)
+        self.host_mic_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Speaker button
+        self.host_speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker", 
+                                         command=self.toggle_host_speaker,
+                                         bg='#404040', fg='white', 
+                                         font=('Segoe UI', 10, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         width=8, height=3,
+                                         cursor='hand2', state=tk.DISABLED)
+        self.host_speaker_btn.pack(side=tk.LEFT, padx=5)
         
         # Present button
         self.host_present_btn = tk.Button(media_frame, text="🖥️\nPresent", 
@@ -1931,7 +1943,8 @@ class LANCommunicationServer:
             
             # Enable host controls
             self.host_video_btn.config(state=tk.NORMAL)
-            self.host_audio_btn.config(state=tk.NORMAL)
+            self.host_mic_btn.config(state=tk.NORMAL)
+            self.host_speaker_btn.config(state=tk.NORMAL)
             self.host_present_btn.config(state=tk.NORMAL)
             self.chat_entry.config(state=tk.NORMAL)
             self.chat_send_btn.config(state=tk.NORMAL)
@@ -2834,17 +2847,29 @@ class LANCommunicationServer:
         except Exception as e:
             print(f"Error broadcasting Host video: {e}")
             
-    def toggle_host_audio(self):
-        """Toggle Host audio on/off"""
-        if not self.host_audio_enabled:
-            self.start_host_audio()
+    def toggle_host_microphone(self):
+        """Toggle Host microphone on/off"""
+        if not self.host_microphone_enabled:
+            self.start_host_microphone()
         else:
-            self.stop_host_audio()
+            self.stop_host_microphone()
             
-    def start_host_audio(self):
-        """Start Host audio"""
+    def toggle_host_speaker(self):
+        """Toggle Host speaker on/off"""
+        if not self.host_speaker_enabled:
+            self.start_host_speaker()
+        else:
+            self.stop_host_speaker()
+            
+    def toggle_host_audio(self):
+        """Legacy method for compatibility - toggles microphone"""
+        self.toggle_host_microphone()
+            
+    def start_host_microphone(self):
+        """Start Host microphone"""
         try:
-            self.audio = pyaudio.PyAudio()
+            if not hasattr(self, 'audio') or not self.audio:
+                self.audio = pyaudio.PyAudio()
             
             # Audio configuration
             chunk = 1024
@@ -2861,17 +2886,9 @@ class LANCommunicationServer:
                 frames_per_buffer=chunk
             )
             
-            # Output stream for playing received audio
-            self.audio_output_stream = self.audio.open(
-                format=format,
-                channels=channels,
-                rate=rate,
-                output=True,
-                frames_per_buffer=chunk
-            )
-            
-            self.host_audio_enabled = True
-            self.host_audio_btn.config(text="🎤 Mic On", bg='#51cf66')
+            self.host_microphone_enabled = True
+            self.host_audio_enabled = True  # For compatibility
+            self.host_mic_btn.config(text="🎤\nMic On", bg='#28a745')
             
             # Start audio streaming thread
             threading.Thread(target=self.host_audio_loop, daemon=True).start()
@@ -2881,32 +2898,92 @@ class LANCommunicationServer:
             self.update_clients_display()
             
         except Exception as e:
-            messagebox.showerror("Audio Error", f"Failed to start Host audio: {str(e)}")
+            messagebox.showerror("Microphone Error", f"Failed to start Host microphone: {str(e)}")
             
-    def stop_host_audio(self):
-        """Stop Host audio with proper error handling"""
-        self.host_audio_enabled = False
-        self.host_audio_btn.config(text="🎤 Start Audio", bg='#404040')
+    def start_host_speaker(self):
+        """Start Host speaker"""
+        try:
+            if not hasattr(self, 'audio') or not self.audio:
+                self.audio = pyaudio.PyAudio()
+            
+            # Audio configuration
+            chunk = 1024
+            format = pyaudio.paInt16
+            channels = 1
+            rate = 44100
+            
+            # Output stream for playing received audio
+            self.audio_output_stream = self.audio.open(
+                format=format,
+                channels=channels,
+                rate=rate,
+                output=True,
+                frames_per_buffer=chunk
+            )
+            
+            self.host_speaker_enabled = True
+            self.host_speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
+            
+        except Exception as e:
+            messagebox.showerror("Speaker Error", f"Failed to start Host speaker: {str(e)}")
+            
+    def start_host_audio(self):
+        """Legacy method for compatibility - starts both mic and speaker"""
+        self.start_host_microphone()
+        if not self.host_speaker_enabled:
+            self.start_host_speaker()
+            
+    def stop_host_microphone(self):
+        """Stop Host microphone with proper error handling"""
+        self.host_microphone_enabled = False
+        self.host_mic_btn.config(text="🎤\nMic", bg='#404040')
         
-        if self.audio_stream:
+        if hasattr(self, 'audio_stream') and self.audio_stream:
             try:
                 if self.audio_stream.is_active():
                     self.audio_stream.stop_stream()
                 self.audio_stream.close()
             except Exception as e:
-                print(f"Error stopping host audio stream: {e}")
+                print(f"Error stopping host microphone stream: {e}")
             finally:
                 self.audio_stream = None
-            
+        
+        # Update compatibility flag
+        self.host_audio_enabled = self.host_microphone_enabled
+        
+        # Notify clients
+        self.broadcast_host_status_update()
+        self.update_clients_display()
+        
+    def stop_host_speaker(self):
+        """Stop Host speaker with proper error handling"""
+        self.host_speaker_enabled = False
+        self.host_speaker_btn.config(text="🔊\nSpeaker", bg='#404040')
+        
         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
             try:
                 if self.audio_output_stream.is_active():
                     self.audio_output_stream.stop_stream()
                 self.audio_output_stream.close()
             except Exception as e:
-                print(f"Error stopping host audio output stream: {e}")
+                print(f"Error stopping host speaker stream: {e}")
             finally:
                 self.audio_output_stream = None
+                
+    def stop_host_audio(self):
+        """Legacy method for compatibility - stops both mic and speaker"""
+        self.stop_host_microphone()
+        self.stop_host_speaker()
+        
+        # Clean up PyAudio if both are stopped
+        if not self.host_microphone_enabled and not self.host_speaker_enabled:
+            if hasattr(self, 'audio') and self.audio:
+                try:
+                    self.audio.terminate()
+                except Exception as e:
+                    print(f"Error terminating PyAudio: {e}")
+                finally:
+                    self.audio = None
             
         if self.audio:
             self.audio.terminate()
@@ -3067,62 +3144,7 @@ class LANCommunicationServer:
             'is_presenter': self.presenter_id == self.host_id
         }
         self.broadcast_message(status_msg)
-    def toggle_host_audio(self):
-        """Toggle Host audio on/off"""
-        if not self.host_audio_enabled:
-            self.start_host_audio()
-        else:
-            self.stop_host_audio()
-            
-    def start_host_audio(self):
-        """Start Host audio"""
-        try:
-            self.audio = pyaudio.PyAudio()
-            
-            # Audio configuration
-            chunk = 1024
-            format = pyaudio.paInt16
-            channels = 1
-            rate = 44100
-            
-            self.audio_stream = self.audio.open(
-                format=format,
-                channels=channels,
-                rate=rate,
-                input=True,
-                frames_per_buffer=chunk
-            )
-            
-            self.host_audio_enabled = True
-            self.host_audio_btn.config(text="🎤\nMic On", bg='#51cf66')
-            
-            # Start audio streaming thread
-            threading.Thread(target=self.host_audio_loop, daemon=True).start()
-            
-            # Notify clients
-            self.broadcast_host_status_update()
-            self.update_clients_display()
-            
-        except Exception as e:
-            messagebox.showerror("Audio Error", f"Failed to start Host audio: {str(e)}")
-            
-    def stop_host_audio(self):
-        """Stop Host audio"""
-        self.host_audio_enabled = False
-        self.host_audio_btn.config(text="🎤\nAudio", bg='#404040')
-        
-        if self.audio_stream:
-            self.audio_stream.stop_stream()
-            self.audio_stream.close()
-            self.audio_stream = None
-            
-        if self.audio:
-            self.audio.terminate()
-            self.audio = None
-            
-        # Notify clients
-        self.broadcast_host_status_update()
-        self.update_clients_display()
+
         
     def host_audio_loop(self):
         """Host audio streaming loop"""
@@ -3251,7 +3273,8 @@ class LANCommunicationServer:
         
         # Disable host controls
         self.host_video_btn.config(state=tk.DISABLED, text="📹 Start Video")
-        self.host_audio_btn.config(state=tk.DISABLED, text="🎤 Start Audio")
+        self.host_mic_btn.config(state=tk.DISABLED, text="🎤 Mic")
+        self.host_speaker_btn.config(state=tk.DISABLED, text="🔊 Speaker")
         self.host_present_btn.config(state=tk.DISABLED, text="🖥️ Present")
         if hasattr(self, 'host_stop_screen_btn'):
             self.host_stop_screen_btn.config(state=tk.DISABLED)

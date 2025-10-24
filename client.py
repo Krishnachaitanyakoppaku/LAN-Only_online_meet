@@ -66,7 +66,9 @@ class LANCommunicationClient:
         
         # Media state
         self.video_enabled = False
-        self.audio_enabled = False
+        self.audio_enabled = False  # Keep for compatibility
+        self.microphone_enabled = False
+        self.speaker_enabled = True  # Speaker on by default
         self.screen_sharing = False
         
         # Session data
@@ -798,15 +800,25 @@ class LANCommunicationClient:
                                   cursor='hand2')
         self.video_btn.pack(side=tk.LEFT, padx=10)
         
-        # Audio button
-        self.audio_btn = tk.Button(media_frame, text="🎤\nAudio", 
-                                  command=self.toggle_audio,
-                                  bg='#404040', fg='white', 
-                                  font=('Segoe UI', 10, 'bold'),
-                                  relief='flat', borderwidth=0,
-                                  width=8, height=3,
-                                  cursor='hand2')
-        self.audio_btn.pack(side=tk.LEFT, padx=10)
+        # Microphone button
+        self.mic_btn = tk.Button(media_frame, text="�\nMiAc", 
+                                command=self.toggle_microphone,
+                                bg='#404040', fg='white', 
+                                font=('Segoe UI', 10, 'bold'),
+                                relief='flat', borderwidth=0,
+                                width=8, height=3,
+                                cursor='hand2')
+        self.mic_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Speaker button
+        self.speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker", 
+                                    command=self.toggle_speaker,
+                                    bg='#404040', fg='white', 
+                                    font=('Segoe UI', 10, 'bold'),
+                                    relief='flat', borderwidth=0,
+                                    width=8, height=3,
+                                    cursor='hand2')
+        self.speaker_btn.pack(side=tk.LEFT, padx=5)
         
         # Present button
         self.present_btn = tk.Button(media_frame, text="🖥️\nPresent", 
@@ -883,7 +895,7 @@ class LANCommunicationClient:
                 self.root.after(1000, self.toggle_video)  # Start video after 1 second
                 
             if hasattr(self, 'join_with_audio') and self.join_with_audio.get():
-                self.root.after(1500, self.toggle_audio)  # Start audio after 1.5 seconds
+                self.root.after(1500, self.toggle_microphone)  # Start microphone after 1.5 seconds
             
         except socket.timeout:
             self.conn_status_label.config(text="❌ Connection timeout", fg='#dc3545')
@@ -1322,17 +1334,29 @@ class LANCommunicationClient:
         except Exception as e:
             print(f"Error sending video frame: {e}")
     
-    def toggle_audio(self):
-        """Toggle audio on/off"""
-        if not self.audio_enabled:
-            self.start_audio()
+    def toggle_microphone(self):
+        """Toggle microphone on/off"""
+        if not self.microphone_enabled:
+            self.start_microphone()
         else:
-            self.stop_audio()
+            self.stop_microphone()
             
-    def start_audio(self):
-        """Start audio capture and streaming"""
+    def toggle_speaker(self):
+        """Toggle speaker on/off"""
+        if not self.speaker_enabled:
+            self.start_speaker()
+        else:
+            self.stop_speaker()
+            
+    def toggle_audio(self):
+        """Legacy method for compatibility - toggles microphone"""
+        self.toggle_microphone()
+            
+    def start_microphone(self):
+        """Start microphone capture and streaming"""
         try:
-            self.audio = pyaudio.PyAudio()
+            if not hasattr(self, 'audio') or not self.audio:
+                self.audio = pyaudio.PyAudio()
             
             # Audio configuration
             chunk = 1024
@@ -1349,6 +1373,31 @@ class LANCommunicationClient:
                 frames_per_buffer=chunk
             )
             
+            self.microphone_enabled = True
+            self.audio_enabled = True  # For compatibility
+            self.mic_btn.config(text="🎤\nMic On", bg='#28a745')
+            
+            # Start audio streaming thread
+            threading.Thread(target=self.audio_stream_loop, daemon=True).start()
+            
+            # Notify server
+            self.send_media_status_update()
+            
+        except Exception as e:
+            messagebox.showerror("Microphone Error", f"Failed to start microphone: {str(e)}")
+            
+    def start_speaker(self):
+        """Start speaker for playing received audio"""
+        try:
+            if not hasattr(self, 'audio') or not self.audio:
+                self.audio = pyaudio.PyAudio()
+            
+            # Audio configuration
+            chunk = 1024
+            format = pyaudio.paInt16
+            channels = 1
+            rate = 44100
+            
             # Output stream for playing received audio
             self.audio_output_stream = self.audio.open(
                 format=format,
@@ -1358,51 +1407,68 @@ class LANCommunicationClient:
                 frames_per_buffer=chunk
             )
             
-            self.audio_enabled = True
-            self.audio_btn.config(text="🎤\nMic On", bg='#51cf66')
-            
-            # Start audio streaming thread
-            threading.Thread(target=self.audio_stream_loop, daemon=True).start()
-            
-            # Notify server
-            status_msg = {'type': 'audio_status', 'enabled': True}
-            self.send_tcp_message(status_msg)
+            self.speaker_enabled = True
+            self.speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
             
         except Exception as e:
-            messagebox.showerror("Audio Error", f"Failed to start audio: {str(e)}")
+            messagebox.showerror("Speaker Error", f"Failed to start speaker: {str(e)}")
             
-    def stop_audio(self):
-        """Stop audio capture and streaming"""
-        self.audio_enabled = False
-        self.audio_btn.config(text="🎤\nAudio", bg='#404040')
+    def start_audio(self):
+        """Legacy method for compatibility - starts both mic and speaker"""
+        self.start_microphone()
+        if not self.speaker_enabled:
+            self.start_speaker()
+            
+    def stop_microphone(self):
+        """Stop microphone capture and streaming"""
+        self.microphone_enabled = False
+        self.mic_btn.config(text="🎤\nMic", bg='#404040')
         
-        if self.audio_stream:
+        if hasattr(self, 'audio_stream') and self.audio_stream:
             try:
                 if self.audio_stream.is_active():
                     self.audio_stream.stop_stream()
                 self.audio_stream.close()
             except Exception as e:
-                print(f"Error stopping audio stream: {e}")
+                print(f"Error stopping microphone stream: {e}")
             finally:
                 self.audio_stream = None
-            
+        
+        # Update compatibility flag
+        self.audio_enabled = self.microphone_enabled
+        
+        # Notify server
+        self.send_media_status_update()
+        
+    def stop_speaker(self):
+        """Stop speaker output"""
+        self.speaker_enabled = False
+        self.speaker_btn.config(text="🔊\nSpeaker", bg='#404040')
+        
         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
             try:
                 if self.audio_output_stream.is_active():
                     self.audio_output_stream.stop_stream()
                 self.audio_output_stream.close()
             except Exception as e:
-                print(f"Error stopping audio output stream: {e}")
+                print(f"Error stopping speaker stream: {e}")
             finally:
                 self.audio_output_stream = None
-            
-        if self.audio:
-            self.audio.terminate()
-            self.audio = None
-            
-        # Notify server
-        status_msg = {'type': 'audio_status', 'enabled': False}
-        self.send_tcp_message(status_msg)
+                
+    def stop_audio(self):
+        """Legacy method for compatibility - stops both mic and speaker"""
+        self.stop_microphone()
+        self.stop_speaker()
+        
+        # Clean up PyAudio if both are stopped
+        if not self.microphone_enabled and not self.speaker_enabled:
+            if hasattr(self, 'audio') and self.audio:
+                try:
+                    self.audio.terminate()
+                except Exception as e:
+                    print(f"Error terminating PyAudio: {e}")
+                finally:
+                    self.audio = None
         
     def audio_stream_loop(self):
         """Audio streaming loop with error handling"""
@@ -1582,8 +1648,8 @@ class LANCommunicationClient:
             
     def handle_force_mute(self):
         """Handle force mute command from server"""
-        if self.audio_enabled:
-            self.stop_audio()
+        if self.microphone_enabled:
+            self.stop_microphone()
             messagebox.showwarning("Host Action", "Your microphone has been muted by the host")
             self.add_chat_message("System", "You have been muted by the host")
             
@@ -1613,8 +1679,8 @@ class LANCommunicationClient:
         response = messagebox.askyesno("Host Request", message + "\n\nWould you like to comply?")
         
         if response:
-            if request_type == 'audio' and not self.audio_enabled:
-                self.toggle_audio()
+            if request_type == 'audio' and not self.microphone_enabled:
+                self.toggle_microphone()
                 self.add_chat_message("System", "You enabled your microphone at host's request")
             elif request_type == 'video' and not self.video_enabled:
                 self.toggle_video()
@@ -1806,8 +1872,8 @@ class LANCommunicationClient:
             print(f"Error stopping video during disconnect: {e}")
             
         try:
-            if self.audio_enabled:
-                self.stop_audio()
+            if self.microphone_enabled or self.speaker_enabled:
+                self.stop_audio()  # This will stop both mic and speaker
         except Exception as e:
             print(f"Error stopping audio during disconnect: {e}")
             
