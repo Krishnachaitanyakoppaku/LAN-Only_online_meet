@@ -25,8 +25,15 @@ import queue
 import cv2
 import pyaudio
 from PIL import Image, ImageTk
-import mss
 import numpy as np
+
+# Optional imports
+try:
+    import mss
+    MSS_AVAILABLE = True
+except ImportError:
+    MSS_AVAILABLE = False
+    print("Warning: mss module not available. Screen sharing will be disabled.")
 
 class LANCommunicationServer:
     def __init__(self):
@@ -65,6 +72,9 @@ class LANCommunicationServer:
         # Video display
         self.current_photo = None
         self.video_frame_queue = queue.Queue(maxsize=2)
+        
+        # Permission requests
+        self.pending_requests = {}  # {client_id: {'audio': bool, 'video': bool, 'screen': bool}}
         self.file_transfer_logs = []
         self.meeting_settings = {
             'allow_video': True,
@@ -111,6 +121,9 @@ class LANCommunicationServer:
         
         # Start video display timer
         self.start_video_display_timer()
+        
+        # Initialize requests display
+        self.update_requests_display()
         
     def setup_modern_style(self):
         """Setup modern dark theme styling"""
@@ -600,6 +613,14 @@ class LANCommunicationServer:
                  padx=15, pady=8,
                  cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
         
+        tk.Button(management_frame, text="🚫 Force Stop Screen", 
+                 command=self.force_stop_screen_sharing,
+                 bg='#dc3545', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
         tk.Button(management_frame, text="❌ Remove Participant", 
                  command=self.remove_selected_participant,
                  bg='#d13438', fg='white', 
@@ -607,6 +628,54 @@ class LANCommunicationServer:
                  relief='flat', borderwidth=0,
                  padx=15, pady=8,
                  cursor='hand2').pack(side=tk.LEFT)
+        
+        # Second row for permission controls
+        permission_frame = tk.Frame(participants_list_frame, bg='#2d2d2d')
+        permission_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        tk.Button(permission_frame, text="🎤 Request Audio", 
+                 command=self.request_client_audio,
+                 bg='#28a745', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(permission_frame, text="📹 Request Video", 
+                 command=self.request_client_video,
+                 bg='#28a745', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(permission_frame, text="✅ Grant Permissions", 
+                 command=self.grant_client_permissions,
+                 bg='#17a2b8', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(permission_frame, text="❌ Deny Permissions", 
+                 command=self.deny_client_permissions,
+                 bg='#dc3545', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        # Pending requests section
+        requests_frame = tk.LabelFrame(participants_list_frame, text="🔔 Pending Permission Requests", 
+                                      bg='#2d2d2d', fg='white',
+                                      font=('Segoe UI', 11, 'bold'))
+        requests_frame.pack(fill=tk.X, padx=10, pady=(10, 0))
+        
+        self.requests_text = tk.Text(requests_frame, height=4, 
+                                    bg='#1e1e1e', fg='white',
+                                    font=('Segoe UI', 10),
+                                    state=tk.DISABLED)
+        self.requests_text.pack(fill=tk.X, padx=10, pady=10)
         
         # Bulk actions
         bulk_frame = tk.Frame(participants_list_frame, bg='#2d2d2d')
@@ -1543,6 +1612,183 @@ class LANCommunicationServer:
                     self.log_message(f"Error removing participant: {str(e)}")
         else:
             messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def request_client_audio(self):
+        """Request selected client to turn on audio"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if client_id == self.host_id:
+                messagebox.showwarning("Invalid Selection", "Cannot request from Host")
+                return
+                
+            # Send audio request to client
+            request_msg = {
+                'type': 'host_request',
+                'request_type': 'audio',
+                'message': f"Host is requesting you to turn on your microphone"
+            }
+            self.send_to_client(client_id, request_msg)
+            self.log_message(f"Requested audio from {client_name}")
+            messagebox.showinfo("Request Sent", f"Audio request sent to {client_name}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def request_client_video(self):
+        """Request selected client to turn on video"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if client_id == self.host_id:
+                messagebox.showwarning("Invalid Selection", "Cannot request from Host")
+                return
+                
+            # Send video request to client
+            request_msg = {
+                'type': 'host_request',
+                'request_type': 'video',
+                'message': f"Host is requesting you to turn on your camera"
+            }
+            self.send_to_client(client_id, request_msg)
+            self.log_message(f"Requested video from {client_name}")
+            messagebox.showinfo("Request Sent", f"Video request sent to {client_name}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def grant_client_permissions(self):
+        """Grant permissions to selected client"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if client_id == self.host_id:
+                messagebox.showwarning("Invalid Selection", "Cannot grant permissions to Host")
+                return
+            
+            if client_id in self.pending_requests:
+                # Grant all pending permissions
+                permissions = self.pending_requests[client_id]
+                grant_msg = {
+                    'type': 'permission_granted',
+                    'permissions': permissions,
+                    'message': f"Host has granted your permission requests"
+                }
+                self.send_to_client(client_id, grant_msg)
+                
+                # Remove from pending requests
+                del self.pending_requests[client_id]
+                self.update_requests_display()
+                
+                self.log_message(f"Granted permissions to {client_name}")
+                messagebox.showinfo("Permissions Granted", f"Permissions granted to {client_name}")
+            else:
+                messagebox.showinfo("No Requests", f"No pending requests from {client_name}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def deny_client_permissions(self):
+        """Deny permissions to selected client"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if client_id == self.host_id:
+                messagebox.showwarning("Invalid Selection", "Cannot deny permissions to Host")
+                return
+            
+            if client_id in self.pending_requests:
+                # Deny all pending permissions
+                deny_msg = {
+                    'type': 'permission_denied',
+                    'message': f"Host has denied your permission requests"
+                }
+                self.send_to_client(client_id, deny_msg)
+                
+                # Remove from pending requests
+                del self.pending_requests[client_id]
+                self.update_requests_display()
+                
+                self.log_message(f"Denied permissions to {client_name}")
+                messagebox.showinfo("Permissions Denied", f"Permissions denied to {client_name}")
+            else:
+                messagebox.showinfo("No Requests", f"No pending requests from {client_name}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def force_stop_screen_sharing(self):
+        """Force stop screen sharing for selected participant"""
+        selection = self.detailed_participants_tree.selection()
+        if selection:
+            item = self.detailed_participants_tree.item(selection[0])
+            client_id = int(item['values'][0])
+            client_name = item['values'][1]
+            
+            if client_id == self.host_id:
+                messagebox.showwarning("Invalid Selection", "Cannot force action on Host")
+                return
+                
+            # Send force stop screen sharing command
+            force_msg = {
+                'type': 'force_stop_screen_sharing',
+                'message': f"Host has stopped your screen sharing"
+            }
+            self.send_to_client(client_id, force_msg)
+            self.log_message(f"Forced stop screen sharing for {client_name}")
+            messagebox.showinfo("Action Sent", f"Screen sharing stop command sent to {client_name}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a participant first")
+    
+    def update_requests_display(self):
+        """Update the pending requests display"""
+        if hasattr(self, 'requests_text'):
+            self.requests_text.config(state=tk.NORMAL)
+            self.requests_text.delete(1.0, tk.END)
+            
+            if self.pending_requests:
+                for client_id, requests in self.pending_requests.items():
+                    client_name = self.clients.get(client_id, {}).get('name', f'Client {client_id}')
+                    request_types = []
+                    if requests.get('audio'):
+                        request_types.append('🎤 Audio')
+                    if requests.get('video'):
+                        request_types.append('📹 Video')
+                    if requests.get('screen'):
+                        request_types.append('🖥️ Screen Share')
+                    
+                    if request_types:
+                        self.requests_text.insert(tk.END, f"{client_name}: {', '.join(request_types)}\n")
+            else:
+                self.requests_text.insert(tk.END, "No pending requests")
+            
+            self.requests_text.config(state=tk.DISABLED)
+    
+    def handle_permission_request(self, client_id, request_type):
+        """Handle incoming permission request from client"""
+        if client_id not in self.pending_requests:
+            self.pending_requests[client_id] = {'audio': False, 'video': False, 'screen': False}
+        
+        self.pending_requests[client_id][request_type] = True
+        
+        client_name = self.clients.get(client_id, {}).get('name', f'Client {client_id}')
+        self.log_message(f"{client_name} requested {request_type} permission")
+        
+        # Update the requests display
+        self.update_requests_display()
+        
+        # Show notification to host
+        messagebox.showinfo("Permission Request", 
+                           f"{client_name} is requesting {request_type} permission.\n"
+                           f"Go to Settings > Participants to grant or deny.")
             
     def export_logs(self):
         """Export activity logs to file"""
@@ -1886,6 +2132,31 @@ class LANCommunicationServer:
                     'reason': 'Presenter role already taken'
                 }
                 self.send_to_client(client_id, denied_msg)
+        
+        elif msg_type == 'permission_request':
+            # Client requesting permission for audio/video/screen
+            request_type = message.get('request_type')  # 'audio', 'video', or 'screen'
+            if request_type in ['audio', 'video', 'screen']:
+                self.handle_permission_request(client_id, request_type)
+            
+        elif msg_type == 'force_action_response':
+            # Client responding to host's force action (like force mute/disable video)
+            action = message.get('action')
+            success = message.get('success', False)
+            client_name = self.clients[client_id]['name']
+            
+            if success:
+                self.log_message(f"{client_name} complied with host action: {action}")
+            else:
+                self.log_message(f"{client_name} failed to comply with host action: {action}")
+                
+        elif msg_type == 'media_status_update':
+            # Client updating their media status
+            if client_id in self.clients:
+                self.clients[client_id]['video_enabled'] = message.get('video_enabled', False)
+                self.clients[client_id]['audio_enabled'] = message.get('audio_enabled', False)
+                self.clients[client_id]['screen_share_enabled'] = message.get('screen_share_enabled', False)
+                self.update_clients_display()
                 
         elif msg_type == 'stop_presenting':
             # Stop presenting
@@ -2356,7 +2627,8 @@ class LANCommunicationServer:
     def update_video_display_from_queue(self):
         """Update video display from queue in main thread"""
         try:
-            # Check for screen sharing frames first (priority over video)
+            # Check for screen sharing frames first (priority over video for display)
+            screen_frame_displayed = False
             if self.host_screen_share_enabled:
                 try:
                     # Get screen frame from queue
@@ -2370,15 +2642,16 @@ class LANCommunicationServer:
                     if hasattr(self, 'host_video_label'):
                         self.host_video_label.configure(image=photo, text="")
                         self.host_video_label.image = photo  # Keep reference
-                        print("Screen sharing display updated successfully - Host can see their screen!")
+                        print("Screen sharing display updated successfully")
+                        screen_frame_displayed = True
                     else:
                         print("ERROR: host_video_label not found!")
                 except queue.Empty:
-                    # No screen frame available, skip this update
+                    # No screen frame available, try video instead
                     pass
             
-            # Check for video frames (only if screen sharing is not active)
-            elif self.host_video_enabled:
+            # Check for video frames (if no screen frame was displayed)
+            if not screen_frame_displayed and self.host_video_enabled:
                 try:
                     # Get frame from queue
                     frame_rgb = self.video_frame_queue.get_nowait()
@@ -2728,45 +3001,7 @@ class LANCommunicationServer:
         except Exception as e:
             print(f"Error broadcasting Host audio: {e}")
             
-    def toggle_host_presentation(self):
-        """Toggle Host presentation mode"""
-        if self.presenter_id != self.host_id:
-            # Become presenter
-            if self.presenter_id is None:
-                self.presenter_id = self.host_id
-                self.host_present_btn.config(text="🖥️\nPresenting", bg='#fd7e14')
-                
-                # Start screen sharing
-                self.start_host_screen_share()
-                
-                # Notify clients
-                presenter_notification = {
-                    'type': 'presenter_changed',
-                    'presenter_id': self.host_id,
-                    'presenter_name': self.host_name
-                }
-                self.broadcast_message(presenter_notification)
-                
-                self.log_message("Host became presenter")
-                self.update_clients_display()
-            else:
-                messagebox.showwarning("Presenter Active", "Another participant is currently presenting")
-        else:
-            # Stop presenting
-            self.presenter_id = None
-            self.host_present_btn.config(text="🖥️\nPresent", bg='#404040')
-            
-            # Stop screen sharing
-            self.stop_host_screen_share()
-            
-            stop_msg = {
-                'type': 'presentation_stopped',
-                'former_presenter': self.host_id
-            }
-            self.broadcast_message(stop_msg)
-            
-            self.log_message("Host stopped presenting")
-            self.update_clients_display()
+
             
     def send_host_chat_message(self, event=None):
         """Send chat message from Host"""
@@ -2904,19 +3139,20 @@ class LANCommunicationServer:
             print("Initializing screen sharing...")
             self.host_screen_share_enabled = True
             
-            # Stop video if it's running to prevent conflicts
-            if self.host_video_enabled:
-                print("Stopping video to start screen sharing...")
-                self.stop_host_video()
+            # Note: Video and audio can continue during screen sharing
             
             # Update host video label to show screen sharing status
             self.host_video_label.config(text="🖥️ Screen Sharing\n\nCapturing your screen...", 
                                        font=('Segoe UI', 14),
                                        fg='#888888', bg='#000000')
             
-            # Enable stop screen sharing button
+            # Enable stop screen sharing button and make it visible
             if hasattr(self, 'host_stop_screen_btn'):
-                self.host_stop_screen_btn.config(state=tk.NORMAL)
+                self.host_stop_screen_btn.config(state=tk.NORMAL, bg='#dc3545')
+                
+            # Update present button to show active state
+            if hasattr(self, 'host_present_btn'):
+                self.host_present_btn.config(text="🖥️ Stop Presenting", bg='#28a745')
             
             print("Starting screen sharing thread...")
             # Start screen sharing thread
@@ -2941,12 +3177,16 @@ class LANCommunicationServer:
             self.presenter_id = None
             self.host_present_btn.config(text="🖥️ Present", bg='#fd7e14')
         
-        # Disable stop screen sharing button
+        # Disable stop screen sharing button and reset color
         if hasattr(self, 'host_stop_screen_btn'):
-            self.host_stop_screen_btn.config(state=tk.DISABLED)
+            self.host_stop_screen_btn.config(state=tk.DISABLED, bg='#6c757d')
         
-        # Clear screen display
-        self.host_video_label.config(image="", text="Screen sharing stopped")
+        # Clear screen display only if video is not running
+        if not self.host_video_enabled:
+            self.host_video_label.config(image="", 
+                                        text="📹 Host Video\n\nClick 'Start Video' to begin",
+                                        font=('Segoe UI', 14),
+                                        fg='#888888', bg='#000000')
         
         # Notify clients that presentation stopped
         stop_msg = {
@@ -2974,12 +3214,16 @@ class LANCommunicationServer:
             from PIL import ImageGrab
             print("Using PIL ImageGrab for screen capture")
         except ImportError:
-            print("PIL ImageGrab not available, trying mss...")
-            try:
-                screen_capture = mss.mss()
-                print(f"Available monitors: {len(screen_capture.monitors)}")
-            except Exception as e:
-                print(f"Error creating screen capture: {e}")
+            if MSS_AVAILABLE:
+                print("PIL ImageGrab not available, trying mss...")
+                try:
+                    screen_capture = mss.mss()
+                    print(f"Available monitors: {len(screen_capture.monitors)}")
+                except Exception as e:
+                    print(f"Error creating screen capture: {e}")
+                    return
+            else:
+                print("Neither PIL ImageGrab nor mss available. Screen sharing disabled.")
                 return
         
         while self.host_screen_share_enabled:
@@ -2991,13 +3235,17 @@ class LANCommunicationServer:
                     frame_rgb = np.array(screenshot)
                     print(f"PIL ImageGrab captured: {frame_rgb.shape}")
                 except:
-                    # Fallback to mss if PIL fails
-                    if len(screen_capture.monitors) > 1:
-                        screenshot = screen_capture.grab(screen_capture.monitors[1])
+                    # Fallback to mss if PIL fails and mss is available
+                    if MSS_AVAILABLE and 'screen_capture' in locals():
+                        if len(screen_capture.monitors) > 1:
+                            screenshot = screen_capture.grab(screen_capture.monitors[1])
+                        else:
+                            screenshot = screen_capture.grab(screen_capture.monitors[0])
+                        frame = np.array(screenshot)
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
                     else:
-                        screenshot = screen_capture.grab(screen_capture.monitors[0])
-                    frame = np.array(screenshot)
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+                        print("No screen capture method available")
+                        break
                 
                 frame_count += 1
                 if frame_count % 10 == 1:  # Print every 10th frame to reduce spam
@@ -3036,7 +3284,7 @@ class LANCommunicationServer:
         
         # Clean up screen capture if using mss
         try:
-            if 'screen_capture' in locals():
+            if MSS_AVAILABLE and 'screen_capture' in locals():
                 screen_capture.close()
         except:
             pass

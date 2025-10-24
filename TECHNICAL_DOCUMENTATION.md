@@ -1,6 +1,7 @@
 # LAN Communication System - Technical Documentation
 
 ## Table of Contents
+
 1. [System Architecture](#system-architecture)
 2. [Communication Protocols](#communication-protocols)
 3. [Network Implementation](#network-implementation)
@@ -15,6 +16,7 @@
 ## System Architecture
 
 ### Overview
+
 The LAN Communication System follows a centralized client-server architecture designed for real-time multi-user communication within local area networks.
 
 ```
@@ -50,6 +52,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ### Core Components
 
 #### Server Components
+
 1. **Session Manager**: Handles client connections and session state
 2. **Message Router**: Routes messages between clients
 3. **Media Relay**: Processes and forwards video/audio streams
@@ -57,6 +60,7 @@ The LAN Communication System follows a centralized client-server architecture de
 5. **Client Registry**: Maintains client information and status
 
 #### Client Components
+
 1. **Connection Manager**: Handles server communication
 2. **Media Capture**: Video and audio input processing
 3. **Media Renderer**: Video and audio output processing
@@ -66,6 +70,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ## Communication Protocols
 
 ### Protocol Stack
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Application Layer                    │
@@ -90,6 +95,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ### Message Format
 
 #### TCP Messages (Control, Chat, Files)
+
 ```json
 {
   "type": "message_type",
@@ -102,6 +108,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ```
 
 #### UDP Video Packets
+
 ```
 ┌─────────────┬─────────────┬─────────────┬─────────────────┐
 │  Client ID  │  Sequence   │ Frame Size  │   Frame Data    │
@@ -110,6 +117,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ```
 
 #### UDP Audio Packets
+
 ```
 ┌─────────────┬─────────────┬─────────────────────────────────┐
 │  Client ID  │ Timestamp   │         Audio Data              │
@@ -120,23 +128,27 @@ The LAN Communication System follows a centralized client-server architecture de
 ### Message Types
 
 #### Control Messages
+
 - `join`: Client joining session
 - `leave`: Client leaving session
 - `heartbeat`: Keep-alive message
 - `status_update`: Client status change
 
 #### Chat Messages
+
 - `chat`: Text message
 - `chat_history`: Historical messages
 - `user_typing`: Typing indicator
 
 #### Media Messages
+
 - `video_status`: Video enable/disable
 - `audio_status`: Audio enable/disable
 - `video_frame`: Video frame data
 - `audio_chunk`: Audio data chunk
 
 #### Presentation Messages
+
 - `request_presenter`: Request presenter role
 - `presenter_granted`: Presenter role granted
 - `presenter_denied`: Presenter role denied
@@ -144,6 +156,7 @@ The LAN Communication System follows a centralized client-server architecture de
 - `stop_presenting`: Stop presentation
 
 #### File Messages
+
 - `file_offer`: Offer file for sharing
 - `file_request`: Request file download
 - `file_chunk`: File data chunk
@@ -152,6 +165,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ## Network Implementation
 
 ### Port Allocation
+
 - **TCP Port 8888**: Control messages, chat, file transfers
 - **UDP Port 8889**: Video streaming
 - **UDP Port 8890**: Audio streaming
@@ -159,6 +173,7 @@ The LAN Communication System follows a centralized client-server architecture de
 ### Connection Management
 
 #### Server Socket Initialization
+
 ```python
 # TCP Control Socket
 tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -176,6 +191,7 @@ udp_audio_socket.bind(('0.0.0.0', 8890))
 ```
 
 #### Client Connection Process
+
 1. **TCP Connection**: Establish control channel
 2. **Authentication**: Send client credentials
 3. **Session Join**: Receive session state
@@ -185,11 +201,13 @@ udp_audio_socket.bind(('0.0.0.0', 8890))
 ### Error Handling
 
 #### Connection Errors
+
 - **Timeout**: Implement connection timeouts
 - **Retry Logic**: Automatic reconnection attempts
 - **Graceful Degradation**: Continue with available features
 
 #### Network Errors
+
 - **Packet Loss**: UDP packet sequence tracking
 - **Bandwidth Issues**: Adaptive quality adjustment
 - **Latency Problems**: Buffer management
@@ -218,6 +236,7 @@ udp_socket.sendto(packet, server_address)
 ```
 
 #### Video Quality Adaptation
+
 - **Resolution Scaling**: Adjust based on bandwidth
 - **Frame Rate Control**: Dynamic FPS adjustment
 - **Compression Levels**: Quality vs. bandwidth trade-off
@@ -233,7 +252,7 @@ format = pyaudio.paInt16
 channels = 1
 rate = 44100
 
-stream = audio.open(format=format, channels=channels, 
+stream = audio.open(format=format, channels=channels,
                    rate=rate, input=True, frames_per_buffer=chunk)
 data = stream.read(chunk)
 
@@ -243,6 +262,7 @@ udp_socket.sendto(packet, server_address)
 ```
 
 #### Audio Processing Features
+
 - **Noise Reduction**: Basic noise filtering
 - **Echo Cancellation**: Prevent audio feedback
 - **Volume Normalization**: Consistent audio levels
@@ -251,6 +271,7 @@ udp_socket.sendto(packet, server_address)
 ### Screen Sharing
 
 #### Screen Capture Process
+
 ```python
 import mss
 
@@ -258,7 +279,7 @@ import mss
 with mss.mss() as sct:
     screenshot = sct.grab(sct.monitors[1])
     img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-    
+
 # Compression
 img.thumbnail((1024, 768), Image.Resampling.LANCZOS)
 buffer = io.BytesIO()
@@ -270,6 +291,7 @@ img.save(buffer, format='JPEG', quality=70)
 ### Transfer Protocol
 
 #### File Sharing Process
+
 1. **File Selection**: Client selects file to share
 2. **Metadata Exchange**: Send file information
 3. **Chunked Transfer**: Split file into chunks
@@ -277,6 +299,7 @@ img.save(buffer, format='JPEG', quality=70)
 5. **Integrity Check**: Verify file completeness
 
 #### Chunk Format
+
 ```
 ┌─────────────┬─────────────┬─────────────┬─────────────────┐
 │   File ID   │  Chunk ID   │ Chunk Size  │   Chunk Data    │
@@ -287,12 +310,14 @@ img.save(buffer, format='JPEG', quality=70)
 ### File Management
 
 #### Server-Side Storage
+
 - **Temporary Storage**: Files stored during session
 - **Metadata Tracking**: File information database
 - **Access Control**: Client permission management
 - **Cleanup**: Automatic file removal after session
 
 #### Client-Side Handling
+
 - **Upload Queue**: Manage multiple uploads
 - **Download Manager**: Handle concurrent downloads
 - **Progress Display**: Real-time transfer status
@@ -314,12 +339,14 @@ img.save(buffer, format='JPEG', quality=70)
 ### State Management
 
 #### Server State
+
 - **Client Registry**: Active client list
 - **Session State**: Current session information
 - **Presenter Status**: Current presenter information
 - **File Registry**: Available files list
 
 #### Client State
+
 - **Connection Status**: Network connection state
 - **Media Status**: Video/audio enable state
 - **UI State**: Current interface state
@@ -328,6 +355,7 @@ img.save(buffer, format='JPEG', quality=70)
 ### Heartbeat System
 
 #### Keep-Alive Mechanism
+
 ```python
 # Client heartbeat
 def send_heartbeat():
@@ -349,11 +377,13 @@ def check_client_timeouts():
 ### Network Security
 
 #### LAN-Only Operation
+
 - **No Internet Access**: All communication stays within LAN
 - **Network Isolation**: Prevents external access
 - **Firewall Configuration**: Proper port management
 
 #### Data Integrity
+
 - **TCP for Critical Data**: Reliable delivery for control messages
 - **Checksum Verification**: File transfer integrity
 - **Message Validation**: Input sanitization
@@ -361,6 +391,7 @@ def check_client_timeouts():
 ### Authentication
 
 #### Basic Client Authentication
+
 ```python
 def authenticate_client(client_socket, credentials):
     # Basic name-based identification
@@ -371,6 +402,7 @@ def authenticate_client(client_socket, credentials):
 ```
 
 #### Future Security Enhancements
+
 - **Encryption**: End-to-end message encryption
 - **Digital Signatures**: Message authenticity
 - **Access Control**: Role-based permissions
@@ -381,11 +413,13 @@ def authenticate_client(client_socket, credentials):
 ### Network Optimization
 
 #### Bandwidth Management
+
 - **Adaptive Bitrate**: Adjust quality based on network conditions
 - **Traffic Shaping**: Prioritize different data types
 - **Compression**: Efficient data encoding
 
 #### Latency Reduction
+
 - **UDP for Media**: Low-latency streaming
 - **Buffer Management**: Minimize buffering delays
 - **Local Processing**: Reduce server load
@@ -393,19 +427,21 @@ def authenticate_client(client_socket, credentials):
 ### Memory Management
 
 #### Client-Side Optimization
+
 ```python
 # Efficient frame processing
 def process_video_frame(frame):
     # Reuse buffers to reduce garbage collection
     if not hasattr(process_video_frame, 'buffer'):
         process_video_frame.buffer = np.empty((480, 640, 3), dtype=np.uint8)
-    
+
     # Process frame in-place
     cv2.resize(frame, (640, 480), dst=process_video_frame.buffer)
     return process_video_frame.buffer
 ```
 
 #### Server-Side Optimization
+
 - **Connection Pooling**: Reuse network connections
 - **Memory Pools**: Reduce allocation overhead
 - **Garbage Collection**: Minimize GC pressure
@@ -413,22 +449,24 @@ def process_video_frame(frame):
 ### CPU Optimization
 
 #### Multi-threading Strategy
+
 - **I/O Threads**: Separate network operations
 - **Processing Threads**: Dedicated media processing
 - **UI Thread**: Responsive user interface
 
 #### Resource Monitoring
+
 ```python
 import psutil
 
 def monitor_resources():
     cpu_percent = psutil.cpu_percent()
     memory_info = psutil.virtual_memory()
-    
+
     if cpu_percent > 80:
         # Reduce video quality
         adjust_video_quality(0.8)
-    
+
     if memory_info.percent > 85:
         # Trigger garbage collection
         gc.collect()
@@ -439,35 +477,37 @@ def monitor_resources():
 ### Server API
 
 #### Core Server Class
+
 ```python
 class LANCommunicationServer:
     def __init__(self):
         """Initialize server with default configuration"""
-        
+
     def start_server(self):
         """Start the communication server"""
-        
+
     def stop_server(self):
         """Stop the server and disconnect all clients"""
-        
+
     def broadcast_message(self, message, exclude=None):
         """Broadcast message to all connected clients"""
-        
+
     def send_to_client(self, client_id, message):
         """Send message to specific client"""
 ```
 
 #### Message Handling
+
 ```python
 def process_client_message(self, client_id, message):
     """Process incoming message from client"""
-    
+
 def handle_tcp_client(self, client_id):
     """Handle TCP communication with client"""
-    
+
 def handle_udp_video(self):
     """Handle UDP video streaming"""
-    
+
 def handle_udp_audio(self):
     """Handle UDP audio streaming"""
 ```
@@ -475,32 +515,34 @@ def handle_udp_audio(self):
 ### Client API
 
 #### Core Client Class
+
 ```python
 class LANCommunicationClient:
     def __init__(self):
         """Initialize client with default configuration"""
-        
+
     def connect_to_server(self):
         """Connect to communication server"""
-        
+
     def disconnect(self):
         """Disconnect from server"""
-        
+
     def send_tcp_message(self, message):
         """Send TCP message to server"""
 ```
 
 #### Media Control
+
 ```python
 def toggle_video(self):
     """Toggle video on/off"""
-    
+
 def toggle_audio(self):
     """Toggle audio on/off"""
-    
+
 def toggle_presentation(self):
     """Toggle presentation mode"""
-    
+
 def send_chat_message(self, message):
     """Send chat message"""
 ```
@@ -512,6 +554,7 @@ def send_chat_message(self, message):
 #### Connection Problems
 
 **Issue**: Cannot connect to server
+
 ```
 Symptoms: "Connection refused" error
 Causes:
@@ -529,6 +572,7 @@ Solutions:
 ```
 
 **Issue**: Frequent disconnections
+
 ```
 Symptoms: Clients randomly disconnect
 Causes:
@@ -546,6 +590,7 @@ Solutions:
 #### Media Problems
 
 **Issue**: No video display
+
 ```
 Symptoms: Black video area or error messages
 Causes:
@@ -562,6 +607,7 @@ Solutions:
 ```
 
 **Issue**: Audio not working
+
 ```
 Symptoms: No audio input/output
 Causes:
@@ -580,6 +626,7 @@ Solutions:
 #### Performance Issues
 
 **Issue**: High CPU usage
+
 ```
 Symptoms: System slowdown, high CPU in task manager
 Causes:
@@ -596,6 +643,7 @@ Solutions:
 ```
 
 **Issue**: Network lag
+
 ```
 Symptoms: Delayed video/audio, choppy playback
 Causes:
@@ -614,6 +662,7 @@ Solutions:
 ### Diagnostic Tools
 
 #### Built-in Diagnostics
+
 ```bash
 # Test system components
 python test_system.py
@@ -626,6 +675,7 @@ python install.py
 ```
 
 #### Network Diagnostics
+
 ```bash
 # Test connectivity
 ping server_ip
@@ -641,6 +691,7 @@ iperf3 -c server_ip
 ```
 
 #### System Diagnostics
+
 ```bash
 # Check system resources
 top
@@ -659,12 +710,14 @@ ps aux | grep python
 ### Log Analysis
 
 #### Server Logs
+
 - Connection events
 - Error messages
 - Performance metrics
 - Client activities
 
 #### Client Logs
+
 - Connection status
 - Media events
 - Error conditions
@@ -673,6 +726,7 @@ ps aux | grep python
 ### Recovery Procedures
 
 #### Server Recovery
+
 1. Stop server gracefully
 2. Check system resources
 3. Review error logs
@@ -680,6 +734,7 @@ ps aux | grep python
 5. Monitor stability
 
 #### Client Recovery
+
 1. Disconnect from server
 2. Check local resources
 3. Restart client application

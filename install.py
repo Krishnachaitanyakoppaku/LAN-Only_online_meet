@@ -88,7 +88,8 @@ def main():
         ("opencv-python", "cv2"),
         ("pillow", "PIL"),
         ("numpy", "numpy"),
-        ("pyaudio", "pyaudio")
+        ("pyaudio", "pyaudio"),
+        ("mss", "mss")  # For screen capture
     ]
     
     print("\n📦 Checking Dependencies:")
