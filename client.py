@@ -161,9 +161,9 @@ class LANCommunicationClient:
                         photo = ImageTk.PhotoImage(pil_image)
                         
                         # Update my video display with safety checks
-                        if hasattr(self, 'my_video_label') and self.my_video_label.winfo_exists():
-                            self.my_video_label.configure(image=photo, text="")
-                            self.my_video_label.image = photo  # Keep reference
+                        if hasattr(self, 'your_video_label') and self.your_video_label.winfo_exists():
+                            self.your_video_label.configure(image=photo, text="")
+                            self.your_video_label.image = photo  # Keep reference
                             
                 except queue.Empty:
                     # No video frame available, skip this update
@@ -1201,11 +1201,10 @@ This application works on Local Area Network (LAN) only
         """Run the client application"""
         self.root.mainloop()
 
-    def show_meeting_interface(self):
-        """Show the main meeting interface"""
-        # Clear main container
-        for widget in self.main_container.winfo_children():
-            widget.destroy()
+# Main execution
+if __name__ == "__main__":
+    client = LANCommunicationClient()
+    client.run()
             
         # Main meeting container
         meeting_frame = tk.Frame(self.main_container, bg='#1e1e1e')
@@ -1823,7 +1822,7 @@ This application works on Local Area Network (LAN) only
                 
             self.video_enabled = True
             self.video_btn.config(text="📹 Video On", bg='#28a745')
-            self.my_video_label.config(text="📹 My Video\n(On)")
+            self.your_video_label.config(text="📹 My Video\n(On)")
             
             # Start video streaming thread
             threading.Thread(target=self.video_loop, daemon=True).start()
@@ -1838,7 +1837,7 @@ This application works on Local Area Network (LAN) only
         """Stop video capture"""
         self.video_enabled = False
         self.video_btn.config(text="📹 Start Video", bg='#404040')
-        self.my_video_label.config(text="📹 My Video\n(Off)", image="")
+        self.your_video_label.config(text="📹 My Video\n(Off)", image="")
         
         if self.video_cap:
             self.video_cap.release()
@@ -1861,7 +1860,7 @@ This application works on Local Area Network (LAN) only
                     break
                 
                 # Resize and convert for display
-                display_frame = cv2.resize(frame, (120, 90))
+                display_frame = cv2.resize(frame, (320, 240))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
                 # Put frame in queue for local display
