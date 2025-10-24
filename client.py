@@ -1319,13 +1319,26 @@ class LANCommunicationClient:
         """Send video frame to server"""
         try:
             if hasattr(self, 'udp_video_socket') and self.connected and self.client_id is not None:
-                # Compress frame
-                frame_resized = cv2.resize(frame, (320, 240))
-                _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                # Compress frame with very small size and low quality for UDP transmission
+                frame_resized = cv2.resize(frame, (128, 96))  # Very small resolution for UDP
+                _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 20])  # Very low quality
+                
+                # Check packet size before sending (UDP has ~65KB limit, but we use much smaller)
+                if len(encoded) > 8000:  # 8KB limit to ensure no UDP issues
+                    # If still too large, reduce quality further
+                    _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 10])
+                    if len(encoded) > 8000:
+                        print(f"Frame still too large ({len(encoded)} bytes), skipping")
+                        return
                 
                 # Create packet
                 sequence = int(time.time() * 1000) % (2**32)
                 packet = struct.pack('!III', self.client_id, sequence, len(encoded)) + encoded.tobytes()
+                
+                # Final packet size check
+                if len(packet) > 65000:  # 65KB UDP limit
+                    print(f"Packet too large ({len(packet)} bytes), skipping")
+                    return
                 
                 # Send to server
                 self.udp_video_socket.sendto(packet, (self.server_host, self.udp_video_port))
