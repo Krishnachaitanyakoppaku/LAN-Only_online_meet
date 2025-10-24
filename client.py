@@ -152,33 +152,41 @@ class LANCommunicationClient:
                 except Exception as e:
                     print(f"Screen frame error: {e}")
             
-            # Check for video frames
+            # Process ALL video frames in queue (not just one)
             if hasattr(self, 'video_frame_queue'):
-                try:
-                    # Get frame from queue with timeout
-                    frame_data = self.video_frame_queue.get_nowait()
-                    
-                    # Handle both old format (just frame) and new format (client_id, frame)
-                    if isinstance(frame_data, tuple) and len(frame_data) == 2:
-                        client_id, frame_rgb = frame_data
-                        # Convert None to "self" for backward compatibility
-                        if client_id is None:
-                            client_id = "self"
-                    else:
-                        # Old format - just the frame (local video)
-                        frame_rgb = frame_data
-                        client_id = "self"  # Local video
-                    
-                    # Validate frame data
-                    if frame_rgb is not None and frame_rgb.size > 0:
-                        # Update the appropriate video slot
-                        self.update_video_slot(client_id, frame_rgb)
-                            
-                except queue.Empty:
-                    # No video frame available, skip this update
-                    pass
-                except Exception as e:
-                    print(f"Video frame error: {e}")
+                frames_processed = 0
+                while frames_processed < 10:  # Limit to prevent infinite loop
+                    try:
+                        # Get frame from queue with timeout
+                        frame_data = self.video_frame_queue.get_nowait()
+                        
+                        # Handle both old format (just frame) and new format (client_id, frame)
+                        if isinstance(frame_data, tuple) and len(frame_data) == 2:
+                            client_id, frame_rgb = frame_data
+                            # Convert None to "self" for backward compatibility
+                            if client_id is None:
+                                client_id = "self"
+                        else:
+                            # Old format - just the frame (local video)
+                            frame_rgb = frame_data
+                            client_id = "self"  # Local video
+                        
+                        # Validate frame data
+                        if frame_rgb is not None and frame_rgb.size > 0:
+                            # Update the appropriate video slot
+                            self.update_video_slot(client_id, frame_rgb)
+                            frames_processed += 1
+                            print(f"Processed video frame from {client_id}")
+                                
+                    except queue.Empty:
+                        # No more video frames available
+                        break
+                    except Exception as e:
+                        print(f"Video frame error: {e}")
+                        break
+                
+                if frames_processed > 0:
+                    print(f"Processed {frames_processed} video frames this cycle")
                     
         except Exception as e:
             print(f"Critical display error: {e}")
@@ -1417,16 +1425,17 @@ class LANCommunicationClient:
                             
                             # Put frame in queue for display
                             try:
-                                # Clear old frames if queue is full
-                                while self.video_frame_queue.qsize() > 1:
-                                    try:
-                                        self.video_frame_queue.get_nowait()
-                                    except queue.Empty:
-                                        break
+                                # Don't clear other participants' frames - just add ours
                                 self.video_frame_queue.put_nowait((client_id, frame_rgb))
-                                print(f"Video frame from {client_id} queued for display")
+                                print(f"Video frame from {client_id} queued - queue size: {self.video_frame_queue.qsize()}")
                             except queue.Full:
-                                pass  # Skip frame if queue is full
+                                # If queue is full, remove oldest frame and add new one
+                                try:
+                                    self.video_frame_queue.get_nowait()
+                                    self.video_frame_queue.put_nowait((client_id, frame_rgb))
+                                    print(f"Queue was full, replaced oldest frame with frame from {client_id}")
+                                except queue.Empty:
+                                    pass
                         else:
                             print(f"Failed to decode video frame from {client_id}")
                     except Exception as e:
@@ -1588,21 +1597,21 @@ class LANCommunicationClient:
                 display_frame = cv2.resize(frame, (200, 150))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
-                # Put frame in queue for local display (use None as client_id for local video)
+                # Put frame in queue for local display
                 # Only queue if we have the video display queue
                 if hasattr(self, 'video_frame_queue'):
                     try:
-                        # Clear old frames
-                        while self.video_frame_queue.qsize() > 1:
-                            try:
-                                self.video_frame_queue.get_nowait()
-                            except queue.Empty:
-                                break
+                        # Don't clear other participants' frames - just add ours
+                        # The display update method will process all frames
                         self.video_frame_queue.put_nowait(("self", display_frame_rgb))
-                        # Debug: Print when local frame is queued
-                        # print(f"Local video frame queued: {display_frame_rgb.shape}")
+                        print(f"Local video frame queued - queue size: {self.video_frame_queue.qsize()}")
                     except queue.Full:
-                        pass
+                        # If queue is full, remove oldest frame and add new one
+                        try:
+                            self.video_frame_queue.get_nowait()
+                            self.video_frame_queue.put_nowait(("self", display_frame_rgb))
+                        except queue.Empty:
+                            pass
                 
                 # Send to server only if connected
                 if self.connected:

@@ -2596,9 +2596,11 @@ class LANCommunicationServer:
             return
             
         # Clear existing video labels (except host)
+        print(f"Clearing existing video labels: {list(self.video_labels.keys())}")
         for client_id, video_label in self.video_labels.items():
             video_label.destroy()
         self.video_labels.clear()
+        print("Video labels cleared")
         
         # Calculate grid layout
         total_participants = len(self.clients) + 1  # +1 for host
@@ -2696,8 +2698,9 @@ class LANCommunicationServer:
                         
                         video_label.config(image=photo, text="")
                         video_label.image = photo  # Keep reference
-                        # print(f"Server displayed video for client {client_id}")
+                        print(f"Server successfully displayed video for client {client_id}")
                     else:
+                        print(f"Failed to decode video frame for client {client_id}")
                         video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo Error")
                         
                 except Exception as e:
