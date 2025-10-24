@@ -327,14 +327,25 @@ class LANCommunicationServer:
                                        cursor='hand2', state=tk.DISABLED)
         self.host_video_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        self.host_audio_btn = tk.Button(controls_inner, text="🎤 Start Audio", 
-                                       command=self.toggle_host_audio,
-                                       bg='#404040', fg='white', 
-                                       font=('Segoe UI', 11, 'bold'),
-                                       relief='flat', borderwidth=0,
-                                       padx=20, pady=8,
-                                       cursor='hand2', state=tk.DISABLED)
-        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 10))
+        # Microphone button
+        self.host_mic_btn = tk.Button(controls_inner, text="🎤 Mic", 
+                                     command=self.toggle_host_microphone,
+                                     bg='#404040', fg='white', 
+                                     font=('Segoe UI', 11, 'bold'),
+                                     relief='flat', borderwidth=0,
+                                     padx=15, pady=8,
+                                     cursor='hand2', state=tk.DISABLED)
+        self.host_mic_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Speaker button
+        self.host_speaker_btn = tk.Button(controls_inner, text="🔊 Speaker", 
+                                         command=self.toggle_host_speaker,
+                                         bg='#404040', fg='white', 
+                                         font=('Segoe UI', 11, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         padx=15, pady=8,
+                                         cursor='hand2', state=tk.DISABLED)
+        self.host_speaker_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.host_present_btn = tk.Button(controls_inner, text="🖥️ Present", 
                                          command=self.toggle_host_presentation,
@@ -1168,11 +1179,19 @@ class LANCommunicationServer:
                                         state=tk.DISABLED)
         self.host_video_btn.pack(side=tk.LEFT, padx=(0, 10))
         
-        self.host_audio_btn = ttk.Button(media_buttons, text="🎤 Start Audio", 
-                                        command=self.toggle_host_audio,
-                                        style='Modern.TButton',
-                                        state=tk.DISABLED)
-        self.host_audio_btn.pack(side=tk.LEFT, padx=(0, 10))
+        # Microphone button
+        self.host_mic_btn = ttk.Button(media_buttons, text="🎤 Mic", 
+                                      command=self.toggle_host_microphone,
+                                      style='Modern.TButton',
+                                      state=tk.DISABLED)
+        self.host_mic_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # Speaker button
+        self.host_speaker_btn = ttk.Button(media_buttons, text="🔊 Speaker", 
+                                          command=self.toggle_host_speaker,
+                                          style='Modern.TButton',
+                                          state=tk.DISABLED)
+        self.host_speaker_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.host_present_btn = ttk.Button(media_buttons, text="🖥️ Present", 
                                           command=self.toggle_host_presentation,
