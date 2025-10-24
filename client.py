@@ -112,6 +112,76 @@ class LANCommunicationClient:
         # Start video display timer
         self.start_video_display_timer()
         
+    def start_video_display_timer(self):
+        """Start the video display update timer"""
+        self.update_video_display_from_queue()
+        
+    def update_video_display_from_queue(self):
+        """Update video display from queue in main thread - CRASH SAFE VERSION"""
+        try:
+            # Safety check - ensure GUI still exists
+            if not hasattr(self, 'root') or not self.root:
+                return
+                
+            # Check for screen sharing frames first (priority over video for display)
+            screen_frame_displayed = False
+            if hasattr(self, 'screen_frame_queue'):
+                try:
+                    # Get screen frame from queue with timeout
+                    frame_rgb = self.screen_frame_queue.get_nowait()
+                    
+                    # Validate frame data
+                    if frame_rgb is not None and frame_rgb.size > 0:
+                        # Create photo safely
+                        pil_image = Image.fromarray(frame_rgb)
+                        photo = ImageTk.PhotoImage(pil_image)
+                        
+                        # Update main display with safety checks
+                        if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
+                            self.main_video_label.configure(image=photo, text="")
+                            self.main_video_label.image = photo  # Keep reference
+                            screen_frame_displayed = True
+                            
+                except queue.Empty:
+                    # No screen frame available, try video instead
+                    pass
+                except Exception as e:
+                    print(f"Screen frame error: {e}")
+            
+            # Check for video frames (if no screen frame was displayed)
+            if not screen_frame_displayed and hasattr(self, 'video_frame_queue'):
+                try:
+                    # Get frame from queue with timeout
+                    frame_rgb = self.video_frame_queue.get_nowait()
+                    
+                    # Validate frame data
+                    if frame_rgb is not None and frame_rgb.size > 0:
+                        # Create photo safely
+                        pil_image = Image.fromarray(frame_rgb)
+                        photo = ImageTk.PhotoImage(pil_image)
+                        
+                        # Update my video display with safety checks
+                        if hasattr(self, 'my_video_label') and self.my_video_label.winfo_exists():
+                            self.my_video_label.configure(image=photo, text="")
+                            self.my_video_label.image = photo  # Keep reference
+                            
+                except queue.Empty:
+                    # No video frame available, skip this update
+                    pass
+                except Exception as e:
+                    print(f"Video frame error: {e}")
+                    
+        except Exception as e:
+            print(f"Critical display error: {e}")
+        
+        # Schedule next update with safety checks and reduced frequency
+        try:
+            if hasattr(self, 'root') and self.root:
+                self.root.after(50, self.update_video_display_from_queue)  # 20 FPS
+        except:
+            # GUI might be destroyed, stop scheduling
+            pass
+        
     def setup_modern_style(self):
         """Setup modern dark theme styling"""
         style = ttk.Style()
@@ -1131,9 +1201,6 @@ This application works on Local Area Network (LAN) only
         """Run the client application"""
         self.root.mainloop()
 
-if __name__ == "__main__":
-    client = LANCommunicationClient()
-    client.run()    
     def show_meeting_interface(self):
         """Show the main meeting interface"""
         # Clear main container
@@ -1411,76 +1478,6 @@ if __name__ == "__main__":
         self.files_listbox.pack(fill=tk.X, padx=10, pady=(0, 10))
         self.files_listbox.bind('<Double-Button-1>', self.download_selected_file)    
 
-    def start_video_display_timer(self):
-        """Start the video display update timer"""
-        self.update_video_display_from_queue()
-        
-    def update_video_display_from_queue(self):
-        """Update video display from queue in main thread - CRASH SAFE VERSION"""
-        try:
-            # Safety check - ensure GUI still exists
-            if not hasattr(self, 'root') or not self.root:
-                return
-                
-            # Check for screen sharing frames first (priority over video for display)
-            screen_frame_displayed = False
-            if hasattr(self, 'screen_frame_queue'):
-                try:
-                    # Get screen frame from queue with timeout
-                    frame_rgb = self.screen_frame_queue.get_nowait()
-                    
-                    # Validate frame data
-                    if frame_rgb is not None and frame_rgb.size > 0:
-                        # Create photo safely
-                        pil_image = Image.fromarray(frame_rgb)
-                        photo = ImageTk.PhotoImage(pil_image)
-                        
-                        # Update main display with safety checks
-                        if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
-                            self.main_video_label.configure(image=photo, text="")
-                            self.main_video_label.image = photo  # Keep reference
-                            screen_frame_displayed = True
-                            
-                except queue.Empty:
-                    # No screen frame available, try video instead
-                    pass
-                except Exception as e:
-                    print(f"Screen frame error: {e}")
-            
-            # Check for video frames (if no screen frame was displayed)
-            if not screen_frame_displayed and hasattr(self, 'video_frame_queue'):
-                try:
-                    # Get frame from queue with timeout
-                    frame_rgb = self.video_frame_queue.get_nowait()
-                    
-                    # Validate frame data
-                    if frame_rgb is not None and frame_rgb.size > 0:
-                        # Create photo safely
-                        pil_image = Image.fromarray(frame_rgb)
-                        photo = ImageTk.PhotoImage(pil_image)
-                        
-                        # Update my video display with safety checks
-                        if hasattr(self, 'my_video_label') and self.my_video_label.winfo_exists():
-                            self.my_video_label.configure(image=photo, text="")
-                            self.my_video_label.image = photo  # Keep reference
-                            
-                except queue.Empty:
-                    # No video frame available, skip this update
-                    pass
-                except Exception as e:
-                    print(f"Video frame error: {e}")
-                    
-        except Exception as e:
-            print(f"Critical display error: {e}")
-        
-        # Schedule next update with safety checks and reduced frequency
-        try:
-            if hasattr(self, 'root') and self.root:
-                self.root.after(50, self.update_video_display_from_queue)  # 20 FPS
-        except:
-            # GUI might be destroyed, stop scheduling
-            pass
-    
     def connect_to_server(self):
         """Connect to the server"""
         server_ip = self.server_ip_entry.get().strip()
