@@ -976,6 +976,31 @@ class LANCommunicationClient:
         elif msg_type == 'presenter_granted':
             self.is_presenter = True
             self.root.after(0, lambda: self.present_btn.config(text="🖥️\nPresenting", bg='#fd7e14'))
+            # Start screen sharing
+            self.root.after(100, self.start_screen_sharing)
+            
+        elif msg_type == 'screen_frame':
+            # Received screen frame from server/presenter
+            try:
+                frame_data = base64.b64decode(message.get('frame_data', ''))
+                if frame_data:
+                    # Convert to image
+                    img = Image.open(io.BytesIO(frame_data))
+                    frame_rgb = np.array(img)
+                    
+                    # Put frame in queue for display
+                    try:
+                        # Clear old frames if queue is full
+                        while self.screen_frame_queue.qsize() > 1:
+                            try:
+                                self.screen_frame_queue.get_nowait()
+                            except queue.Empty:
+                                break
+                        self.screen_frame_queue.put_nowait(frame_rgb)
+                    except queue.Full:
+                        pass
+            except Exception as e:
+                print(f"Error processing screen frame: {e}")
             self.root.after(0, lambda: self.add_chat_message("System", "You are now the presenter"))
             
         elif msg_type == 'presenter_denied':
@@ -1312,8 +1337,100 @@ class LANCommunicationClient:
             self.send_tcp_message(request_msg)
         else:
             # Stop presenting
-            stop_msg = {'type': 'stop_presenting'}
-            self.send_tcp_message(stop_msg)
+            self.stop_screen_sharing()
+            
+    def start_screen_sharing(self):
+        """Start screen sharing"""
+        if not MSS_AVAILABLE:
+            messagebox.showerror("Screen Share Error", "Screen sharing not available. Please install 'mss' package.")
+            return
+            
+        try:
+            self.screen_sharing = True
+            self.present_btn.config(text="🖥️\nSharing", bg='#fd7e14')
+            
+            # Start screen sharing thread
+            threading.Thread(target=self.screen_sharing_loop, daemon=True).start()
+            
+            # Notify server
+            self.send_media_status_update()
+            
+        except Exception as e:
+            messagebox.showerror("Screen Share Error", f"Failed to start screen sharing: {str(e)}")
+            
+    def stop_screen_sharing(self):
+        """Stop screen sharing"""
+        self.screen_sharing = False
+        self.is_presenter = False
+        self.present_btn.config(text="🖥️\nPresent", bg='#404040')
+        
+        # Notify server
+        stop_msg = {'type': 'stop_presenting'}
+        self.send_tcp_message(stop_msg)
+        self.send_media_status_update()
+        
+    def screen_sharing_loop(self):
+        """Screen sharing capture and transmission loop"""
+        while self.screen_sharing and self.connected:
+            try:
+                # Capture screen
+                if MSS_AVAILABLE:
+                    with mss.mss() as sct:
+                        # Capture primary monitor
+                        monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                        screenshot = sct.grab(monitor)
+                        
+                        # Convert to PIL Image
+                        img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+                        
+                        # Resize for transmission
+                        img.thumbnail((1024, 768), Image.Resampling.LANCZOS)
+                        
+                        # Convert to numpy array
+                        frame_rgb = np.array(img)
+                        
+                        # Put frame in queue for transmission
+                        try:
+                            # Clear old frames if queue is full
+                            while self.screen_frame_queue.qsize() > 1:
+                                try:
+                                    self.screen_frame_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            self.screen_frame_queue.put_nowait(frame_rgb)
+                        except queue.Full:
+                            pass
+                        
+                        # Send to server via TCP
+                        self.send_screen_frame(frame_rgb)
+                        
+                time.sleep(0.1)  # 10 FPS for screen sharing
+                
+            except Exception as e:
+                print(f"Screen sharing error: {e}")
+                break
+                
+    def send_screen_frame(self, frame):
+        """Send screen frame to server via TCP"""
+        try:
+            if self.connected and self.client_id is not None:
+                # Compress frame
+                img = Image.fromarray(frame)
+                buffer = io.BytesIO()
+                img.save(buffer, format='JPEG', quality=60)
+                frame_data = buffer.getvalue()
+                
+                # Create screen frame message
+                screen_msg = {
+                    'type': 'screen_frame',
+                    'client_id': self.client_id,
+                    'frame_data': base64.b64encode(frame_data).decode('utf-8')
+                }
+                
+                self.send_tcp_message(screen_msg)
+                
+        except Exception as e:
+            print(f"Error sending screen frame: {e}")
             
     def send_chat_message(self, event=None):
         """Send chat message"""

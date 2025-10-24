@@ -18,6 +18,8 @@ import json
 import time
 import struct
 import os
+import io
+import base64
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -72,6 +74,7 @@ class LANCommunicationServer:
         # Video display
         self.current_photo = None
         self.video_frame_queue = queue.Queue(maxsize=2)
+        self.screen_frame_queue = queue.Queue(maxsize=2)
         
         # Permission requests
         self.pending_requests = {}  # {client_id: {'audio': bool, 'video': bool, 'screen': bool}}
@@ -2169,6 +2172,38 @@ class LANCommunicationServer:
                 self.broadcast_message(stop_msg)
                 self.log_message(f"{self.clients[client_id]['name']} stopped presenting")
                 
+        elif msg_type == 'screen_frame':
+            # Client sending screen frame for sharing
+            if self.presenter_id == client_id:
+                # Broadcast screen frame to all other clients
+                screen_msg = {
+                    'type': 'screen_frame',
+                    'presenter_id': client_id,
+                    'frame_data': message.get('frame_data')
+                }
+                self.broadcast_message(screen_msg, exclude=client_id)
+                
+                # Display on server if needed
+                try:
+                    frame_data = base64.b64decode(message.get('frame_data', ''))
+                    if frame_data:
+                        img = Image.open(io.BytesIO(frame_data))
+                        frame_rgb = np.array(img)
+                        
+                        # Put frame in server's screen queue for display
+                        if hasattr(self, 'screen_frame_queue'):
+                            try:
+                                while self.screen_frame_queue.qsize() > 1:
+                                    try:
+                                        self.screen_frame_queue.get_nowait()
+                                    except queue.Empty:
+                                        break
+                                self.screen_frame_queue.put_nowait(frame_rgb)
+                            except queue.Full:
+                                pass
+                except Exception as e:
+                    print(f"Error processing client screen frame on server: {e}")
+                
         elif msg_type == 'video_status':
             # Video enable/disable status
             self.clients[client_id]['video_enabled'] = message.get('enabled', False)
@@ -2291,7 +2326,14 @@ class LANCommunicationServer:
                 client_id, timestamp = struct.unpack('!II', data[:8])
                 audio_data = data[8:]
                 
-                # Simple audio mixing (just broadcast to others for now)
+                # Play audio on server if host audio is enabled
+                if self.host_audio_enabled and hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+                    try:
+                        self.audio_output_stream.write(audio_data)
+                    except Exception as e:
+                        print(f"Error playing client audio on server: {e}")
+                
+                # Broadcast to other clients (excluding sender)
                 for cid, client_info in self.clients.items():
                     if cid != client_id and client_info.get('audio_enabled', False):
                         try:
@@ -2800,11 +2842,21 @@ class LANCommunicationServer:
             channels = 1
             rate = 44100
             
+            # Input stream for microphone
             self.audio_stream = self.audio.open(
                 format=format,
                 channels=channels,
                 rate=rate,
                 input=True,
+                frames_per_buffer=chunk
+            )
+            
+            # Output stream for playing received audio
+            self.audio_output_stream = self.audio.open(
+                format=format,
+                channels=channels,
+                rate=rate,
+                output=True,
                 frames_per_buffer=chunk
             )
             
@@ -2830,6 +2882,11 @@ class LANCommunicationServer:
             self.audio_stream.stop_stream()
             self.audio_stream.close()
             self.audio_stream = None
+            
+        if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+            self.audio_output_stream.stop_stream()
+            self.audio_output_stream.close()
+            self.audio_output_stream = None
             
         if self.audio:
             self.audio.terminate()
