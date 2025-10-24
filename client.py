@@ -119,7 +119,7 @@ class LANCommunicationClient:
         self.update_video_display_from_queue()
         
     def update_video_display_from_queue(self):
-        """Update video display from queue in main thread - CRASH SAFE VERSION"""
+        """Update video display from queue in main thread - MULTI-VIDEO VERSION"""
         try:
             # Safety check - ensure GUI still exists and we're connected
             if not hasattr(self, 'root') or not self.root or not self.connected:
@@ -134,14 +134,10 @@ class LANCommunicationClient:
                     
                     # Validate frame data
                     if frame_rgb is not None and frame_rgb.size > 0:
-                        # Create photo safely
-                        pil_image = Image.fromarray(frame_rgb)
-                        photo = ImageTk.PhotoImage(pil_image)
-                        
-                        # Update main display with safety checks
-                        if hasattr(self, 'main_video_label') and self.main_video_label and self.main_video_label.winfo_exists():
-                            self.main_video_label.configure(image=photo, text="")
-                            self.main_video_label.image = photo  # Keep reference
+                        # For screen sharing, show in the presenter's video slot
+                        presenter_id = getattr(self, 'presenter_id', None)
+                        if presenter_id is not None:
+                            self.update_video_slot(presenter_id, frame_rgb, is_screen_share=True)
                             screen_frame_displayed = True
                             
                 except queue.Empty:
@@ -150,8 +146,8 @@ class LANCommunicationClient:
                 except Exception as e:
                     print(f"Screen frame error: {e}")
             
-            # Check for video frames (if no screen frame was displayed)
-            if not screen_frame_displayed and hasattr(self, 'video_frame_queue'):
+            # Check for video frames
+            if hasattr(self, 'video_frame_queue'):
                 try:
                     # Get frame from queue with timeout
                     frame_data = self.video_frame_queue.get_nowait()
@@ -162,38 +158,12 @@ class LANCommunicationClient:
                     else:
                         # Old format - just the frame (local video)
                         frame_rgb = frame_data
-                        client_id = None
+                        client_id = "self"  # Local video
                     
                     # Validate frame data
                     if frame_rgb is not None and frame_rgb.size > 0:
-                        # Create photo safely
-                        pil_image = Image.fromarray(frame_rgb)
-                        photo = ImageTk.PhotoImage(pil_image)
-                        
-                        # Update appropriate display based on source
-                        if client_id is None:
-                            # Local video - update your video preview (only if meeting screen is active)
-                            if (hasattr(self, 'your_video_label') and self.your_video_label and 
-                                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
-                                self.your_video_label.configure(image=photo, text="")
-                                self.your_video_label.image = photo  # Keep reference
-                                # Debug: Print when local video is displayed
-                                # print("Local video frame displayed")
-                            # Silently skip if meeting screen not ready yet
-                        else:
-                            # Remote video - update main display
-                            if (hasattr(self, 'main_video_label') and self.main_video_label and 
-                                hasattr(self.main_video_label, 'winfo_exists') and self.main_video_label.winfo_exists()):
-                                # Show who's video this is
-                                if client_id == 0:  # Host video
-                                    display_text = "📹 Host"
-                                elif client_id in self.clients_list:
-                                    display_text = f"📹 {self.clients_list[client_id]['name']}"
-                                else:
-                                    display_text = "📹 Remote Video"
-                                    
-                                self.main_video_label.configure(image=photo, text=display_text)
-                                self.main_video_label.image = photo  # Keep reference
+                        # Update the appropriate video slot
+                        self.update_video_slot(client_id, frame_rgb)
                             
                 except queue.Empty:
                     # No video frame available, skip this update
@@ -211,6 +181,148 @@ class LANCommunicationClient:
         except:
             # GUI might be destroyed, stop scheduling
             pass
+            
+    def update_video_slot(self, participant_id, frame_rgb, is_screen_share=False):
+        """Update a specific video slot with new frame"""
+        try:
+            # Ensure the participant has a video slot
+            if participant_id not in self.video_displays:
+                # Create slot for new participant
+                if participant_id == "self":
+                    display_name = "📹 You"
+                elif participant_id == 0:
+                    display_name = "🏠 Host"
+                elif participant_id in self.clients_list:
+                    display_name = f"👤 {self.clients_list[participant_id]['name']}"
+                else:
+                    display_name = f"👤 Client {participant_id}"
+                    
+                self.create_video_slot(participant_id, display_name, is_self=(participant_id == "self"))
+            
+            # Get the video display components
+            video_display = self.video_displays[participant_id]
+            video_label = video_display['label']
+            
+            # Check if the label still exists
+            if not video_label.winfo_exists():
+                return
+                
+            # Create photo from frame
+            pil_image = Image.fromarray(frame_rgb)
+            # Resize to fit the video slot
+            pil_image = pil_image.resize((280, 210), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(pil_image)
+            
+            # Update the video label
+            if is_screen_share:
+                video_label.configure(image=photo, text="")
+            else:
+                video_label.configure(image=photo, text="")
+            video_label.image = photo  # Keep reference
+            
+            # Update status indicators
+            status_text = ""
+            if participant_id == "self":
+                if self.video_enabled:
+                    status_text = "📹"
+                if self.microphone_enabled:
+                    status_text += " 🎤"
+            elif participant_id in self.clients_list:
+                client_info = self.clients_list[participant_id]
+                if client_info.get('video_enabled'):
+                    status_text = "📹"
+                if client_info.get('audio_enabled'):
+                    status_text += " 🎤"
+            elif participant_id == 0:  # Host
+                # We'll get host status from server updates
+                status_text = "📹"  # Assume host has video if we're receiving frames
+                
+            video_display['status_label'].config(text=status_text)
+            
+            print(f"Updated video slot for participant {participant_id}")
+            
+        except Exception as e:
+            print(f"Error updating video slot for {participant_id}: {e}")
+            
+    def add_participant_video_slot(self, client_id, client_name):
+        """Add a video slot for a new participant"""
+        if client_id not in self.video_displays:
+            display_name = f"👤 {client_name}"
+            self.create_video_slot(client_id, display_name)
+            
+    def remove_participant_video_slot(self, client_id):
+        """Remove a video slot for a participant who left"""
+        if client_id in self.video_displays:
+            try:
+                # Destroy the video frame
+                video_display = self.video_displays[client_id]
+                video_display['frame'].destroy()
+                
+                # Remove from dictionary
+                del self.video_displays[client_id]
+                
+                # Reorganize the grid layout
+                self.reorganize_video_grid()
+                
+            except Exception as e:
+                print(f"Error removing video slot for {client_id}: {e}")
+                
+    def reorganize_video_grid(self):
+        """Reorganize the video grid after participant changes"""
+        try:
+            # Get all current video displays
+            displays = list(self.video_displays.items())
+            
+            # Re-grid all displays
+            for i, (participant_id, display) in enumerate(displays):
+                row = i // 2
+                col = i % 2
+                display['frame'].grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+                
+            # Update canvas scroll region
+            self.video_canvas.configure(scrollregion=self.video_canvas.bbox("all"))
+            
+        except Exception as e:
+            print(f"Error reorganizing video grid: {e}")
+            
+    def create_existing_participant_slots(self):
+        """Create video slots for participants who were already in the session"""
+        try:
+            # Create slots for existing clients
+            for client_id_str, client_info in self.clients_list.items():
+                client_id = int(client_id_str)
+                client_name = client_info.get('name', f'Client {client_id}')
+                
+                # Don't create slot for ourselves (already created)
+                if client_id != self.client_id:
+                    self.add_participant_video_slot(client_id, client_name)
+                    
+        except Exception as e:
+            print(f"Error creating existing participant slots: {e}")
+            
+    def update_participant_status(self, client_id, video_enabled, audio_enabled):
+        """Update the status indicators for a participant's video slot"""
+        try:
+            if client_id in self.video_displays:
+                status_text = ""
+                if video_enabled:
+                    status_text = "📹"
+                if audio_enabled:
+                    status_text += " 🎤"
+                    
+                self.video_displays[client_id]['status_label'].config(text=status_text)
+                
+                # Update the video slot display name if camera status changed
+                display = self.video_displays[client_id]
+                if video_enabled and "📹" not in display['display_name']:
+                    # Camera turned on
+                    pass  # Keep original name
+                elif not video_enabled and display['label'].cget('text') == "":
+                    # Camera turned off, show placeholder
+                    display['label'].config(text="📹 No Video", image="")
+                    
+        except Exception as e:
+            print(f"Error updating participant status for {client_id}: {e}")
         
     def setup_modern_style(self):
         """Setup modern dark theme styling"""
@@ -615,28 +727,21 @@ class LANCommunicationClient:
         self.leave_btn.pack(side=tk.RIGHT, pady=10)
         
     def create_meeting_video_section(self, parent):
-        """Create the video conference area"""
+        """Create the video conference area with multi-video grid"""
         video_container = tk.Frame(parent, bg='#1e1e1e')
         video_container.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
         
-        # Main video area
-        main_video_frame = tk.Frame(video_container, bg='#000000', relief='solid', bd=1)
-        main_video_frame.pack(fill=tk.BOTH, expand=True, padx=(0, 20))
+        # Main video grid area (left side)
+        video_grid_frame = tk.Frame(video_container, bg='#1e1e1e')
+        video_grid_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 20))
         
-        # Main video display
-        self.main_video_label = tk.Label(main_video_frame, 
-                                        text="🎥 Waiting for video...",
-                                        font=('Segoe UI', 16),
-                                        fg='#888888', bg='#000000')
-        self.main_video_label.pack(expand=True)
+        # Create video grid container
+        self.create_video_grid(video_grid_frame)
         
         # Right sidebar
         sidebar = tk.Frame(video_container, bg='#2d2d2d', width=350)
         sidebar.pack(side=tk.RIGHT, fill=tk.Y)
         sidebar.pack_propagate(False)
-        
-        # Your video preview
-        self.create_your_video_section(sidebar)
         
         # Participants section
         self.create_meeting_participants_section(sidebar)
@@ -647,26 +752,102 @@ class LANCommunicationClient:
         # File sharing section
         self.create_file_sharing_section(sidebar)
         
-    def create_your_video_section(self, parent):
-        """Create your video preview section"""
-        your_video_frame = tk.Frame(parent, bg='#2d2d2d')
-        your_video_frame.pack(fill=tk.X, padx=15, pady=15)
+    def create_video_grid(self, parent):
+        """Create a grid layout for multiple video feeds"""
+        # Video grid container with scrollable area for many participants
+        grid_container = tk.Frame(parent, bg='#1e1e1e')
+        grid_container.pack(fill=tk.BOTH, expand=True)
         
-        # Header
-        tk.Label(your_video_frame, text="📹 Your Video", 
-                font=('Segoe UI', 12, 'bold'), 
-                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 10))
+        # Create a canvas for scrollable video grid
+        self.video_canvas = tk.Canvas(grid_container, bg='#1e1e1e', highlightthickness=0)
+        self.video_scrollbar = tk.Scrollbar(grid_container, orient="vertical", command=self.video_canvas.yview)
+        self.video_scrollable_frame = tk.Frame(self.video_canvas, bg='#1e1e1e')
         
-        # Video preview
-        preview_frame = tk.Frame(your_video_frame, bg='#000000', height=120)
-        preview_frame.pack(fill=tk.X)
-        preview_frame.pack_propagate(False)
+        self.video_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.video_canvas.configure(scrollregion=self.video_canvas.bbox("all"))
+        )
         
-        self.your_video_label = tk.Label(preview_frame, 
-                                        text="📹 Camera Off",
-                                        font=('Segoe UI', 10),
-                                        fg='#888888', bg='#000000')
-        self.your_video_label.pack(expand=True)
+        self.video_canvas.create_window((0, 0), window=self.video_scrollable_frame, anchor="nw")
+        self.video_canvas.configure(yscrollcommand=self.video_scrollbar.set)
+        
+        self.video_canvas.pack(side="left", fill="both", expand=True)
+        self.video_scrollbar.pack(side="right", fill="y")
+        
+        # Dictionary to store video displays for each participant
+        self.video_displays = {}  # {participant_id: {'frame': frame, 'label': label, 'name_label': label}}
+        
+        # Create initial video slots
+        self.create_initial_video_slots()
+        
+    def create_initial_video_slots(self):
+        """Create initial video slots for participants"""
+        # Your video (always first)
+        self.create_video_slot("self", "📹 You", is_self=True)
+        
+        # Host video slot (if not self)
+        if self.client_id != 0:  # If we're not the host
+            self.create_video_slot(0, "🏠 Host")
+            
+    def create_video_slot(self, participant_id, display_name, is_self=False):
+        """Create a video slot for a participant"""
+        if participant_id in self.video_displays:
+            return  # Already exists
+            
+        # Calculate grid position (2 columns)
+        slot_count = len(self.video_displays)
+        row = slot_count // 2
+        col = slot_count % 2
+        
+        # Create video frame
+        video_frame = tk.Frame(self.video_scrollable_frame, bg='#2d2d2d', relief='solid', bd=1)
+        video_frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        
+        # Configure grid weights for responsive layout
+        self.video_scrollable_frame.grid_columnconfigure(col, weight=1)
+        self.video_scrollable_frame.grid_rowconfigure(row, weight=1)
+        
+        # Participant name label
+        name_label = tk.Label(video_frame, text=display_name, 
+                             font=('Segoe UI', 10, 'bold'), 
+                             fg='white', bg='#2d2d2d')
+        name_label.pack(pady=(5, 0))
+        
+        # Video display area
+        video_display_frame = tk.Frame(video_frame, bg='#000000', width=280, height=210)
+        video_display_frame.pack(padx=5, pady=5)
+        video_display_frame.pack_propagate(False)
+        
+        # Video label
+        video_label = tk.Label(video_display_frame, 
+                              text="📹 No Video" if not is_self else "📹 Camera Off",
+                              font=('Segoe UI', 12),
+                              fg='#888888', bg='#000000')
+        video_label.pack(expand=True)
+        
+        # Status indicators frame
+        status_frame = tk.Frame(video_frame, bg='#2d2d2d')
+        status_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # Audio/Video status indicators
+        status_label = tk.Label(status_frame, text="", 
+                               font=('Segoe UI', 8), 
+                               fg='#888888', bg='#2d2d2d')
+        status_label.pack()
+        
+        # Store video display components
+        self.video_displays[participant_id] = {
+            'frame': video_frame,
+            'label': video_label,
+            'name_label': name_label,
+            'status_label': status_label,
+            'display_name': display_name
+        }
+        
+        # Update canvas scroll region
+        self.video_canvas.configure(scrollregion=self.video_canvas.bbox("all"))
+        
+
         
     def create_meeting_participants_section(self, parent):
         """Create participants section"""
@@ -1015,12 +1196,17 @@ class LANCommunicationClient:
             self.root.after(0, self.update_participants_list)
             self.root.after(0, self.update_chat_display)
             
+            # Create video slots for existing participants
+            self.root.after(0, self.create_existing_participant_slots)
+            
         elif msg_type == 'user_joined':
             client_id = message.get('client_id')
             name = message.get('name')
             self.clients_list[str(client_id)] = {'name': name, 'status': 'Active'}
             self.root.after(0, self.update_participants_list)
             self.root.after(0, lambda: self.add_chat_message("System", f"{name} joined the session"))
+            # Add video slot for new participant
+            self.root.after(0, lambda: self.add_participant_video_slot(client_id, name))
             
         elif msg_type == 'user_left':
             client_id = str(message.get('client_id'))
@@ -1029,6 +1215,8 @@ class LANCommunicationClient:
                 del self.clients_list[client_id]
             self.root.after(0, self.update_participants_list)
             self.root.after(0, lambda: self.add_chat_message("System", f"{name} left the session"))
+            # Remove video slot for participant who left
+            self.root.after(0, lambda: self.remove_participant_video_slot(int(client_id)))
             
         elif msg_type == 'chat':
             sender_name = message.get('name')
@@ -1140,6 +1328,20 @@ class LANCommunicationClient:
             self.chat_history.clear()
             self.root.after(0, self.update_chat_display)
             self.root.after(0, lambda: self.add_chat_message("System", "Chat history cleared by host"))
+            
+        elif msg_type == 'client_media_status':
+            # Media status update from another client
+            client_id = message.get('client_id')
+            video_enabled = message.get('video_enabled', False)
+            audio_enabled = message.get('audio_enabled', False)
+            
+            # Update client info
+            if str(client_id) in self.clients_list:
+                self.clients_list[str(client_id)]['video_enabled'] = video_enabled
+                self.clients_list[str(client_id)]['audio_enabled'] = audio_enabled
+                
+            # Update video slot status
+            self.root.after(0, lambda: self.update_participant_status(client_id, video_enabled, audio_enabled))
                 
     def udp_video_receiver(self):
         """Receive UDP video streams with timeout handling"""

@@ -2196,6 +2196,16 @@ class LANCommunicationServer:
                 self.clients[client_id]['screen_share_enabled'] = message.get('screen_share_enabled', False)
                 self.update_clients_display()
                 
+                # Broadcast media status change to all other clients
+                status_broadcast = {
+                    'type': 'client_media_status',
+                    'client_id': client_id,
+                    'video_enabled': message.get('video_enabled', False),
+                    'audio_enabled': message.get('audio_enabled', False),
+                    'screen_share_enabled': message.get('screen_share_enabled', False)
+                }
+                self.broadcast_message(status_broadcast, exclude_client=client_id)
+                
         elif msg_type == 'stop_presenting':
             # Stop presenting
             if self.presenter_id == client_id:
