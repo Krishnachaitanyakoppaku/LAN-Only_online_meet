@@ -112,8 +112,7 @@ class LANCommunicationClient:
         # Show connection screen initially
         self.show_connection_screen()
         
-        # Start video display timer
-        self.start_video_display_timer()
+        # Video display timer will be started when meeting screen is shown
         
     def start_video_display_timer(self):
         """Start the video display update timer"""
@@ -122,8 +121,8 @@ class LANCommunicationClient:
     def update_video_display_from_queue(self):
         """Update video display from queue in main thread - CRASH SAFE VERSION"""
         try:
-            # Safety check - ensure GUI still exists
-            if not hasattr(self, 'root') or not self.root:
+            # Safety check - ensure GUI still exists and we're connected
+            if not hasattr(self, 'root') or not self.root or not self.connected:
                 return
                 
             # Check for screen sharing frames first (priority over video for display)
@@ -140,7 +139,7 @@ class LANCommunicationClient:
                         photo = ImageTk.PhotoImage(pil_image)
                         
                         # Update main display with safety checks
-                        if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
+                        if hasattr(self, 'main_video_label') and self.main_video_label and self.main_video_label.winfo_exists():
                             self.main_video_label.configure(image=photo, text="")
                             self.main_video_label.image = photo  # Keep reference
                             screen_frame_displayed = True
@@ -173,17 +172,18 @@ class LANCommunicationClient:
                         
                         # Update appropriate display based on source
                         if client_id is None:
-                            # Local video - update your video preview
-                            if hasattr(self, 'your_video_label') and self.your_video_label.winfo_exists():
+                            # Local video - update your video preview (only if meeting screen is active)
+                            if (hasattr(self, 'your_video_label') and self.your_video_label and 
+                                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
                                 self.your_video_label.configure(image=photo, text="")
                                 self.your_video_label.image = photo  # Keep reference
                                 # Debug: Print when local video is displayed
                                 # print("Local video frame displayed")
-                            else:
-                                print("Warning: your_video_label not available for local video display")
+                            # Silently skip if meeting screen not ready yet
                         else:
                             # Remote video - update main display
-                            if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
+                            if (hasattr(self, 'main_video_label') and self.main_video_label and 
+                                hasattr(self.main_video_label, 'winfo_exists') and self.main_video_label.winfo_exists()):
                                 # Show who's video this is
                                 if client_id == 0:  # Host video
                                     display_text = "📹 Host"
@@ -206,7 +206,7 @@ class LANCommunicationClient:
         
         # Schedule next update with safety checks and reduced frequency
         try:
-            if hasattr(self, 'root') and self.root:
+            if hasattr(self, 'root') and self.root and self.connected:
                 self.root.after(50, self.update_video_display_from_queue)  # 20 FPS
         except:
             # GUI might be destroyed, stop scheduling
@@ -578,6 +578,9 @@ class LANCommunicationClient:
         # Bottom controls
         self.create_meeting_controls(content_area)
         
+        # Start video display timer now that meeting screen is ready
+        self.start_video_display_timer()
+        
     def create_meeting_header(self, parent):
         """Create meeting header"""
         header = tk.Frame(parent, bg='#1e1e1e', height=70)
@@ -890,12 +893,12 @@ class LANCommunicationClient:
             self.share_file_btn.config(state=tk.NORMAL)
             self.download_file_btn.config(state=tk.NORMAL)
             
-            # Auto-start media based on join settings
+            # Auto-start media based on join settings (with longer delay to ensure GUI is ready)
             if hasattr(self, 'join_with_video') and self.join_with_video.get():
-                self.root.after(1000, self.toggle_video)  # Start video after 1 second
+                self.root.after(2000, self.toggle_video)  # Start video after 2 seconds
                 
             if hasattr(self, 'join_with_audio') and self.join_with_audio.get():
-                self.root.after(1500, self.toggle_microphone)  # Start microphone after 1.5 seconds
+                self.root.after(2500, self.toggle_microphone)  # Start microphone after 2.5 seconds
             
         except socket.timeout:
             self.conn_status_label.config(text="❌ Connection timeout", fg='#dc3545')
@@ -922,12 +925,13 @@ class LANCommunicationClient:
     def tcp_receiver(self):
         """Receive TCP messages from server with improved error handling"""
         consecutive_errors = 0
-        max_errors = 3
+        max_errors = 5
+        last_activity = time.time()
         
         while self.running and self.connected:
             try:
-                # Set socket timeout to prevent hanging
-                self.tcp_socket.settimeout(30.0)  # 30 second timeout
+                # Set socket timeout to prevent hanging (shorter timeout for better responsiveness)
+                self.tcp_socket.settimeout(10.0)  # 10 second timeout
                 
                 # Receive message length
                 length_data = self.tcp_socket.recv(4)
@@ -961,13 +965,18 @@ class LANCommunicationClient:
                     message = json.loads(message_data.decode('utf-8'))
                     self.process_server_message(message)
                     consecutive_errors = 0  # Reset error counter on success
+                    last_activity = time.time()  # Update activity timestamp
                 except json.JSONDecodeError as e:
                     print(f"JSON decode error: {e}")
                     consecutive_errors += 1
                 
             except socket.timeout:
-                print("TCP receiver timeout - connection may be lost")
-                consecutive_errors += 1
+                # Check if we've been inactive for too long
+                if time.time() - last_activity > 60:  # 60 seconds of inactivity
+                    print("TCP connection inactive for too long, disconnecting")
+                    break
+                # Timeout is normal during periods of no activity, just continue
+                continue
             except ConnectionResetError:
                 print("TCP connection reset by server")
                 break
@@ -982,6 +991,11 @@ class LANCommunicationClient:
                     break
                     
                 time.sleep(1)  # Brief pause before retrying
+        
+        # Connection lost - handle cleanup
+        if self.running and self.connected:
+            print("TCP connection lost")
+            self.root.after(0, self.handle_connection_lost)
                 
     def process_server_message(self, message):
         """Process message from server"""
@@ -1282,7 +1296,7 @@ class LANCommunicationClient:
     
     def video_loop(self):
         """Video capture and streaming loop"""
-        while self.video_enabled and self.video_cap:
+        while self.video_enabled and self.video_cap and self.connected:
             try:
                 ret, frame = self.video_cap.read()
                 if not ret:
@@ -1293,21 +1307,24 @@ class LANCommunicationClient:
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
                 # Put frame in queue for local display (use None as client_id for local video)
-                try:
-                    # Clear old frames
-                    while self.video_frame_queue.qsize() > 1:
-                        try:
-                            self.video_frame_queue.get_nowait()
-                        except queue.Empty:
-                            break
-                    self.video_frame_queue.put_nowait((None, display_frame_rgb))
-                    # Debug: Print when local frame is queued
-                    # print(f"Local video frame queued: {display_frame_rgb.shape}")
-                except queue.Full:
-                    pass
+                # Only queue if we have the video display queue
+                if hasattr(self, 'video_frame_queue'):
+                    try:
+                        # Clear old frames
+                        while self.video_frame_queue.qsize() > 1:
+                            try:
+                                self.video_frame_queue.get_nowait()
+                            except queue.Empty:
+                                break
+                        self.video_frame_queue.put_nowait((None, display_frame_rgb))
+                        # Debug: Print when local frame is queued
+                        # print(f"Local video frame queued: {display_frame_rgb.shape}")
+                    except queue.Full:
+                        pass
                 
-                # Send to server
-                self.send_video_frame(frame)
+                # Send to server only if connected
+                if self.connected:
+                    self.send_video_frame(frame)
                 
                 time.sleep(0.05)  # 20 FPS
                 
@@ -1872,6 +1889,103 @@ class LANCommunicationClient:
         else:
             messagebox.showwarning("No Selection", "Please select a file first")
             
+    def handle_connection_lost(self):
+        """Handle lost connection to server"""
+        if not self.connected:
+            return  # Already handled
+            
+        print("Connection to server lost")
+        
+        # Update meeting status if in meeting
+        if hasattr(self, 'meeting_status'):
+            self.meeting_status.config(text="● Connection Lost", fg='#dc3545')
+        
+        # Show reconnection dialog
+        response = messagebox.askyesno("Connection Lost", 
+                                     "Connection to the server was lost.\n\n"
+                                     "Would you like to return to the connection screen?")
+        
+        if response:
+            self.disconnect()
+        else:
+            # Try to reconnect automatically
+            self.attempt_reconnection()
+    
+    def attempt_reconnection(self):
+        """Attempt to reconnect to the server"""
+        try:
+            print("Attempting to reconnect...")
+            
+            # Update status
+            if hasattr(self, 'meeting_status'):
+                self.meeting_status.config(text="● Reconnecting...", fg='#ffd43b')
+            
+            # Close existing sockets
+            self.cleanup_sockets()
+            
+            # Try to reconnect
+            self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.tcp_socket.settimeout(10)
+            self.tcp_socket.connect((self.server_host, self.tcp_port))
+            
+            # Recreate UDP sockets
+            self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.udp_video_socket.bind(('', self.udp_video_port))
+            self.udp_audio_socket.bind(('', self.udp_audio_port))
+            
+            # Restart communication threads
+            threading.Thread(target=self.tcp_receiver, daemon=True).start()
+            threading.Thread(target=self.udp_video_receiver, daemon=True).start()
+            threading.Thread(target=self.udp_audio_receiver, daemon=True).start()
+            
+            # Rejoin the session
+            join_msg = {
+                'type': 'join',
+                'name': self.client_name
+            }
+            self.send_tcp_message(join_msg)
+            
+            # Update status
+            if hasattr(self, 'meeting_status'):
+                self.meeting_status.config(text="● Reconnected", fg='#51cf66')
+            
+            print("Reconnection successful")
+            
+        except Exception as e:
+            print(f"Reconnection failed: {e}")
+            if hasattr(self, 'meeting_status'):
+                self.meeting_status.config(text="● Reconnection Failed", fg='#dc3545')
+            
+            # Show error and disconnect
+            messagebox.showerror("Reconnection Failed", 
+                               f"Could not reconnect to server: {str(e)}\n\n"
+                               "Returning to connection screen.")
+            self.disconnect()
+    
+    def cleanup_sockets(self):
+        """Clean up existing sockets"""
+        try:
+            if hasattr(self, 'tcp_socket') and self.tcp_socket:
+                self.tcp_socket.close()
+                self.tcp_socket = None
+        except:
+            pass
+            
+        try:
+            if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
+                self.udp_video_socket.close()
+                self.udp_video_socket = None
+        except:
+            pass
+            
+        try:
+            if hasattr(self, 'udp_audio_socket') and self.udp_audio_socket:
+                self.udp_audio_socket.close()
+                self.udp_audio_socket = None
+        except:
+            pass
+
     def disconnect(self):
         """Disconnect from server with proper cleanup"""
         self.running = False
@@ -1891,26 +2005,7 @@ class LANCommunicationClient:
             print(f"Error stopping audio during disconnect: {e}")
             
         # Close sockets with individual error handling
-        try:
-            if hasattr(self, 'tcp_socket') and self.tcp_socket:
-                self.tcp_socket.close()
-                self.tcp_socket = None
-        except Exception as e:
-            print(f"Error closing TCP socket: {e}")
-            
-        try:
-            if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
-                self.udp_video_socket.close()
-                self.udp_video_socket = None
-        except Exception as e:
-            print(f"Error closing UDP video socket: {e}")
-            
-        try:
-            if hasattr(self, 'udp_audio_socket') and self.udp_audio_socket:
-                self.udp_audio_socket.close()
-                self.udp_audio_socket = None
-        except Exception as e:
-            print(f"Error closing UDP audio socket: {e}")
+        self.cleanup_sockets()
             
         # Show connection screen
         try:
