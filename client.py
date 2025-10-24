@@ -288,6 +288,11 @@ class LANCommunicationClient:
     def create_existing_participant_slots(self):
         """Create video slots for participants who were already in the session"""
         try:
+            # Create host video slot if we're not the host
+            if hasattr(self, 'client_id') and hasattr(self, 'host_id'):
+                if self.client_id != self.host_id and self.host_id not in self.video_displays:
+                    self.create_video_slot(self.host_id, "🏠 Host")
+            
             # Create slots for existing clients
             for client_id_str, client_info in self.clients_list.items():
                 client_id = int(client_id_str)
@@ -404,6 +409,7 @@ class LANCommunicationClient:
         self.root.update()
         
         try:
+            print(f"Testing connection to {server_ip}:{self.tcp_port}")
             # Test TCP connection
             test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_socket.settimeout(5)
@@ -411,12 +417,16 @@ class LANCommunicationClient:
             test_socket.close()
             
             self.conn_status_label.config(text="✅ Server is reachable!", fg='#28a745')
+            print("Connection test successful")
         except socket.timeout:
             self.conn_status_label.config(text="❌ Connection timeout - Check server IP", fg='#dc3545')
+            print("Connection test failed: timeout")
         except ConnectionRefusedError:
             self.conn_status_label.config(text="❌ Server not running on this IP", fg='#dc3545')
+            print("Connection test failed: connection refused")
         except Exception as e:
             self.conn_status_label.config(text=f"❌ Test failed: {str(e)}", fg='#dc3545')
+            print(f"Connection test failed: {e}")
     
     def show_connection_screen(self):
         """Show the enhanced modern connection screen"""
@@ -754,40 +764,46 @@ class LANCommunicationClient:
         
     def create_video_grid(self, parent):
         """Create a grid layout for multiple video feeds"""
-        # Video grid container with scrollable area for many participants
-        grid_container = tk.Frame(parent, bg='#1e1e1e')
-        grid_container.pack(fill=tk.BOTH, expand=True)
-        
-        # Create a canvas for scrollable video grid
-        self.video_canvas = tk.Canvas(grid_container, bg='#1e1e1e', highlightthickness=0)
-        self.video_scrollbar = tk.Scrollbar(grid_container, orient="vertical", command=self.video_canvas.yview)
-        self.video_scrollable_frame = tk.Frame(self.video_canvas, bg='#1e1e1e')
-        
-        self.video_scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.video_canvas.configure(scrollregion=self.video_canvas.bbox("all"))
-        )
-        
-        self.video_canvas.create_window((0, 0), window=self.video_scrollable_frame, anchor="nw")
-        self.video_canvas.configure(yscrollcommand=self.video_scrollbar.set)
-        
-        self.video_canvas.pack(side="left", fill="both", expand=True)
-        self.video_scrollbar.pack(side="right", fill="y")
-        
-        # Dictionary to store video displays for each participant
-        self.video_displays = {}  # {participant_id: {'frame': frame, 'label': label, 'name_label': label}}
-        
-        # Create initial video slots
-        self.create_initial_video_slots()
+        try:
+            # Video grid container with scrollable area for many participants
+            grid_container = tk.Frame(parent, bg='#1e1e1e')
+            grid_container.pack(fill=tk.BOTH, expand=True)
+            
+            # Create a canvas for scrollable video grid
+            self.video_canvas = tk.Canvas(grid_container, bg='#1e1e1e', highlightthickness=0)
+            self.video_scrollbar = tk.Scrollbar(grid_container, orient="vertical", command=self.video_canvas.yview)
+            self.video_scrollable_frame = tk.Frame(self.video_canvas, bg='#1e1e1e')
+            
+            self.video_scrollable_frame.bind(
+                "<Configure>",
+                lambda e: self.video_canvas.configure(scrollregion=self.video_canvas.bbox("all"))
+            )
+            
+            self.video_canvas.create_window((0, 0), window=self.video_scrollable_frame, anchor="nw")
+            self.video_canvas.configure(yscrollcommand=self.video_scrollbar.set)
+            
+            self.video_canvas.pack(side="left", fill="both", expand=True)
+            self.video_scrollbar.pack(side="right", fill="y")
+            
+            # Dictionary to store video displays for each participant
+            self.video_displays = {}  # {participant_id: {'frame': frame, 'label': label, 'name_label': label}}
+            
+            # Create initial video slots
+            self.create_initial_video_slots()
+            
+        except Exception as e:
+            print(f"Error creating video grid: {e}")
+            # Create a simple fallback display
+            fallback_label = tk.Label(parent, text="Video display initialization error", 
+                                    bg='#1e1e1e', fg='white')
+            fallback_label.pack(expand=True)
         
     def create_initial_video_slots(self):
         """Create initial video slots for participants"""
         # Your video (always first)
         self.create_video_slot("self", "📹 You", is_self=True)
         
-        # Host video slot (if not self)
-        if self.client_id != 0:  # If we're not the host
-            self.create_video_slot(0, "🏠 Host")
+        # Host video slot will be created later when we know if we're the host or not
             
     def create_video_slot(self, participant_id, display_name, is_self=False):
         """Create a video slot for a participant"""
@@ -1037,17 +1053,21 @@ class LANCommunicationClient:
             self.root.update()
             
             # Create TCP socket
+            print(f"Attempting to connect to {self.server_host}:{self.tcp_port}")
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.tcp_socket.settimeout(10)  # 10 second timeout
             self.tcp_socket.connect((self.server_host, self.tcp_port))
+            print("TCP connection successful")
             
             # Create UDP sockets
+            print("Creating UDP sockets...")
             self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
             # Bind UDP sockets to receive data
             self.udp_video_socket.bind(('', self.udp_video_port))
             self.udp_audio_socket.bind(('', self.udp_audio_port))
+            print("UDP sockets created and bound successfully")
             
             self.connected = True
             self.running = True
@@ -1070,9 +1090,11 @@ class LANCommunicationClient:
             # Switch to meeting screen
             self.show_meeting_screen()
             
-            # Enable file sharing controls
-            self.share_file_btn.config(state=tk.NORMAL)
-            self.download_file_btn.config(state=tk.NORMAL)
+            # Enable file sharing controls (with safety check)
+            if hasattr(self, 'share_file_btn'):
+                self.share_file_btn.config(state=tk.NORMAL)
+            if hasattr(self, 'download_file_btn'):
+                self.download_file_btn.config(state=tk.NORMAL)
             
             # Auto-start speaker for receiving audio (always enabled by default)
             self.root.after(1000, self.start_speaker)  # Start speaker after 1 second
@@ -1196,7 +1218,7 @@ class LANCommunicationClient:
             self.root.after(0, self.update_participants_list)
             self.root.after(0, self.update_chat_display)
             
-            # Create video slots for existing participants
+            # Create video slots for existing participants and host
             self.root.after(0, self.create_existing_participant_slots)
             
         elif msg_type == 'user_joined':

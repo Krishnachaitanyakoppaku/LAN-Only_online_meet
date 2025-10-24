@@ -1997,7 +1997,9 @@ class LANCommunicationServer:
         """Accept incoming TCP client connections"""
         while self.running:
             try:
+                print("Server waiting for client connections...")
                 client_socket, address = self.tcp_socket.accept()
+                print(f"New client connection from {address}")
                 client_id = self.next_client_id
                 self.next_client_id += 1
                 
