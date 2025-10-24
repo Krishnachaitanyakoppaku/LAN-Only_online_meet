@@ -2257,7 +2257,7 @@ class LANCommunicationServer:
                 for cid, client_info in self.clients.items():
                     if cid != client_id and client_info.get('video_enabled', False):
                         try:
-                            client_address = (client_info['address'][0], self.udp_video_port + cid)
+                            client_address = (client_info['address'][0], self.udp_video_port)
                             self.udp_video_socket.sendto(data, client_address)
                         except:
                             pass
@@ -2285,7 +2285,7 @@ class LANCommunicationServer:
                 for cid, client_info in self.clients.items():
                     if cid != client_id and client_info.get('audio_enabled', False):
                         try:
-                            client_address = (client_info['address'][0], self.udp_audio_port + cid)
+                            client_address = (client_info['address'][0], self.udp_audio_port)
                             self.udp_audio_socket.sendto(data, client_address)
                         except:
                             pass

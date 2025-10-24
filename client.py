@@ -152,7 +152,15 @@ class LANCommunicationClient:
             if not screen_frame_displayed and hasattr(self, 'video_frame_queue'):
                 try:
                     # Get frame from queue with timeout
-                    frame_rgb = self.video_frame_queue.get_nowait()
+                    frame_data = self.video_frame_queue.get_nowait()
+                    
+                    # Handle both old format (just frame) and new format (client_id, frame)
+                    if isinstance(frame_data, tuple) and len(frame_data) == 2:
+                        client_id, frame_rgb = frame_data
+                    else:
+                        # Old format - just the frame (local video)
+                        frame_rgb = frame_data
+                        client_id = None
                     
                     # Validate frame data
                     if frame_rgb is not None and frame_rgb.size > 0:
@@ -160,10 +168,25 @@ class LANCommunicationClient:
                         pil_image = Image.fromarray(frame_rgb)
                         photo = ImageTk.PhotoImage(pil_image)
                         
-                        # Update my video display with safety checks
-                        if hasattr(self, 'your_video_label') and self.your_video_label.winfo_exists():
-                            self.your_video_label.configure(image=photo, text="")
-                            self.your_video_label.image = photo  # Keep reference
+                        # Update appropriate display based on source
+                        if client_id is None:
+                            # Local video - update your video preview
+                            if hasattr(self, 'your_video_label') and self.your_video_label.winfo_exists():
+                                self.your_video_label.configure(image=photo, text="")
+                                self.your_video_label.image = photo  # Keep reference
+                        else:
+                            # Remote video - update main display
+                            if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
+                                # Show who's video this is
+                                if client_id == 0:  # Host video
+                                    display_text = "📹 Host"
+                                elif client_id in self.clients_list:
+                                    display_text = f"📹 {self.clients_list[client_id]['name']}"
+                                else:
+                                    display_text = "📹 Remote Video"
+                                    
+                                self.main_video_label.configure(image=photo, text=display_text)
+                                self.main_video_label.image = photo  # Keep reference
                             
                 except queue.Empty:
                     # No video frame available, skip this update
@@ -721,6 +744,10 @@ This application works on Local Area Network (LAN) only
             self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
+            # Bind UDP sockets to receive data
+            self.udp_video_socket.bind(('', self.udp_video_port))
+            self.udp_audio_socket.bind(('', self.udp_audio_port))
+            
             self.connected = True
             self.running = True
             
@@ -882,8 +909,47 @@ This application works on Local Area Network (LAN) only
                 
     def udp_video_receiver(self):
         """Receive UDP video streams"""
-        # This would handle incoming video streams from other clients
-        pass
+        while self.running and self.connected:
+            try:
+                data, address = self.udp_video_socket.recvfrom(65536)
+                
+                # Parse video packet header
+                if len(data) < 12:
+                    continue
+                    
+                client_id, sequence, frame_size = struct.unpack('!III', data[:12])
+                frame_data = data[12:]
+                
+                # Process video frame
+                if len(frame_data) == frame_size:
+                    try:
+                        # Decode frame
+                        nparr = np.frombuffer(frame_data, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        
+                        if frame is not None:
+                            # Convert BGR to RGB for display
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            
+                            # Put frame in queue for display
+                            try:
+                                # Clear old frames if queue is full
+                                while self.video_frame_queue.qsize() > 1:
+                                    try:
+                                        self.video_frame_queue.get_nowait()
+                                    except queue.Empty:
+                                        break
+                                self.video_frame_queue.put_nowait((client_id, frame_rgb))
+                            except queue.Full:
+                                pass  # Skip frame if queue is full
+                                
+                    except Exception as e:
+                        print(f"Error processing video frame: {e}")
+                        
+            except Exception as e:
+                if self.running and self.connected:
+                    print(f"UDP video receiver error: {e}")
+                break
         
     def udp_audio_receiver(self):
         """Receive UDP audio streams"""
@@ -943,7 +1009,7 @@ This application works on Local Area Network (LAN) only
                 display_frame = cv2.resize(frame, (200, 150))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
-                # Put frame in queue for local display
+                # Put frame in queue for local display (use None as client_id for local video)
                 try:
                     # Clear old frames
                     while self.video_frame_queue.qsize() > 1:
@@ -951,7 +1017,7 @@ This application works on Local Area Network (LAN) only
                             self.video_frame_queue.get_nowait()
                         except queue.Empty:
                             break
-                    self.video_frame_queue.put_nowait(display_frame_rgb)
+                    self.video_frame_queue.put_nowait((None, display_frame_rgb))
                 except queue.Full:
                     pass
                 
