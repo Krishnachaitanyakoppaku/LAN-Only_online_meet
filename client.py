@@ -61,6 +61,7 @@ class LANCommunicationClient:
         # Media devices
         self.video_cap = None
         self.audio_stream = None
+        self.audio_output_stream = None
         self.audio = None
         
         # Media state
@@ -174,6 +175,10 @@ class LANCommunicationClient:
                             if hasattr(self, 'your_video_label') and self.your_video_label.winfo_exists():
                                 self.your_video_label.configure(image=photo, text="")
                                 self.your_video_label.image = photo  # Keep reference
+                                # Debug: Print when local video is displayed
+                                # print("Local video frame displayed")
+                            else:
+                                print("Warning: your_video_label not available for local video display")
                         else:
                             # Remote video - update main display
                             if hasattr(self, 'main_video_label') and self.main_video_label.winfo_exists():
@@ -278,173 +283,263 @@ class LANCommunicationClient:
         """Test connection to server"""
         server_ip = self.server_ip_entry.get().strip()
         if not server_ip:
-            self.connection_status.config(text="❌ Please enter server IP", fg='#dc3545')
+            self.conn_status_label.config(text="❌ Please enter server IP", fg='#dc3545')
             return
             
-        self.connection_status.config(text="🔍 Testing connection...", fg='#fd7e14')
+        self.conn_status_label.config(text="🔍 Testing connection...", fg='#fd7e14')
         self.root.update()
         
         try:
             # Test TCP connection
             test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_socket.settimeout(3)
+            test_socket.settimeout(5)
             test_socket.connect((server_ip, self.tcp_port))
             test_socket.close()
             
-            self.connection_status.config(text="✅ Connection successful!", fg='#28a745')
+            self.conn_status_label.config(text="✅ Server is reachable!", fg='#28a745')
+        except socket.timeout:
+            self.conn_status_label.config(text="❌ Connection timeout - Check server IP", fg='#dc3545')
+        except ConnectionRefusedError:
+            self.conn_status_label.config(text="❌ Server not running on this IP", fg='#dc3545')
         except Exception as e:
-            self.connection_status.config(text=f"❌ Connection failed: {str(e)}", fg='#dc3545')
+            self.conn_status_label.config(text=f"❌ Test failed: {str(e)}", fg='#dc3545')
     
     def show_connection_screen(self):
-        """Show the modern connection screen"""
+        """Show the enhanced modern connection screen"""
         # Clear main container
         for widget in self.main_container.winfo_children():
             widget.destroy()
             
-        # Connection screen with gradient-like background
-        conn_frame = tk.Frame(self.main_container, bg='#1e1e1e')
-        conn_frame.pack(fill=tk.BOTH, expand=True)
+        # Main background with gradient effect
+        main_bg = tk.Frame(self.main_container, bg='#0f0f0f')
+        main_bg.pack(fill=tk.BOTH, expand=True)
         
-        # Center container with modern styling
-        center_frame = tk.Frame(conn_frame, bg='#2d2d2d', padx=60, pady=60)
-        center_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        # Create gradient effect with multiple frames
+        gradient_frame = tk.Frame(main_bg, bg='#1a1a1a')
+        gradient_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         
-        # Add subtle border effect
-        border_frame = tk.Frame(center_frame, bg='#404040', height=2)
-        border_frame.pack(fill=tk.X, pady=(0, 30))
+        # Center container with glass morphism effect
+        center_container = tk.Frame(gradient_frame, bg='#1e1e1e')
+        center_container.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
         
-        # Title with icon
-        title_frame = tk.Frame(center_frame, bg='#2d2d2d')
-        title_frame.pack(pady=(0, 40))
+        # Main card with rounded corners effect
+        main_card = tk.Frame(center_container, bg='#2d2d2d', padx=50, pady=40)
+        main_card.pack(padx=20, pady=20)
         
-        title_label = tk.Label(title_frame, text="🚀 Join LAN Meeting", 
-                              font=('Segoe UI', 28, 'bold'), 
-                              fg='#0078d4', bg='#2d2d2d')
+        # Add glow effect border
+        glow_frame = tk.Frame(main_card, bg='#0078d4', height=3)
+        glow_frame.pack(fill=tk.X, pady=(0, 30))
+        
+        # Header section with logo and title
+        header_section = tk.Frame(main_card, bg='#2d2d2d')
+        header_section.pack(pady=(0, 40))
+        
+        # App logo/icon
+        logo_frame = tk.Frame(header_section, bg='#0078d4', width=80, height=80)
+        logo_frame.pack(pady=(0, 20))
+        logo_frame.pack_propagate(False)
+        
+        logo_label = tk.Label(logo_frame, text="🎥", 
+                             font=('Segoe UI', 36), 
+                             fg='white', bg='#0078d4')
+        logo_label.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+        
+        # Title and subtitle
+        title_label = tk.Label(header_section, text="LAN Meeting Client", 
+                              font=('Segoe UI', 32, 'bold'), 
+                              fg='#ffffff', bg='#2d2d2d')
         title_label.pack()
         
-        subtitle_label = tk.Label(title_frame, text="Connect to your team's meeting", 
-                                 font=('Segoe UI', 12), 
-                                 fg='#888888', bg='#2d2d2d')
-        subtitle_label.pack(pady=(5, 0))
+        subtitle_label = tk.Label(header_section, text="Connect to your team's video conference", 
+                                 font=('Segoe UI', 14), 
+                                 fg='#b0b0b0', bg='#2d2d2d')
+        subtitle_label.pack(pady=(8, 0))
         
-        # Connection form with modern styling
-        form_frame = tk.Frame(center_frame, bg='#2d2d2d')
-        form_frame.pack(pady=20)
+        # Connection form
+        form_container = tk.Frame(main_card, bg='#2d2d2d')
+        form_container.pack(pady=(0, 30))
         
-        # Server IP section
-        ip_section = tk.Frame(form_frame, bg='#2d2d2d')
-        ip_section.pack(fill=tk.X, pady=(0, 25))
+        # Server IP section with enhanced styling
+        ip_container = tk.Frame(form_container, bg='#363636', padx=25, pady=20)
+        ip_container.pack(fill=tk.X, pady=(0, 20))
         
-        tk.Label(ip_section, text="🌐 Server IP Address", 
+        ip_header = tk.Frame(ip_container, bg='#363636')
+        ip_header.pack(fill=tk.X, pady=(0, 12))
+        
+        tk.Label(ip_header, text="🌐", 
+                font=('Segoe UI', 18), 
+                fg='#0078d4', bg='#363636').pack(side=tk.LEFT)
+        
+        tk.Label(ip_header, text="Server IP Address", 
                 font=('Segoe UI', 14, 'bold'), 
-                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 8))
+                fg='white', bg='#363636').pack(side=tk.LEFT, padx=(10, 0))
         
-        self.server_ip_entry = tk.Entry(ip_section, 
-                                       font=('Segoe UI', 14),
-                                       bg='#3d3d3d', fg='white',
-                                       relief='flat', borderwidth=2,
-                                       insertbackground='white',
-                                       width=35)
-        self.server_ip_entry.pack(pady=(0, 5), ipady=12)
-        self.server_ip_entry.insert(0, "127.0.0.1")
+        self.server_ip_entry = tk.Entry(ip_container, 
+                                       font=('Segoe UI', 16),
+                                       bg='#4a4a4a', fg='white',
+                                       relief='flat', borderwidth=0,
+                                       insertbackground='#0078d4',
+                                       width=30)
+        self.server_ip_entry.pack(fill=tk.X, ipady=15)
+        self.server_ip_entry.insert(0, "192.168.1.100")
         
-        # Name section
-        name_section = tk.Frame(form_frame, bg='#2d2d2d')
-        name_section.pack(fill=tk.X, pady=(0, 25))
+        # Add placeholder text effect
+        self.add_placeholder_effect(self.server_ip_entry, "Enter server IP address (e.g., 192.168.1.100)")
         
-        tk.Label(name_section, text="👤 Your Name", 
+        # Name section with enhanced styling
+        name_container = tk.Frame(form_container, bg='#363636', padx=25, pady=20)
+        name_container.pack(fill=tk.X, pady=(0, 20))
+        
+        name_header = tk.Frame(name_container, bg='#363636')
+        name_header.pack(fill=tk.X, pady=(0, 12))
+        
+        tk.Label(name_header, text="👤", 
+                font=('Segoe UI', 18), 
+                fg='#28a745', bg='#363636').pack(side=tk.LEFT)
+        
+        tk.Label(name_header, text="Your Display Name", 
                 font=('Segoe UI', 14, 'bold'), 
-                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 8))
+                fg='white', bg='#363636').pack(side=tk.LEFT, padx=(10, 0))
         
-        self.client_name_entry = tk.Entry(name_section, 
-                                         font=('Segoe UI', 14),
-                                         bg='#3d3d3d', fg='white',
-                                         relief='flat', borderwidth=2,
-                                         insertbackground='white',
-                                         width=35)
-        self.client_name_entry.pack(pady=(0, 5), ipady=12)
-        self.client_name_entry.insert(0, f"User_{int(time.time()) % 1000}")
+        self.name_entry = tk.Entry(name_container, 
+                                  font=('Segoe UI', 16),
+                                  bg='#4a4a4a', fg='white',
+                                  relief='flat', borderwidth=0,
+                                  insertbackground='#28a745',
+                                  width=30)
+        self.name_entry.pack(fill=tk.X, ipady=15)
+        self.name_entry.insert(0, f"User_{int(time.time()) % 1000}")
         
-        # Connection buttons
-        button_frame = tk.Frame(form_frame, bg='#2d2d2d')
-        button_frame.pack(pady=(30, 0))
+        # Add placeholder text effect
+        self.add_placeholder_effect(self.name_entry, "Enter your name for the meeting")
         
-        # Connect button with modern styling
-        self.connect_btn = tk.Button(button_frame, text="🔗 Connect to Meeting", 
-                                    command=self.connect_to_server,
-                                    bg='#0078d4', fg='white', 
-                                    font=('Segoe UI', 14, 'bold'),
-                                    relief='flat', borderwidth=0,
-                                    padx=30, pady=15,
-                                    cursor='hand2')
-        self.connect_btn.pack(side=tk.LEFT, padx=(0, 15))
+        # Pre-meeting settings section
+        settings_container = tk.Frame(form_container, bg='#363636', padx=25, pady=20)
+        settings_container.pack(fill=tk.X, pady=(0, 30))
+        
+        settings_header = tk.Label(settings_container, text="⚙️ Join Settings", 
+                                  font=('Segoe UI', 14, 'bold'), 
+                                  fg='white', bg='#363636')
+        settings_header.pack(anchor=tk.W, pady=(0, 15))
+        
+        # Settings checkboxes
+        settings_frame = tk.Frame(settings_container, bg='#363636')
+        settings_frame.pack(fill=tk.X)
+        
+        self.join_with_video = tk.BooleanVar(value=False)
+        self.join_with_audio = tk.BooleanVar(value=False)
+        
+        video_check = tk.Checkbutton(settings_frame, text="📹 Join with camera on", 
+                                    variable=self.join_with_video,
+                                    font=('Segoe UI', 12), 
+                                    fg='white', bg='#363636',
+                                    selectcolor='#4a4a4a',
+                                    activebackground='#363636',
+                                    activeforeground='white')
+        video_check.pack(anchor=tk.W, pady=(0, 8))
+        
+        audio_check = tk.Checkbutton(settings_frame, text="🎤 Join with microphone on", 
+                                    variable=self.join_with_audio,
+                                    font=('Segoe UI', 12), 
+                                    fg='white', bg='#363636',
+                                    selectcolor='#4a4a4a',
+                                    activebackground='#363636',
+                                    activeforeground='white')
+        audio_check.pack(anchor=tk.W)
+        
+        # Action buttons with enhanced styling
+        button_container = tk.Frame(form_container, bg='#2d2d2d')
+        button_container.pack(pady=(20, 0))
         
         # Test connection button
-        test_btn = tk.Button(button_frame, text="🔍 Test Connection", 
+        test_btn = tk.Button(button_container, text="🔍 Test Connection", 
                             command=self.test_connection,
                             bg='#6c757d', fg='white', 
-                            font=('Segoe UI', 12),
+                            font=('Segoe UI', 12, 'bold'),
                             relief='flat', borderwidth=0,
-                            padx=20, pady=15,
+                            padx=25, pady=12,
                             cursor='hand2')
-        test_btn.pack(side=tk.LEFT)
+        test_btn.pack(side=tk.LEFT, padx=(0, 15))
         
-        # Status label
-        self.connection_status = tk.Label(center_frame, text="", 
-                                         font=('Segoe UI', 11), 
-                                         fg='#888888', bg='#2d2d2d')
-        self.connection_status.pack(pady=(20, 0))
+        # Main connect button with gradient effect
+        connect_frame = tk.Frame(button_container, bg='#0056b3', padx=2, pady=2)
+        connect_frame.pack(side=tk.LEFT)
+        
+        self.connect_btn = tk.Button(connect_frame, text="🚀 Join Meeting", 
+                                    command=self.connect_to_server,
+                                    bg='#0078d4', fg='white', 
+                                    font=('Segoe UI', 16, 'bold'),
+                                    relief='flat', borderwidth=0,
+                                    padx=35, pady=15,
+                                    cursor='hand2')
+        self.connect_btn.pack()
+        
+        # Status display
+        status_container = tk.Frame(main_card, bg='#2d2d2d')
+        status_container.pack(pady=(20, 0))
+        
+        self.conn_status_label = tk.Label(status_container, text="Ready to connect", 
+                                         font=('Segoe UI', 12), 
+                                         fg='#b0b0b0', bg='#2d2d2d')
+        self.conn_status_label.pack()
+        
+        # Quick tips section
+        tips_container = tk.Frame(main_card, bg='#1a1a1a', padx=20, pady=15)
+        tips_container.pack(fill=tk.X, pady=(30, 0))
+        
+        tips_title = tk.Label(tips_container, text="💡 Quick Tips", 
+                             font=('Segoe UI', 12, 'bold'), 
+                             fg='#ffd43b', bg='#1a1a1a')
+        tips_title.pack(anchor=tk.W, pady=(0, 8))
+        
+        tips_text = """• Ensure the meeting server is running before connecting
+• Use your local network IP (192.168.x.x) for LAN meetings
+• Test your connection first to verify server availability
+• Choose a clear display name for easy identification"""
+        
+        tips_label = tk.Label(tips_container, text=tips_text, 
+                             font=('Segoe UI', 10), 
+                             fg='#cccccc', bg='#1a1a1a',
+                             justify=tk.LEFT)
+        tips_label.pack(anchor=tk.W)
         
         # Bind Enter key to connect
         self.server_ip_entry.bind('<Return>', lambda e: self.connect_to_server())
-        self.client_name_entry.bind('<Return>', lambda e: self.connect_to_server())
+        self.name_entry.bind('<Return>', lambda e: self.connect_to_server())
         
-        # Client name
-        tk.Label(form_frame, text="Your Name", 
-                font=('Segoe UI', 12), 
-                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 5))
+        # Add hover effects to buttons
+        self.add_button_hover_effects()
         
-        self.name_entry = tk.Entry(form_frame, 
-                                  font=('Segoe UI', 12),
-                                  bg='#3d3d3d', fg='white',
-                                  relief='flat', borderwidth=0,
-                                  insertbackground='white',
-                                  width=30)
-        self.name_entry.pack(pady=(0, 30), ipady=10)
-        self.name_entry.insert(0, "Participant")
+    def add_placeholder_effect(self, entry, placeholder_text):
+        """Add placeholder text effect to entry widgets"""
+        def on_focus_in(event):
+            if entry.get() == placeholder_text:
+                entry.delete(0, tk.END)
+                entry.config(fg='white')
         
-        # Connect button
-        self.connect_btn = tk.Button(form_frame, text="🚀 Join Meeting", 
-                                    command=self.connect_to_server,
-                                    bg='#0078d4', fg='white', 
-                                    font=('Segoe UI', 14, 'bold'),
-                                    relief='flat', borderwidth=0,
-                                    padx=40, pady=15,
-                                    cursor='hand2')
-        self.connect_btn.pack(pady=10)
+        def on_focus_out(event):
+            if not entry.get():
+                entry.insert(0, placeholder_text)
+                entry.config(fg='#888888')
         
-        # Status
-        self.conn_status_label = tk.Label(form_frame, text="Ready to connect", 
-                                         font=('Segoe UI', 10), 
-                                         fg='#888888', bg='#2d2d2d')
-        self.conn_status_label.pack(pady=(10, 0))
+        # Don't apply placeholder effect if entry already has content
+        if not entry.get() or entry.get() in ["192.168.1.100", "127.0.0.1"]:
+            return
+            
+        entry.bind('<FocusIn>', on_focus_in)
+        entry.bind('<FocusOut>', on_focus_out)
         
-        # Instructions
-        instructions = """
-🌐 Connect to a LAN Meeting Server
-
-• Make sure the server is running
-• Enter the server's IP address  
-• Enter your display name
-• Click 'Join Meeting' to connect
-
-This application works on Local Area Network (LAN) only
-        """
+    def add_button_hover_effects(self):
+        """Add hover effects to buttons"""
+        def on_enter(event, button, hover_color):
+            button.config(bg=hover_color)
         
-        tk.Label(center_frame, text=instructions, 
-                font=('Segoe UI', 10), 
-                fg='#888888', bg='#2d2d2d',
-                justify=tk.LEFT).pack(pady=(30, 0))
+        def on_leave(event, button, normal_color):
+            button.config(bg=normal_color)
+        
+        # Connect button hover effect
+        self.connect_btn.bind('<Enter>', lambda e: on_enter(e, self.connect_btn, '#0056b3'))
+        self.connect_btn.bind('<Leave>', lambda e: on_leave(e, self.connect_btn, '#0078d4'))
         
         # Add hover effect to connect button
         def on_enter(event):
@@ -724,20 +819,30 @@ This application works on Local Area Network (LAN) only
         self.present_btn.pack(side=tk.LEFT, padx=10)
         
     def connect_to_server(self):
-        """Connect to the communication server"""
+        """Connect to the communication server with enhanced join settings"""
         try:
             self.server_host = self.server_ip_entry.get().strip()
             self.client_name = self.name_entry.get().strip()
             
+            # Validate input
             if not self.server_host or not self.client_name:
-                messagebox.showerror("Connection Error", "Please enter server IP and your name")
+                self.conn_status_label.config(text="❌ Please fill in all fields", fg='#dc3545')
                 return
                 
-            self.conn_status_label.config(text="Connecting...", fg='#ffd43b')
-            self.connect_btn.config(state=tk.DISABLED)
+            # Check for placeholder text
+            if self.client_name.startswith("User_") and len(self.client_name) <= 8:
+                response = messagebox.askyesno("Default Name", 
+                                             "You're using a default name. Continue with this name?")
+                if not response:
+                    return
+                    
+            self.conn_status_label.config(text="🔄 Connecting to server...", fg='#ffd43b')
+            self.connect_btn.config(state=tk.DISABLED, text="Connecting...")
+            self.root.update()
             
             # Create TCP socket
             self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.tcp_socket.settimeout(10)  # 10 second timeout
             self.tcp_socket.connect((self.server_host, self.tcp_port))
             
             # Create UDP sockets
@@ -750,6 +855,9 @@ This application works on Local Area Network (LAN) only
             
             self.connected = True
             self.running = True
+            
+            self.conn_status_label.config(text="✅ Connected! Joining meeting...", fg='#28a745')
+            self.root.update()
             
             # Start communication threads
             threading.Thread(target=self.tcp_receiver, daemon=True).start()
@@ -770,9 +878,24 @@ This application works on Local Area Network (LAN) only
             self.share_file_btn.config(state=tk.NORMAL)
             self.download_file_btn.config(state=tk.NORMAL)
             
+            # Auto-start media based on join settings
+            if hasattr(self, 'join_with_video') and self.join_with_video.get():
+                self.root.after(1000, self.toggle_video)  # Start video after 1 second
+                
+            if hasattr(self, 'join_with_audio') and self.join_with_audio.get():
+                self.root.after(1500, self.toggle_audio)  # Start audio after 1.5 seconds
+            
+        except socket.timeout:
+            self.conn_status_label.config(text="❌ Connection timeout", fg='#dc3545')
+            self.connect_btn.config(state=tk.NORMAL, text="🚀 Join Meeting")
+            messagebox.showerror("Connection Error", "Connection timed out. Please check the server IP and ensure the server is running.")
+        except ConnectionRefusedError:
+            self.conn_status_label.config(text="❌ Connection refused", fg='#dc3545')
+            self.connect_btn.config(state=tk.NORMAL, text="🚀 Join Meeting")
+            messagebox.showerror("Connection Error", "Connection refused. Please ensure the server is running and accessible.")
         except Exception as e:
-            self.conn_status_label.config(text="Connection failed", fg='#ff6b6b')
-            self.connect_btn.config(state=tk.NORMAL)
+            self.conn_status_label.config(text="❌ Connection failed", fg='#dc3545')
+            self.connect_btn.config(state=tk.NORMAL, text="🚀 Join Meeting")
             messagebox.showerror("Connection Error", f"Failed to connect: {str(e)}")
             
     def send_tcp_message(self, message):
@@ -953,8 +1076,30 @@ This application works on Local Area Network (LAN) only
         
     def udp_audio_receiver(self):
         """Receive UDP audio streams"""
-        # This would handle incoming audio streams from other clients
-        pass
+        while self.running and self.connected:
+            try:
+                data, address = self.udp_audio_socket.recvfrom(4096)
+                
+                # Parse audio packet
+                if len(data) < 8:
+                    continue
+                    
+                client_id, timestamp = struct.unpack('!II', data[:8])
+                audio_data = data[8:]
+                
+                # Play received audio (from other clients or host)
+                if len(audio_data) > 0:
+                    try:
+                        # Play audio if we have an audio output stream
+                        if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+                            self.audio_output_stream.write(audio_data)
+                    except Exception as e:
+                        print(f"Error playing received audio: {e}")
+                        
+            except Exception as e:
+                if self.running and self.connected:
+                    print(f"UDP audio receiver error: {e}")
+                break
         
 
         
@@ -1018,6 +1163,8 @@ This application works on Local Area Network (LAN) only
                         except queue.Empty:
                             break
                     self.video_frame_queue.put_nowait((None, display_frame_rgb))
+                    # Debug: Print when local frame is queued
+                    # print(f"Local video frame queued: {display_frame_rgb.shape}")
                 except queue.Full:
                     pass
                 
@@ -1033,17 +1180,18 @@ This application works on Local Area Network (LAN) only
     def send_video_frame(self, frame):
         """Send video frame to server"""
         try:
-            if hasattr(self, 'udp_video_socket') and self.connected:
+            if hasattr(self, 'udp_video_socket') and self.connected and self.client_id is not None:
                 # Compress frame
                 frame_resized = cv2.resize(frame, (320, 240))
                 _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 
                 # Create packet
                 sequence = int(time.time() * 1000) % (2**32)
-                packet = struct.pack('!III', self.client_id or 0, sequence, len(encoded)) + encoded.tobytes()
+                packet = struct.pack('!III', self.client_id, sequence, len(encoded)) + encoded.tobytes()
                 
                 # Send to server
                 self.udp_video_socket.sendto(packet, (self.server_host, self.udp_video_port))
+                # print(f"Video frame sent to server - Client ID: {self.client_id}, Size: {len(encoded)}")
                 
         except Exception as e:
             print(f"Error sending video frame: {e}")
@@ -1066,11 +1214,21 @@ This application works on Local Area Network (LAN) only
             channels = 1
             rate = 44100
             
+            # Input stream for microphone
             self.audio_stream = self.audio.open(
                 format=format,
                 channels=channels,
                 rate=rate,
                 input=True,
+                frames_per_buffer=chunk
+            )
+            
+            # Output stream for playing received audio
+            self.audio_output_stream = self.audio.open(
+                format=format,
+                channels=channels,
+                rate=rate,
+                output=True,
                 frames_per_buffer=chunk
             )
             
@@ -1097,6 +1255,11 @@ This application works on Local Area Network (LAN) only
             self.audio_stream.close()
             self.audio_stream = None
             
+        if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+            self.audio_output_stream.stop_stream()
+            self.audio_output_stream.close()
+            self.audio_output_stream = None
+            
         if self.audio:
             self.audio.terminate()
             self.audio = None
@@ -1112,8 +1275,19 @@ This application works on Local Area Network (LAN) only
                 # Read audio data
                 data = self.audio_stream.read(1024)
                 
-                # Send via UDP (simplified)
-                # In a real implementation, you'd encode and send the audio data
+                # Send audio to server via UDP
+                if hasattr(self, 'udp_audio_socket') and self.connected and self.client_id is not None:
+                    try:
+                        # Create audio packet
+                        timestamp = int(time.time() * 1000) % (2**32)
+                        packet = struct.pack('!II', self.client_id, timestamp) + data
+                        
+                        # Send to server
+                        self.udp_audio_socket.sendto(packet, (self.server_host, self.udp_audio_port))
+                    except Exception as e:
+                        print(f"Error sending audio: {e}")
+                
+                time.sleep(0.02)  # Small delay to prevent overwhelming
                 
             except Exception as e:
                 print(f"Audio streaming error: {e}")

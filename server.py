@@ -2247,13 +2247,23 @@ class LANCommunicationServer:
                 data, address = self.udp_video_socket.recvfrom(65536)
                 
                 # Parse video packet header
-                if len(data) < 8:
+                if len(data) < 12:
                     continue
                     
                 client_id, sequence, frame_size = struct.unpack('!III', data[:12])
                 frame_data = data[12:]
                 
-                # Broadcast to other clients
+                # Validate frame data
+                if len(frame_data) == frame_size and client_id in self.clients:
+                    # print(f"Server received video from client {client_id}, size: {frame_size}")
+                    # Update server display for this client's video
+                    try:
+                        self.update_client_video_display(client_id, frame_data)
+                        # print(f"Server updated display for client {client_id}")
+                    except Exception as e:
+                        print(f"Error updating client video display: {e}")
+                
+                # Broadcast to other clients (excluding sender)
                 for cid, client_info in self.clients.items():
                     if cid != client_id and client_info.get('video_enabled', False):
                         try:
@@ -2525,11 +2535,37 @@ class LANCommunicationServer:
             if frame_data is not None:
                 # Update with actual video frame
                 try:
-                    # Convert frame data to image and display
-                    # This would be implemented with actual video processing
-                    video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo On")
-                except:
-                    pass
+                    # Decode frame data
+                    nparr = np.frombuffer(frame_data, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    if frame is not None:
+                        # Convert BGR to RGB for display
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Resize frame to fit display
+                        height, width = frame_rgb.shape[:2]
+                        max_width, max_height = 200, 150
+                        
+                        if width > max_width or height > max_height:
+                            scale = min(max_width/width, max_height/height)
+                            new_width = int(width * scale)
+                            new_height = int(height * scale)
+                            frame_rgb = cv2.resize(frame_rgb, (new_width, new_height))
+                        
+                        # Convert to PhotoImage and display
+                        image = Image.fromarray(frame_rgb)
+                        photo = ImageTk.PhotoImage(image)
+                        
+                        video_label.config(image=photo, text="")
+                        video_label.image = photo  # Keep reference
+                        # print(f"Server displayed video for client {client_id}")
+                    else:
+                        video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo Error")
+                        
+                except Exception as e:
+                    print(f"Error processing client video frame: {e}")
+                    video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo Error")
             else:
                 # Show video off state
                 video_label.config(text=f"📹 {self.clients[client_id]['name']}\n\nVideo Off")
