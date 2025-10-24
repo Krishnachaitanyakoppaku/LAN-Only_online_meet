@@ -804,7 +804,7 @@ class LANCommunicationClient:
         self.video_btn.pack(side=tk.LEFT, padx=10)
         
         # Microphone button
-        self.mic_btn = tk.Button(media_frame, text="�\nMiAc", 
+        self.mic_btn = tk.Button(media_frame, text="🎤\nMic", 
                                 command=self.toggle_microphone,
                                 bg='#404040', fg='white', 
                                 font=('Segoe UI', 10, 'bold'),
@@ -813,10 +813,10 @@ class LANCommunicationClient:
                                 cursor='hand2')
         self.mic_btn.pack(side=tk.LEFT, padx=5)
         
-        # Speaker button
-        self.speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker", 
+        # Speaker button (starts enabled by default)
+        self.speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker On", 
                                     command=self.toggle_speaker,
-                                    bg='#404040', fg='white', 
+                                    bg='#28a745', fg='white', 
                                     font=('Segoe UI', 10, 'bold'),
                                     relief='flat', borderwidth=0,
                                     width=8, height=3,
@@ -892,6 +892,9 @@ class LANCommunicationClient:
             # Enable file sharing controls
             self.share_file_btn.config(state=tk.NORMAL)
             self.download_file_btn.config(state=tk.NORMAL)
+            
+            # Auto-start speaker for receiving audio (always enabled by default)
+            self.root.after(1000, self.start_speaker)  # Start speaker after 1 second
             
             # Auto-start media based on join settings (with longer delay to ensure GUI is ready)
             if hasattr(self, 'join_with_video') and self.join_with_video.get():
@@ -1226,10 +1229,18 @@ class LANCommunicationClient:
                 # Play received audio (from other clients or host)
                 if len(audio_data) > 0:
                     try:
-                        # Play audio if we have an audio output stream
-                        if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
-                            if self.audio_output_stream.is_active():
-                                self.audio_output_stream.write(audio_data)
+                        # Play audio if we have an audio output stream and speaker is enabled
+                        if (self.speaker_enabled and hasattr(self, 'audio_output_stream') and 
+                            self.audio_output_stream and self.audio_output_stream.is_active()):
+                            self.audio_output_stream.write(audio_data)
+                            print(f"Playing audio from client/host {client_id}, {len(audio_data)} bytes")
+                        else:
+                            if not self.speaker_enabled:
+                                print(f"Received audio from {client_id} but speaker is disabled")
+                            elif not hasattr(self, 'audio_output_stream'):
+                                print(f"Received audio from {client_id} but no output stream")
+                            elif not self.audio_output_stream:
+                                print(f"Received audio from {client_id} but output stream is None")
                         
                         # Reset error counter on success
                         consecutive_errors = 0
@@ -1505,7 +1516,7 @@ class LANCommunicationClient:
         consecutive_errors = 0
         max_errors = 5
         
-        while self.audio_enabled and self.audio_stream:
+        while self.microphone_enabled and self.audio_stream and self.connected:
             try:
                 # Check if stream is still active
                 if not self.audio_stream.is_active():
@@ -1539,7 +1550,7 @@ class LANCommunicationClient:
                         # Send to server
                         self.udp_audio_socket.sendto(packet, (self.server_host, self.udp_audio_port))
                         # Debug: Uncomment to see audio being sent
-                        # print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
+                        print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
                         
                         # Reset error counter on successful operation
                         consecutive_errors = 0

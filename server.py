@@ -1425,10 +1425,10 @@ class LANCommunicationServer:
                                      cursor='hand2', state=tk.DISABLED)
         self.host_mic_btn.pack(side=tk.LEFT, padx=5)
         
-        # Speaker button
-        self.host_speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker", 
+        # Speaker button (starts enabled by default)
+        self.host_speaker_btn = tk.Button(media_frame, text="🔊\nSpeaker On", 
                                          command=self.toggle_host_speaker,
-                                         bg='#404040', fg='white', 
+                                         bg='#28a745', fg='white', 
                                          font=('Segoe UI', 10, 'bold'),
                                          relief='flat', borderwidth=0,
                                          width=8, height=3,
@@ -1978,6 +1978,9 @@ class LANCommunicationServer:
             # Update UI
             self.start_server_btn.config(state=tk.DISABLED)
             self.stop_server_btn.config(state=tk.NORMAL)
+            
+            # Auto-start speaker for receiving audio (after a short delay)
+            self.root.after(1000, self.start_host_speaker)
             self.server_status_label.config(text="● Server Running", fg='#51cf66')
             
             # Add Host to the session
@@ -2358,31 +2361,40 @@ class LANCommunicationServer:
                 client_id, timestamp = struct.unpack('!II', data[:8])
                 audio_data = data[8:]
                 
-                # Play audio on server if host audio is enabled
-                if self.host_audio_enabled and hasattr(self, 'audio_output_stream') and self.audio_output_stream:
+                # Debug: Show audio reception
+                print(f"Server received audio from client {client_id}, {len(audio_data)} bytes")
+                
+                # Play audio on server if host speaker is enabled
+                if self.host_speaker_enabled and hasattr(self, 'audio_output_stream') and self.audio_output_stream:
                     try:
-                        self.audio_output_stream.write(audio_data)
-                        # Debug: Uncomment to see audio being received
-                        # print(f"Server playing audio from client {client_id}, {len(audio_data)} bytes")
+                        if self.audio_output_stream.is_active():
+                            self.audio_output_stream.write(audio_data)
+                            print(f"Server playing audio from client {client_id}")
                     except Exception as e:
                         print(f"Error playing client audio on server: {e}")
                 else:
                     # Debug: Show why audio isn't being played
-                    if not self.host_audio_enabled:
-                        print(f"Server received audio from client {client_id} but host audio is disabled")
+                    if not self.host_speaker_enabled:
+                        print(f"Server received audio from client {client_id} but host speaker is disabled")
                     elif not hasattr(self, 'audio_output_stream'):
                         print(f"Server received audio from client {client_id} but no output stream")
                     elif not self.audio_output_stream:
                         print(f"Server received audio from client {client_id} but output stream is None")
                 
                 # Broadcast to other clients (excluding sender)
+                broadcast_count = 0
                 for cid, client_info in self.clients.items():
-                    if cid != client_id and client_info.get('audio_enabled', False):
+                    if cid != client_id:  # Don't send back to sender
                         try:
                             client_address = (client_info['address'][0], self.udp_audio_port)
                             self.udp_audio_socket.sendto(data, client_address)
-                        except:
-                            pass
+                            broadcast_count += 1
+                            print(f"Audio broadcasted to client {cid}")
+                        except Exception as e:
+                            print(f"Error broadcasting audio to client {cid}: {e}")
+                
+                if broadcast_count > 0:
+                    print(f"Audio from client {client_id} broadcasted to {broadcast_count} clients")
                             
             except Exception as e:
                 if self.running:
@@ -3014,17 +3026,50 @@ class LANCommunicationServer:
         
     def host_audio_loop(self):
         """Host audio streaming loop"""
-        while self.host_audio_enabled and self.audio_stream:
+        consecutive_errors = 0
+        max_errors = 5
+        
+        while self.host_microphone_enabled and self.audio_stream and self.running:
             try:
-                # Read audio data
-                data = self.audio_stream.read(1024)
+                # Check if stream is still active
+                if not self.audio_stream.is_active():
+                    print("Host audio stream is not active, stopping loop")
+                    break
+                
+                # Read audio data with exception handling for overflow
+                try:
+                    data = self.audio_stream.read(1024, exception_on_overflow=False)
+                except Exception as read_error:
+                    if "Input overflowed" in str(read_error):
+                        print("Host audio input overflow, clearing buffer...")
+                        try:
+                            self.audio_stream.read(1024, exception_on_overflow=False)
+                        except:
+                            pass
+                        time.sleep(0.1)
+                        continue
+                    else:
+                        raise read_error
                 
                 # Broadcast to clients via UDP
                 self.broadcast_host_audio_data(data)
+                print(f"Host audio broadcasted: {len(data)} bytes")
+                
+                # Reset error counter on success
+                consecutive_errors = 0
+                time.sleep(0.02)  # Small delay to prevent overwhelming
                 
             except Exception as e:
-                print(f"Host audio streaming error: {e}")
-                break
+                consecutive_errors += 1
+                print(f"Host audio streaming error ({consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, stop the loop
+                if consecutive_errors >= max_errors:
+                    print("Too many host audio errors, stopping audio stream")
+                    self.root.after(0, self.stop_host_audio)
+                    break
+                    
+                time.sleep(0.1)  # Brief pause before retrying
                 
     def broadcast_host_audio_data(self, audio_data):
         """Broadcast Host audio data to all clients"""
@@ -3034,12 +3079,18 @@ class LANCommunicationServer:
             packet = struct.pack('!II', self.host_id, timestamp) + audio_data
             
             # Send to all clients
+            broadcast_count = 0
             for client_id, client_info in self.clients.items():
                 try:
                     client_address = (client_info['address'][0], self.udp_audio_port)
                     self.udp_audio_socket.sendto(packet, client_address)
-                except:
-                    pass
+                    broadcast_count += 1
+                    print(f"Host audio sent to client {client_id}")
+                except Exception as e:
+                    print(f"Error sending host audio to client {client_id}: {e}")
+            
+            if broadcast_count > 0:
+                print(f"Host audio broadcasted to {broadcast_count} clients")
                     
         except Exception as e:
             print(f"Error broadcasting Host audio: {e}")
@@ -3164,41 +3215,7 @@ class LANCommunicationServer:
         }
         self.broadcast_message(status_msg)
 
-        
-    def host_audio_loop(self):
-        """Host audio streaming loop"""
-        while self.host_audio_enabled and self.audio_stream:
-            try:
-                # Read audio data
-                data = self.audio_stream.read(1024)
-                
-                # Broadcast to clients via UDP
-                self.broadcast_host_audio_data(data)
-                
-            except Exception as e:
-                print(f"Host audio streaming error: {e}")
-                break
-                
-    def broadcast_host_audio_data(self, audio_data):
-        """Broadcast Host audio data to all clients"""
-        try:
-            # Create packet
-            timestamp = int(time.time() * 1000) % (2**32)
-            packet = struct.pack('!II', self.host_id, timestamp) + audio_data
-            
-            # Send to all clients
-            for client_id, client_info in self.clients.items():
-                try:
-                    client_address = (client_info['address'][0], self.udp_audio_port)
-                    self.udp_audio_socket.sendto(packet, client_address)
-                except:
-                    pass
-                    
-        except Exception as e:
-            print(f"Error broadcasting Host audio: {e}")
-            
 
-            
     def send_host_chat_message(self, event=None):
         """Send chat message from Host"""
         message = self.chat_entry.get().strip()
