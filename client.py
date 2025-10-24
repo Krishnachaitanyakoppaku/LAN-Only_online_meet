@@ -155,6 +155,9 @@ class LANCommunicationClient:
                     # Handle both old format (just frame) and new format (client_id, frame)
                     if isinstance(frame_data, tuple) and len(frame_data) == 2:
                         client_id, frame_rgb = frame_data
+                        # Convert None to "self" for backward compatibility
+                        if client_id is None:
+                            client_id = "self"
                     else:
                         # Old format - just the frame (local video)
                         frame_rgb = frame_data
@@ -1387,6 +1390,7 @@ class LANCommunicationClient:
                 
                 # Process video frame
                 if len(frame_data) == frame_size:
+                    print(f"Client received video from client/host {client_id}, size: {frame_size} bytes")
                     try:
                         # Decode frame
                         nparr = np.frombuffer(frame_data, np.uint8)
@@ -1405,15 +1409,23 @@ class LANCommunicationClient:
                                     except queue.Empty:
                                         break
                                 self.video_frame_queue.put_nowait((client_id, frame_rgb))
+                                print(f"Video frame from {client_id} queued for display")
                             except queue.Full:
                                 pass  # Skip frame if queue is full
-                                
-                        # Reset error counter on success
-                        consecutive_errors = 0
-                        
+                        else:
+                            print(f"Failed to decode video frame from {client_id}")
                     except Exception as e:
-                        print(f"Error processing video frame: {e}")
+                        print(f"Error processing video frame from {client_id}: {e}")
                         consecutive_errors += 1
+                else:
+                    print(f"Frame size mismatch from {client_id}: expected {frame_size}, got {len(frame_data)}")
+                
+                # Reset error counter on success
+                consecutive_errors = 0
+                        
+            except Exception as e:
+                consecutive_errors += 1
+                print(f"Error processing video frame: {e}")
                         
             except socket.timeout:
                 # Timeout is normal when no video is being sent
@@ -1551,7 +1563,7 @@ class LANCommunicationClient:
                                 self.video_frame_queue.get_nowait()
                             except queue.Empty:
                                 break
-                        self.video_frame_queue.put_nowait((None, display_frame_rgb))
+                        self.video_frame_queue.put_nowait(("self", display_frame_rgb))
                         # Debug: Print when local frame is queued
                         # print(f"Local video frame queued: {display_frame_rgb.shape}")
                     except queue.Full:
@@ -1594,7 +1606,7 @@ class LANCommunicationClient:
                 
                 # Send to server
                 self.udp_video_socket.sendto(packet, (self.server_host, self.udp_video_port))
-                # print(f"Video frame sent to server - Client ID: {self.client_id}, Size: {len(encoded)}")
+                print(f"Video frame sent to server - Client ID: {self.client_id}, Size: {len(encoded)} bytes")
                 
         except Exception as e:
             print(f"Error sending video frame: {e}")

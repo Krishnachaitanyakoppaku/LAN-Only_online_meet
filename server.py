@@ -2337,22 +2337,33 @@ class LANCommunicationServer:
                 
                 # Validate frame data
                 if len(frame_data) == frame_size and client_id in self.clients:
-                    # print(f"Server received video from client {client_id}, size: {frame_size}")
+                    print(f"Server received video from client {client_id}, size: {frame_size} bytes")
                     # Update server display for this client's video
                     try:
                         self.update_client_video_display(client_id, frame_data)
-                        # print(f"Server updated display for client {client_id}")
+                        print(f"Server updated display for client {client_id}")
                     except Exception as e:
                         print(f"Error updating client video display: {e}")
+                else:
+                    if len(frame_data) != frame_size:
+                        print(f"Frame size mismatch: expected {frame_size}, got {len(frame_data)}")
+                    if client_id not in self.clients:
+                        print(f"Unknown client ID: {client_id}")
                 
                 # Broadcast to other clients (excluding sender)
+                broadcast_count = 0
                 for cid, client_info in self.clients.items():
-                    if cid != client_id and client_info.get('video_enabled', False):
+                    if cid != client_id:  # Send to all other clients regardless of their video status
                         try:
                             client_address = (client_info['address'][0], self.udp_video_port)
                             self.udp_video_socket.sendto(data, client_address)
-                        except:
-                            pass
+                            broadcast_count += 1
+                            print(f"Video from client {client_id} broadcasted to client {cid}")
+                        except Exception as e:
+                            print(f"Error broadcasting video to client {cid}: {e}")
+                
+                if broadcast_count > 0:
+                    print(f"Video from client {client_id} broadcasted to {broadcast_count} clients")
                             
             except Exception as e:
                 if self.running:
