@@ -271,27 +271,6 @@ class LANCommunicationClient:
             self.connection_status.config(text="✅ Connection successful!", fg='#28a745')
         except Exception as e:
             self.connection_status.config(text=f"❌ Connection failed: {str(e)}", fg='#dc3545')
-        
-    def test_connection(self):
-        """Test connection to server"""
-        server_ip = self.server_ip_entry.get().strip()
-        if not server_ip:
-            self.connection_status.config(text="❌ Please enter server IP", fg='#dc3545')
-            return
-            
-        self.connection_status.config(text="🔍 Testing connection...", fg='#fd7e14')
-        self.root.update()
-        
-        try:
-            # Test TCP connection
-            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_socket.settimeout(3)
-            test_socket.connect((server_ip, self.tcp_port))
-            test_socket.close()
-            
-            self.connection_status.config(text="✅ Connection successful!", fg='#28a745')
-        except Exception as e:
-            self.connection_status.config(text=f"❌ Connection failed: {str(e)}", fg='#dc3545')
     
     def show_connection_screen(self):
         """Show the modern connection screen"""
@@ -913,6 +892,96 @@ This application works on Local Area Network (LAN) only
         
 
         
+    def toggle_video(self):
+        """Toggle video on/off"""
+        if not self.video_enabled:
+            self.start_video()
+        else:
+            self.stop_video()
+    
+    def start_video(self):
+        """Start video capture"""
+        try:
+            self.video_cap = cv2.VideoCapture(0)
+            if not self.video_cap.isOpened():
+                messagebox.showerror("Camera Error", "Cannot access camera")
+                return
+                
+            self.video_enabled = True
+            self.video_btn.config(text="📹\nVideo On", bg='#28a745')
+            
+            # Start video streaming thread
+            threading.Thread(target=self.video_loop, daemon=True).start()
+            
+            # Notify server
+            self.send_media_status_update()
+            
+        except Exception as e:
+            messagebox.showerror("Video Error", f"Failed to start video: {str(e)}")
+    
+    def stop_video(self):
+        """Stop video capture"""
+        self.video_enabled = False
+        self.video_btn.config(text="📹\nVideo", bg='#404040')
+        
+        if self.video_cap:
+            self.video_cap.release()
+            self.video_cap = None
+        
+        # Notify server
+        self.send_media_status_update()
+    
+    def video_loop(self):
+        """Video capture and streaming loop"""
+        while self.video_enabled and self.video_cap:
+            try:
+                ret, frame = self.video_cap.read()
+                if not ret:
+                    break
+                
+                # Resize and convert for display
+                display_frame = cv2.resize(frame, (200, 150))
+                display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                
+                # Put frame in queue for local display
+                try:
+                    # Clear old frames
+                    while self.video_frame_queue.qsize() > 1:
+                        try:
+                            self.video_frame_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                    self.video_frame_queue.put_nowait(display_frame_rgb)
+                except queue.Full:
+                    pass
+                
+                # Send to server
+                self.send_video_frame(frame)
+                
+                time.sleep(0.05)  # 20 FPS
+                
+            except Exception as e:
+                print(f"Video loop error: {e}")
+                break
+    
+    def send_video_frame(self, frame):
+        """Send video frame to server"""
+        try:
+            if hasattr(self, 'udp_video_socket') and self.connected:
+                # Compress frame
+                frame_resized = cv2.resize(frame, (320, 240))
+                _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                
+                # Create packet
+                sequence = int(time.time() * 1000) % (2**32)
+                packet = struct.pack('!III', self.client_id or 0, sequence, len(encoded)) + encoded.tobytes()
+                
+                # Send to server
+                self.udp_video_socket.sendto(packet, (self.server_host, self.udp_video_port))
+                
+        except Exception as e:
+            print(f"Error sending video frame: {e}")
+    
     def toggle_audio(self):
         """Toggle audio on/off"""
         if not self.audio_enabled:
@@ -983,6 +1052,17 @@ This application works on Local Area Network (LAN) only
             except Exception as e:
                 print(f"Audio streaming error: {e}")
                 break
+    
+    def send_media_status_update(self):
+        """Send media status update to server"""
+        if self.connected:
+            status_msg = {
+                'type': 'media_status_update',
+                'video_enabled': self.video_enabled,
+                'audio_enabled': self.audio_enabled,
+                'screen_sharing': getattr(self, 'screen_sharing', False)
+            }
+            self.send_tcp_message(status_msg)
                 
     def toggle_presentation(self):
         """Toggle presentation mode"""
