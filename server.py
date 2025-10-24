@@ -2193,16 +2193,23 @@ class LANCommunicationServer:
         elif msg_type == 'media_status_update':
             # Client updating their media status
             if client_id in self.clients:
-                self.clients[client_id]['video_enabled'] = message.get('video_enabled', False)
+                video_enabled = message.get('video_enabled', False)
+                self.clients[client_id]['video_enabled'] = video_enabled
                 self.clients[client_id]['audio_enabled'] = message.get('audio_enabled', False)
                 self.clients[client_id]['screen_share_enabled'] = message.get('screen_share_enabled', False)
                 self.update_clients_display()
+                
+                # Update client video display when video status changes
+                if not video_enabled:
+                    # Video turned off - show "Video Off" message
+                    self.update_client_video_display(client_id, frame_data=None)
+                    print(f"Client {client_id} video turned off - updated display")
                 
                 # Broadcast media status change to all other clients
                 status_broadcast = {
                     'type': 'client_media_status',
                     'client_id': client_id,
-                    'video_enabled': message.get('video_enabled', False),
+                    'video_enabled': video_enabled,
                     'audio_enabled': message.get('audio_enabled', False),
                     'screen_share_enabled': message.get('screen_share_enabled', False)
                 }

@@ -320,14 +320,13 @@ class LANCommunicationClient:
                     
                 self.video_displays[client_id]['status_label'].config(text=status_text)
                 
-                # Update the video slot display name if camera status changed
+                # Update the video slot display when camera status changes
                 display = self.video_displays[client_id]
-                if video_enabled and "📹" not in display['display_name']:
-                    # Camera turned on
-                    pass  # Keep original name
-                elif not video_enabled and display['label'].cget('text') == "":
-                    # Camera turned off, show placeholder
+                if not video_enabled:
+                    # Camera turned off, show placeholder and clear image
                     display['label'].config(text="📹 No Video", image="")
+                    display['label'].image = None  # Clear image reference
+                    print(f"Updated video slot for {client_id}: video disabled")
                     
         except Exception as e:
             print(f"Error updating participant status for {client_id}: {e}")
@@ -1512,6 +1511,10 @@ class LANCommunicationClient:
     def start_video(self):
         """Start video capture"""
         try:
+            # Ensure any existing capture is released
+            if self.video_cap:
+                self.video_cap.release()
+                
             self.video_cap = cv2.VideoCapture(0)
             if not self.video_cap.isOpened():
                 messagebox.showerror("Camera Error", "Cannot access camera")
@@ -1519,6 +1522,12 @@ class LANCommunicationClient:
                 
             self.video_enabled = True
             self.video_btn.config(text="📹\nVideo On", bg='#28a745')
+            
+            # Clear own video slot placeholder
+            if "self" in self.video_displays:
+                display = self.video_displays["self"]
+                display['label'].config(text="", image="")
+                print("Cleared own video slot placeholder - camera starting")
             
             # Start video streaming thread
             threading.Thread(target=self.video_loop, daemon=True).start()
@@ -1538,15 +1547,25 @@ class LANCommunicationClient:
             self.video_cap.release()
             self.video_cap = None
         
+        # Update own video slot to show "Camera Off"
+        if "self" in self.video_displays:
+            display = self.video_displays["self"]
+            display['label'].config(text="📹 Camera Off", image="")
+            display['label'].image = None  # Clear image reference
+            print("Updated own video slot: camera off")
+        
         # Notify server
         self.send_media_status_update()
     
     def video_loop(self):
         """Video capture and streaming loop"""
+        print(f"Video loop started - enabled: {self.video_enabled}, cap: {self.video_cap is not None}, connected: {self.connected}")
+        
         while self.video_enabled and self.video_cap and self.connected:
             try:
                 ret, frame = self.video_cap.read()
                 if not ret:
+                    print("Failed to read frame from camera")
                     break
                 
                 # Resize and convert for display
@@ -1578,6 +1597,8 @@ class LANCommunicationClient:
             except Exception as e:
                 print(f"Video loop error: {e}")
                 break
+        
+        print(f"Video loop ended - enabled: {self.video_enabled}, cap: {self.video_cap is not None}, connected: {self.connected}")
     
     def send_video_frame(self, frame):
         """Send video frame to server"""
