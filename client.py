@@ -125,6 +125,12 @@ class LANCommunicationClient:
             if not hasattr(self, 'root') or not self.root or not self.connected:
                 return
                 
+            # Debug: Check queue status
+            if hasattr(self, 'video_frame_queue'):
+                queue_size = self.video_frame_queue.qsize()
+                if queue_size > 0:
+                    print(f"Video queue has {queue_size} frames waiting")
+                
             # Check for screen sharing frames first (priority over video for display)
             screen_frame_displayed = False
             if hasattr(self, 'screen_frame_queue'):
@@ -1380,6 +1386,8 @@ class LANCommunicationClient:
         consecutive_errors = 0
         max_errors = 5
         
+        print("UDP video receiver started")
+        
         # Set socket timeout to prevent hanging
         if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
             self.udp_video_socket.settimeout(5.0)  # 5 second timeout
@@ -2208,11 +2216,12 @@ class LANCommunicationClient:
             self.tcp_socket.settimeout(10)
             self.tcp_socket.connect((self.server_host, self.tcp_port))
             
-            # Recreate UDP sockets
-            self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udp_video_socket.bind(('', self.udp_video_port))
-            self.udp_audio_socket.bind(('', self.udp_audio_port))
+            # Recreate UDP sockets only if not already bound
+            if not hasattr(self, 'udp_video_socket') or self.udp_video_socket is None:
+                self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.udp_video_socket.bind(('', self.udp_video_port))
+                self.udp_audio_socket.bind(('', self.udp_audio_port))
             
             # Restart communication threads
             threading.Thread(target=self.tcp_receiver, daemon=True).start()
