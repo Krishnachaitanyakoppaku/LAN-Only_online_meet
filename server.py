@@ -2343,19 +2343,20 @@ class LANCommunicationServer:
                 frame_data = data[12:]
                 
                 # Validate frame data
-                if len(frame_data) == frame_size and client_id in self.clients:
-                    print(f"Server received video from client {client_id}, size: {frame_size} bytes")
-                    # Update server display for this client's video
-                    try:
-                        self.update_client_video_display(client_id, frame_data)
-                        print(f"Server updated display for client {client_id}")
-                    except Exception as e:
-                        print(f"Error updating client video display: {e}")
+                if len(frame_data) == frame_size:
+                    if client_id in self.clients:
+                        print(f"Server received video from client {client_id}, size: {frame_size} bytes")
+                        # Update server display for this client's video
+                        try:
+                            self.update_client_video_display(client_id, frame_data)
+                            print(f"Server updated display for client {client_id}")
+                        except Exception as e:
+                            print(f"Error updating client video display: {e}")
+                    else:
+                        print(f"Received video from unknown client ID: {client_id}")
+                        print(f"Known clients: {list(self.clients.keys())}")
                 else:
-                    if len(frame_data) != frame_size:
-                        print(f"Frame size mismatch: expected {frame_size}, got {len(frame_data)}")
-                    if client_id not in self.clients:
-                        print(f"Unknown client ID: {client_id}")
+                    print(f"Frame size mismatch: expected {frame_size}, got {len(frame_data)}")
                 
                 # Broadcast to other clients (excluding sender)
                 broadcast_count = 0
@@ -2584,7 +2585,9 @@ class LANCommunicationServer:
             
     def update_video_grid(self):
         """Update the dynamic video grid layout"""
+        print(f"Updating video grid - clients: {len(self.clients)}")
         if not hasattr(self, 'video_grid_frame'):
+            print("Error: video_grid_frame not found!")
             return
             
         # Clear existing video labels (except host)
@@ -2651,11 +2654,14 @@ class LANCommunicationServer:
             
             # Store reference
             self.video_labels[client_id] = video_label
+            print(f"Created video label for client {client_id}: {client_info['name']}")
             
             col += 1
             
     def update_client_video_display(self, client_id, frame_data=None):
         """Update a specific client's video display"""
+        print(f"Attempting to update video display for client {client_id}")
+        print(f"Available video labels: {list(self.video_labels.keys())}")
         if client_id in self.video_labels:
             video_label = self.video_labels[client_id]
             if frame_data is not None:
@@ -2964,8 +2970,10 @@ class LANCommunicationServer:
     def start_host_speaker(self):
         """Start Host speaker"""
         try:
+            print("Starting host speaker...")
             if not hasattr(self, 'audio') or not self.audio:
                 self.audio = pyaudio.PyAudio()
+                print("Created PyAudio instance")
             
             # Audio configuration
             chunk = 1024
@@ -2984,8 +2992,10 @@ class LANCommunicationServer:
             
             self.host_speaker_enabled = True
             self.host_speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
+            print("Host speaker started successfully")
             
         except Exception as e:
+            print(f"Error starting host speaker: {e}")
             messagebox.showerror("Speaker Error", f"Failed to start Host speaker: {str(e)}")
             
     def start_host_audio(self):

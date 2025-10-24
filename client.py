@@ -1687,8 +1687,10 @@ class LANCommunicationClient:
     def start_speaker(self):
         """Start speaker for playing received audio"""
         try:
+            print("Starting client speaker...")
             if not hasattr(self, 'audio') or not self.audio:
                 self.audio = pyaudio.PyAudio()
+                print("Created PyAudio instance for client")
             
             # Audio configuration
             chunk = 1024
@@ -1707,8 +1709,10 @@ class LANCommunicationClient:
             
             self.speaker_enabled = True
             self.speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
+            print("Client speaker started successfully")
             
         except Exception as e:
+            print(f"Error starting client speaker: {e}")
             messagebox.showerror("Speaker Error", f"Failed to start speaker: {str(e)}")
             
     def start_audio(self):
