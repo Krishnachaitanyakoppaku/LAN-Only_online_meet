@@ -2884,19 +2884,29 @@ class LANCommunicationServer:
             messagebox.showerror("Audio Error", f"Failed to start Host audio: {str(e)}")
             
     def stop_host_audio(self):
-        """Stop Host audio"""
+        """Stop Host audio with proper error handling"""
         self.host_audio_enabled = False
         self.host_audio_btn.config(text="🎤 Start Audio", bg='#404040')
         
         if self.audio_stream:
-            self.audio_stream.stop_stream()
-            self.audio_stream.close()
-            self.audio_stream = None
+            try:
+                if self.audio_stream.is_active():
+                    self.audio_stream.stop_stream()
+                self.audio_stream.close()
+            except Exception as e:
+                print(f"Error stopping host audio stream: {e}")
+            finally:
+                self.audio_stream = None
             
         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
-            self.audio_output_stream.stop_stream()
-            self.audio_output_stream.close()
-            self.audio_output_stream = None
+            try:
+                if self.audio_output_stream.is_active():
+                    self.audio_output_stream.stop_stream()
+                self.audio_output_stream.close()
+            except Exception as e:
+                print(f"Error stopping host audio output stream: {e}")
+            finally:
+                self.audio_output_stream = None
             
         if self.audio:
             self.audio.terminate()

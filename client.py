@@ -908,35 +908,68 @@ class LANCommunicationClient:
             print(f"Error sending TCP message: {e}")
             
     def tcp_receiver(self):
-        """Receive TCP messages from server"""
+        """Receive TCP messages from server with improved error handling"""
+        consecutive_errors = 0
+        max_errors = 3
+        
         while self.running and self.connected:
             try:
+                # Set socket timeout to prevent hanging
+                self.tcp_socket.settimeout(30.0)  # 30 second timeout
+                
                 # Receive message length
                 length_data = self.tcp_socket.recv(4)
                 if not length_data:
+                    print("TCP connection closed by server")
                     break
                     
                 message_length = struct.unpack('!I', length_data)[0]
                 
+                # Validate message length
+                if message_length > 1024 * 1024:  # 1MB max message size
+                    print(f"Message too large: {message_length} bytes")
+                    break
+                
                 # Receive message data
                 message_data = b''
                 while len(message_data) < message_length:
-                    chunk = self.tcp_socket.recv(message_length - len(message_data))
+                    remaining = message_length - len(message_data)
+                    chunk = self.tcp_socket.recv(min(remaining, 8192))  # 8KB chunks
                     if not chunk:
+                        print("Connection lost while receiving message")
                         break
                     message_data += chunk
                     
                 if len(message_data) != message_length:
+                    print(f"Incomplete message received: {len(message_data)}/{message_length}")
                     break
                     
                 # Parse message
-                message = json.loads(message_data.decode('utf-8'))
-                self.process_server_message(message)
+                try:
+                    message = json.loads(message_data.decode('utf-8'))
+                    self.process_server_message(message)
+                    consecutive_errors = 0  # Reset error counter on success
+                except json.JSONDecodeError as e:
+                    print(f"JSON decode error: {e}")
+                    consecutive_errors += 1
                 
-            except Exception as e:
-                if self.running:
-                    print(f"TCP receiver error: {e}")
+            except socket.timeout:
+                print("TCP receiver timeout - connection may be lost")
+                consecutive_errors += 1
+            except ConnectionResetError:
+                print("TCP connection reset by server")
                 break
+            except Exception as e:
+                consecutive_errors += 1
+                if self.running:
+                    print(f"TCP receiver error ({consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, disconnect
+                if consecutive_errors >= max_errors:
+                    print("Too many TCP errors, disconnecting")
+                    break
+                    
+                time.sleep(1)  # Brief pause before retrying
                 
     def process_server_message(self, message):
         """Process message from server"""
@@ -1080,7 +1113,14 @@ class LANCommunicationClient:
             self.root.after(0, lambda: self.add_chat_message("System", "Chat history cleared by host"))
                 
     def udp_video_receiver(self):
-        """Receive UDP video streams"""
+        """Receive UDP video streams with timeout handling"""
+        consecutive_errors = 0
+        max_errors = 5
+        
+        # Set socket timeout to prevent hanging
+        if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
+            self.udp_video_socket.settimeout(5.0)  # 5 second timeout
+        
         while self.running and self.connected:
             try:
                 data, address = self.udp_video_socket.recvfrom(65536)
@@ -1115,16 +1155,37 @@ class LANCommunicationClient:
                             except queue.Full:
                                 pass  # Skip frame if queue is full
                                 
+                        # Reset error counter on success
+                        consecutive_errors = 0
+                        
                     except Exception as e:
                         print(f"Error processing video frame: {e}")
+                        consecutive_errors += 1
                         
+            except socket.timeout:
+                # Timeout is normal when no video is being sent
+                continue
             except Exception as e:
+                consecutive_errors += 1
                 if self.running and self.connected:
-                    print(f"UDP video receiver error: {e}")
-                break
+                    print(f"UDP video receiver error ({consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, stop the receiver
+                if consecutive_errors >= max_errors:
+                    print("Too many UDP video errors, stopping receiver")
+                    break
+                    
+                time.sleep(0.1)  # Brief pause before retrying
         
     def udp_audio_receiver(self):
-        """Receive UDP audio streams"""
+        """Receive UDP audio streams with timeout handling"""
+        consecutive_errors = 0
+        max_errors = 5
+        
+        # Set socket timeout to prevent hanging
+        if hasattr(self, 'udp_audio_socket') and self.udp_audio_socket:
+            self.udp_audio_socket.settimeout(5.0)  # 5 second timeout
+        
         while self.running and self.connected:
             try:
                 data, address = self.udp_audio_socket.recvfrom(4096)
@@ -1141,14 +1202,30 @@ class LANCommunicationClient:
                     try:
                         # Play audio if we have an audio output stream
                         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
-                            self.audio_output_stream.write(audio_data)
+                            if self.audio_output_stream.is_active():
+                                self.audio_output_stream.write(audio_data)
+                        
+                        # Reset error counter on success
+                        consecutive_errors = 0
+                        
                     except Exception as e:
                         print(f"Error playing received audio: {e}")
+                        consecutive_errors += 1
                         
+            except socket.timeout:
+                # Timeout is normal when no audio is being sent
+                continue
             except Exception as e:
+                consecutive_errors += 1
                 if self.running and self.connected:
-                    print(f"UDP audio receiver error: {e}")
-                break
+                    print(f"UDP audio receiver error ({consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, stop the receiver
+                if consecutive_errors >= max_errors:
+                    print("Too many UDP audio errors, stopping receiver")
+                    break
+                    
+                time.sleep(0.1)  # Brief pause before retrying
         
 
         
@@ -1300,14 +1377,24 @@ class LANCommunicationClient:
         self.audio_btn.config(text="🎤\nAudio", bg='#404040')
         
         if self.audio_stream:
-            self.audio_stream.stop_stream()
-            self.audio_stream.close()
-            self.audio_stream = None
+            try:
+                if self.audio_stream.is_active():
+                    self.audio_stream.stop_stream()
+                self.audio_stream.close()
+            except Exception as e:
+                print(f"Error stopping audio stream: {e}")
+            finally:
+                self.audio_stream = None
             
         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
-            self.audio_output_stream.stop_stream()
-            self.audio_output_stream.close()
-            self.audio_output_stream = None
+            try:
+                if self.audio_output_stream.is_active():
+                    self.audio_output_stream.stop_stream()
+                self.audio_output_stream.close()
+            except Exception as e:
+                print(f"Error stopping audio output stream: {e}")
+            finally:
+                self.audio_output_stream = None
             
         if self.audio:
             self.audio.terminate()
@@ -1318,11 +1405,33 @@ class LANCommunicationClient:
         self.send_tcp_message(status_msg)
         
     def audio_stream_loop(self):
-        """Audio streaming loop"""
+        """Audio streaming loop with error handling"""
+        consecutive_errors = 0
+        max_errors = 5
+        
         while self.audio_enabled and self.audio_stream:
             try:
-                # Read audio data
-                data = self.audio_stream.read(1024)
+                # Check if stream is still active
+                if not self.audio_stream.is_active():
+                    print("Audio stream is not active, stopping loop")
+                    break
+                
+                # Read audio data with exception handling for overflow
+                try:
+                    data = self.audio_stream.read(1024, exception_on_overflow=False)
+                except Exception as read_error:
+                    if "Input overflowed" in str(read_error):
+                        # Handle input overflow by clearing buffer and continuing
+                        print("Audio input overflow, clearing buffer...")
+                        try:
+                            # Try to read and discard overflow data
+                            self.audio_stream.read(1024, exception_on_overflow=False)
+                        except:
+                            pass
+                        time.sleep(0.1)  # Brief pause to let buffer clear
+                        continue
+                    else:
+                        raise read_error
                 
                 # Send audio to server via UDP
                 if hasattr(self, 'udp_audio_socket') and self.connected and self.client_id is not None:
@@ -1335,14 +1444,27 @@ class LANCommunicationClient:
                         self.udp_audio_socket.sendto(packet, (self.server_host, self.udp_audio_port))
                         # Debug: Uncomment to see audio being sent
                         # print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
+                        
+                        # Reset error counter on successful operation
+                        consecutive_errors = 0
+                        
                     except Exception as e:
                         print(f"Error sending audio: {e}")
+                        consecutive_errors += 1
                 
                 time.sleep(0.02)  # Small delay to prevent overwhelming
                 
             except Exception as e:
-                print(f"Audio streaming error: {e}")
-                break
+                consecutive_errors += 1
+                print(f"Audio streaming error ({consecutive_errors}/{max_errors}): {e}")
+                
+                # If too many consecutive errors, stop the loop
+                if consecutive_errors >= max_errors:
+                    print("Too many audio errors, stopping audio stream")
+                    self.root.after(0, self.stop_audio)
+                    break
+                    
+                time.sleep(0.1)  # Brief pause before retrying
     
     def send_media_status_update(self):
         """Send media status update to server"""
@@ -1672,29 +1794,50 @@ class LANCommunicationClient:
             messagebox.showwarning("No Selection", "Please select a file first")
             
     def disconnect(self):
-        """Disconnect from server"""
+        """Disconnect from server with proper cleanup"""
         self.running = False
         self.connected = False
         
-        # Stop media
-        if self.video_enabled:
-            self.stop_video()
-        if self.audio_enabled:
-            self.stop_audio()
-            
-        # Close sockets
+        # Stop media with error handling
         try:
-            if self.tcp_socket:
+            if self.video_enabled:
+                self.stop_video()
+        except Exception as e:
+            print(f"Error stopping video during disconnect: {e}")
+            
+        try:
+            if self.audio_enabled:
+                self.stop_audio()
+        except Exception as e:
+            print(f"Error stopping audio during disconnect: {e}")
+            
+        # Close sockets with individual error handling
+        try:
+            if hasattr(self, 'tcp_socket') and self.tcp_socket:
                 self.tcp_socket.close()
-            if self.udp_video_socket:
+                self.tcp_socket = None
+        except Exception as e:
+            print(f"Error closing TCP socket: {e}")
+            
+        try:
+            if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
                 self.udp_video_socket.close()
-            if self.udp_audio_socket:
+                self.udp_video_socket = None
+        except Exception as e:
+            print(f"Error closing UDP video socket: {e}")
+            
+        try:
+            if hasattr(self, 'udp_audio_socket') and self.udp_audio_socket:
                 self.udp_audio_socket.close()
-        except:
-            pass
+                self.udp_audio_socket = None
+        except Exception as e:
+            print(f"Error closing UDP audio socket: {e}")
             
         # Show connection screen
-        self.show_connection_screen()
+        try:
+            self.show_connection_screen()
+        except Exception as e:
+            print(f"Error showing connection screen: {e}")
         
     def on_closing(self):
         """Handle window closing"""
