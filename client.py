@@ -172,14 +172,9 @@ class LANCommunicationClient:
                         
                         # Update appropriate display based on source
                         if client_id is None:
-                            # Local video - update your video preview (only if meeting screen is active)
-                            if (hasattr(self, 'your_video_label') and self.your_video_label and 
-                                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
-                                self.your_video_label.configure(image=photo, text="")
-                                self.your_video_label.image = photo  # Keep reference
-                                # Debug: Print when local video is displayed
-                                # print("Local video frame displayed")
-                            # Silently skip if meeting screen not ready yet
+                            # Local video - NO LONGER USED (handled by update_local_video_preview)
+                            # This is legacy code that won't execute since video_loop no longer queues local frames
+                            pass
                         else:
                             # Remote video - update main display
                             if (hasattr(self, 'main_video_label') and self.main_video_label and 
@@ -1284,6 +1279,9 @@ class LANCommunicationClient:
             self.video_enabled = True
             self.video_btn.config(text="📹\nVideo On", bg='#28a745')
             
+            # Clear local video preview placeholder (NEW FEATURE)
+            self.prepare_local_video_preview()
+            
             # Start video streaming thread
             threading.Thread(target=self.video_loop, daemon=True).start()
             
@@ -1302,6 +1300,9 @@ class LANCommunicationClient:
             self.video_cap.release()
             self.video_cap = None
         
+        # Clear local video preview (NEW FEATURE)
+        self.clear_local_video_preview()
+        
         # Notify server
         self.send_media_status_update()
     
@@ -1313,27 +1314,14 @@ class LANCommunicationClient:
                 if not ret:
                     break
                 
-                # Resize and convert for display
+                # Resize and convert for local display
                 display_frame = cv2.resize(frame, (200, 150))
                 display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
-                # Put frame in queue for local display (use None as client_id for local video)
-                # Only queue if we have the video display queue
-                if hasattr(self, 'video_frame_queue'):
-                    try:
-                        # Clear old frames
-                        while self.video_frame_queue.qsize() > 1:
-                            try:
-                                self.video_frame_queue.get_nowait()
-                            except queue.Empty:
-                                break
-                        self.video_frame_queue.put_nowait((None, display_frame_rgb))
-                        # Debug: Print when local frame is queued
-                        # print(f"Local video frame queued: {display_frame_rgb.shape}")
-                    except queue.Full:
-                        pass
+                # Update local video preview directly (NEW FEATURE - doesn't interfere with existing)
+                self.update_local_video_preview(display_frame_rgb)
                 
-                # Send to server only if connected
+                # Send to server only if connected (existing functionality unchanged)
                 if self.connected:
                     self.send_video_frame(frame)
                 
@@ -1342,6 +1330,56 @@ class LANCommunicationClient:
             except Exception as e:
                 print(f"Video loop error: {e}")
                 break
+    
+    def update_local_video_preview(self, frame_rgb):
+        """Update local video preview (NEW FEATURE - independent of main video system)"""
+        try:
+            # Only update if the your_video_label exists and meeting screen is active
+            if (hasattr(self, 'your_video_label') and self.your_video_label and 
+                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
+                
+                # Create photo from frame
+                pil_image = Image.fromarray(frame_rgb)
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Update the local video preview
+                self.your_video_label.configure(image=photo, text="")
+                self.your_video_label.image = photo  # Keep reference
+                
+                # Debug: Uncomment to see local video updates
+                # print("Local video preview updated")
+                
+        except Exception as e:
+            # Silently handle errors to not interfere with main video functionality
+            pass
+    
+    def clear_local_video_preview(self):
+        """Clear local video preview when camera is turned off (NEW FEATURE)"""
+        try:
+            if (hasattr(self, 'your_video_label') and self.your_video_label and 
+                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
+                
+                # Show camera off message
+                self.your_video_label.configure(image="", text="📹 Camera Off")
+                self.your_video_label.image = None  # Clear image reference
+                
+        except Exception as e:
+            # Silently handle errors
+            pass
+    
+    def prepare_local_video_preview(self):
+        """Prepare local video preview when camera is turned on (NEW FEATURE)"""
+        try:
+            if (hasattr(self, 'your_video_label') and self.your_video_label and 
+                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
+                
+                # Clear placeholder text - video will appear shortly
+                self.your_video_label.configure(text="📹 Starting...", image="")
+                self.your_video_label.image = None
+                
+        except Exception as e:
+            # Silently handle errors
+            pass
     
     def send_video_frame(self, frame):
         """Send video frame to server"""
@@ -1550,7 +1588,7 @@ class LANCommunicationClient:
                         # Send to server
                         self.udp_audio_socket.sendto(packet, (self.server_host, self.udp_audio_port))
                         # Debug: Uncomment to see audio being sent
-                        print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
+                        # print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
                         
                         # Reset error counter on successful operation
                         consecutive_errors = 0

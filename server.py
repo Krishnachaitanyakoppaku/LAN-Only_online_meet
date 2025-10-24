@@ -2362,14 +2362,14 @@ class LANCommunicationServer:
                 audio_data = data[8:]
                 
                 # Debug: Show audio reception
-                print(f"Server received audio from client {client_id}, {len(audio_data)} bytes")
+                # print(f"Server received audio from client {client_id}, {len(audio_data)} bytes")
                 
                 # Play audio on server if host speaker is enabled
                 if self.host_speaker_enabled and hasattr(self, 'audio_output_stream') and self.audio_output_stream:
                     try:
                         if self.audio_output_stream.is_active():
                             self.audio_output_stream.write(audio_data)
-                            print(f"Server playing audio from client {client_id}")
+                            # print(f"Server playing audio from client {client_id}")
                     except Exception as e:
                         print(f"Error playing client audio on server: {e}")
                 else:
@@ -2394,7 +2394,8 @@ class LANCommunicationServer:
                             print(f"Error broadcasting audio to client {cid}: {e}")
                 
                 if broadcast_count > 0:
-                    print(f"Audio from client {client_id} broadcasted to {broadcast_count} clients")
+                    # print(f"Audio from client {client_id} broadcasted to {broadcast_count} clients")
+                    pass
                             
             except Exception as e:
                 if self.running:
