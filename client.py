@@ -1087,7 +1087,9 @@ class LANCommunicationClient:
                 'type': 'join',
                 'name': self.client_name
             }
+            print(f"Sending join message: {join_msg}")
             self.send_tcp_message(join_msg)
+            print("Join message sent to server")
             
             # Switch to meeting screen
             self.show_meeting_screen()
@@ -1127,6 +1129,7 @@ class LANCommunicationClient:
             message_data = json.dumps(message).encode('utf-8')
             message_length = struct.pack('!I', len(message_data))
             self.tcp_socket.send(message_length + message_data)
+            print(f"TCP message sent successfully: {message.get('type', 'unknown')}")
         except Exception as e:
             print(f"Error sending TCP message: {e}")
             
@@ -1171,6 +1174,7 @@ class LANCommunicationClient:
                 # Parse message
                 try:
                     message = json.loads(message_data.decode('utf-8'))
+                    print(f"Client received message: {message.get('type', 'unknown')}")
                     self.process_server_message(message)
                     consecutive_errors = 0  # Reset error counter on success
                     last_activity = time.time()  # Update activity timestamp
@@ -1210,11 +1214,15 @@ class LANCommunicationClient:
         msg_type = message.get('type')
         
         if msg_type == 'welcome':
+            print(f"Client received welcome message - assigned ID: {message.get('client_id')}")
             self.client_id = message.get('client_id')
             self.clients_list = message.get('clients', {})
             self.chat_history = message.get('chat_history', [])
             self.presenter_id = message.get('presenter_id')
             self.host_id = message.get('host_id', 0)
+            
+            print(f"Client ID: {self.client_id}, Host ID: {self.host_id}")
+            print(f"Participants: {list(self.clients_list.keys())}")
             
             # Update GUI
             self.root.after(0, self.update_participants_list)

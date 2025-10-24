@@ -2073,6 +2073,7 @@ class LANCommunicationServer:
                 # Parse message
                 try:
                     message = json.loads(message_data.decode('utf-8'))
+                    print(f"Server received message from client {client_id}: {message.get('type', 'unknown')}")
                     self.process_client_message(client_id, message)
                 except json.JSONDecodeError:
                     self.log_message(f"Invalid JSON from client {client_id}")
@@ -2089,6 +2090,7 @@ class LANCommunicationServer:
         if msg_type == 'join':
             # Client joining with name
             client_name = message.get('name', f'Client_{client_id}')
+            print(f"Server received join message from client {client_id}: {client_name}")
             self.clients[client_id]['name'] = client_name
             self.clients[client_id]['status'] = 'Active'
             
@@ -2119,7 +2121,9 @@ class LANCommunicationServer:
                 'presenter_id': self.presenter_id,
                 'host_id': self.host_id
             }
+            print(f"Sending welcome message to client {client_id}")
             self.send_to_client(client_id, welcome_msg)
+            print(f"Welcome message sent to client {client_id}")
             
             # Notify other clients
             join_notification = {
@@ -2127,6 +2131,7 @@ class LANCommunicationServer:
                 'client_id': client_id,
                 'name': client_name
             }
+            print(f"Broadcasting join notification for client {client_id}")
             self.broadcast_message(join_notification, exclude=client_id)
             
             self.log_message(f"Client {client_id} ({client_name}) joined the session")
