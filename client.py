@@ -1019,6 +1019,30 @@ class LANCommunicationClient:
             self.presenter_id = None
             self.root.after(0, lambda: self.add_chat_message("System", "Presentation stopped"))
             
+        # Handle force commands from server
+        elif msg_type == 'force_mute':
+            self.root.after(0, self.handle_force_mute)
+            
+        elif msg_type == 'force_mute_all':
+            self.root.after(0, self.handle_force_mute)
+            
+        elif msg_type == 'force_disable_video':
+            self.root.after(0, self.handle_force_disable_video)
+            
+        elif msg_type == 'force_disable_video_all':
+            self.root.after(0, self.handle_force_disable_video)
+            
+        elif msg_type == 'force_stop_presenting':
+            self.root.after(0, self.handle_force_stop_presenting)
+            
+        elif msg_type == 'force_stop_screen_sharing':
+            self.root.after(0, self.handle_force_stop_screen_sharing)
+            
+        elif msg_type == 'host_request':
+            request_type = message.get('request_type')
+            request_message = message.get('message', '')
+            self.root.after(0, lambda: self.handle_host_request(request_type, request_message))
+            
         elif msg_type == 'host_status_update':
             # Update Host status in clients list
             host_id = str(message.get('host_id', 0))
@@ -1309,6 +1333,8 @@ class LANCommunicationClient:
                         
                         # Send to server
                         self.udp_audio_socket.sendto(packet, (self.server_host, self.udp_audio_port))
+                        # Debug: Uncomment to see audio being sent
+                        # print(f"Audio sent: Client {self.client_id}, {len(data)} bytes")
                     except Exception as e:
                         print(f"Error sending audio: {e}")
                 
@@ -1431,6 +1457,48 @@ class LANCommunicationClient:
                 
         except Exception as e:
             print(f"Error sending screen frame: {e}")
+            
+    def handle_force_mute(self):
+        """Handle force mute command from server"""
+        if self.audio_enabled:
+            self.stop_audio()
+            messagebox.showwarning("Host Action", "Your microphone has been muted by the host")
+            self.add_chat_message("System", "You have been muted by the host")
+            
+    def handle_force_disable_video(self):
+        """Handle force disable video command from server"""
+        if self.video_enabled:
+            self.stop_video()
+            messagebox.showwarning("Host Action", "Your video has been disabled by the host")
+            self.add_chat_message("System", "Your video has been disabled by the host")
+            
+    def handle_force_stop_presenting(self):
+        """Handle force stop presenting command from server"""
+        if self.is_presenter or self.screen_sharing:
+            self.stop_screen_sharing()
+            messagebox.showwarning("Host Action", "Your presentation has been stopped by the host")
+            self.add_chat_message("System", "Your presentation has been stopped by the host")
+            
+    def handle_force_stop_screen_sharing(self):
+        """Handle force stop screen sharing command from server"""
+        if self.screen_sharing:
+            self.stop_screen_sharing()
+            messagebox.showwarning("Host Action", "Your screen sharing has been stopped by the host")
+            self.add_chat_message("System", "Your screen sharing has been stopped by the host")
+            
+    def handle_host_request(self, request_type, message):
+        """Handle host request for audio/video"""
+        response = messagebox.askyesno("Host Request", message + "\n\nWould you like to comply?")
+        
+        if response:
+            if request_type == 'audio' and not self.audio_enabled:
+                self.toggle_audio()
+                self.add_chat_message("System", "You enabled your microphone at host's request")
+            elif request_type == 'video' and not self.video_enabled:
+                self.toggle_video()
+                self.add_chat_message("System", "You enabled your camera at host's request")
+        else:
+            self.add_chat_message("System", f"You declined the host's {request_type} request")
             
     def send_chat_message(self, event=None):
         """Send chat message"""

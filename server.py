@@ -2330,8 +2330,18 @@ class LANCommunicationServer:
                 if self.host_audio_enabled and hasattr(self, 'audio_output_stream') and self.audio_output_stream:
                     try:
                         self.audio_output_stream.write(audio_data)
+                        # Debug: Uncomment to see audio being received
+                        # print(f"Server playing audio from client {client_id}, {len(audio_data)} bytes")
                     except Exception as e:
                         print(f"Error playing client audio on server: {e}")
+                else:
+                    # Debug: Show why audio isn't being played
+                    if not self.host_audio_enabled:
+                        print(f"Server received audio from client {client_id} but host audio is disabled")
+                    elif not hasattr(self, 'audio_output_stream'):
+                        print(f"Server received audio from client {client_id} but no output stream")
+                    elif not self.audio_output_stream:
+                        print(f"Server received audio from client {client_id} but output stream is None")
                 
                 # Broadcast to other clients (excluding sender)
                 for cid, client_info in self.clients.items():
