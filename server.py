@@ -2582,105 +2582,147 @@ class LANCommunicationServer:
         self.update_clients_display()
         
     def host_video_loop(self):
-        """Host video streaming loop"""
-        print("Starting host video loop...")  # Debug output
-        while self.host_video_enabled and self.video_cap:
+        """Host video streaming loop - CRASH SAFE VERSION"""
+        print("Starting host video loop...")
+        frame_count = 0
+        
+        while self.host_video_enabled and hasattr(self, 'video_cap') and self.video_cap:
             try:
                 ret, frame = self.video_cap.read()
                 if not ret:
                     print("Failed to read frame from camera")
                     break
-                    
-                print(f"Frame captured: {frame.shape}")  # Debug output
+                
+                frame_count += 1
+                
+                # Reduce debug output frequency
+                if frame_count % 30 == 0:  # Print every 30 frames
+                    print(f"Frame {frame_count} captured: {frame.shape}")
                 
                 # Save first frame as test (only once)
-                if not hasattr(self, 'test_frame_saved'):
-                    cv2.imwrite('test_frame.jpg', frame)
-                    print("Test frame saved as test_frame.jpg")
-                    self.test_frame_saved = True
+                if frame_count == 1:
+                    try:
+                        cv2.imwrite('test_frame.jpg', frame)
+                        print("Test frame saved as test_frame.jpg")
+                    except:
+                        pass
                     
-                # Resize and convert for display
-                display_frame = cv2.resize(frame, (400, 300))
-                display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-                
-                # Put frame in queue for display
+                # Resize and convert for display with error handling
                 try:
-                    self.video_frame_queue.put_nowait(display_frame_rgb)
-                except queue.Full:
-                    # Skip frame if queue is full
-                    pass
+                    display_frame = cv2.resize(frame, (400, 300))
+                    display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                    
+                    # Put frame in queue for display (non-blocking)
+                    if hasattr(self, 'video_frame_queue'):
+                        try:
+                            # Clear old frames if queue is full
+                            while self.video_frame_queue.qsize() > 1:
+                                try:
+                                    self.video_frame_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            self.video_frame_queue.put_nowait(display_frame_rgb)
+                        except queue.Full:
+                            # Skip frame if queue is still full
+                            pass
+                except Exception as e:
+                    print(f"Frame processing error: {e}")
+                    continue
                 
-                # Broadcast to clients via UDP
-                self.broadcast_host_video_frame(frame)
+                # Broadcast to clients via UDP (with error handling)
+                try:
+                    self.broadcast_host_video_frame(frame)
+                except Exception as e:
+                    print(f"Broadcast error: {e}")
                 
-                time.sleep(0.033)  # ~30 FPS
+                # Reduced frame rate to prevent overload
+                time.sleep(0.05)  # 20 FPS instead of 30
                 
             except Exception as e:
                 print(f"Host video streaming error: {e}")
                 break
+                
         print("Host video loop ended")
+        
+        # Clean up
+        if hasattr(self, 'video_cap') and self.video_cap:
+            try:
+                self.video_cap.release()
+            except:
+                pass
                 
     def start_video_display_timer(self):
         """Start the video display update timer"""
         self.update_video_display_from_queue()
         
     def update_video_display_from_queue(self):
-        """Update video display from queue in main thread"""
+        """Update video display from queue in main thread - CRASH SAFE VERSION"""
         try:
+            # Safety check - ensure GUI still exists
+            if not hasattr(self, 'root') or not self.root:
+                return
+                
             # Check for screen sharing frames first (priority over video for display)
             screen_frame_displayed = False
-            if self.host_screen_share_enabled:
+            if self.host_screen_share_enabled and hasattr(self, 'screen_frame_queue'):
                 try:
-                    # Get screen frame from queue
+                    # Get screen frame from queue with timeout
                     frame_rgb = self.screen_frame_queue.get_nowait()
                     
-                    # Create photo
-                    pil_image = Image.fromarray(frame_rgb)
-                    photo = ImageTk.PhotoImage(pil_image)
-                    
-                    # Update display
-                    if hasattr(self, 'host_video_label'):
-                        self.host_video_label.configure(image=photo, text="")
-                        self.host_video_label.image = photo  # Keep reference
-                        print("Screen sharing display updated successfully")
-                        screen_frame_displayed = True
-                    else:
-                        print("ERROR: host_video_label not found!")
+                    # Validate frame data
+                    if frame_rgb is not None and frame_rgb.size > 0:
+                        # Create photo safely
+                        pil_image = Image.fromarray(frame_rgb)
+                        photo = ImageTk.PhotoImage(pil_image)
+                        
+                        # Update display with safety checks
+                        if hasattr(self, 'host_video_label') and self.host_video_label.winfo_exists():
+                            self.host_video_label.configure(image=photo, text="")
+                            self.host_video_label.image = photo  # Keep reference
+                            screen_frame_displayed = True
+                            
                 except queue.Empty:
                     # No screen frame available, try video instead
                     pass
+                except Exception as e:
+                    print(f"Screen frame error: {e}")
             
             # Check for video frames (if no screen frame was displayed)
-            if not screen_frame_displayed and self.host_video_enabled:
+            if not screen_frame_displayed and self.host_video_enabled and hasattr(self, 'video_frame_queue'):
                 try:
-                    # Get frame from queue
+                    # Get frame from queue with timeout
                     frame_rgb = self.video_frame_queue.get_nowait()
                     
-                    # Create photo
-                    pil_image = Image.fromarray(frame_rgb)
-                    photo = ImageTk.PhotoImage(pil_image)
-                    
-                    # Update display
-                    if hasattr(self, 'host_video_label'):
-                        self.host_video_label.configure(image=photo, text="")
-                        self.host_video_label.image = photo  # Keep reference
-                        print("Video display updated successfully")
-                    else:
-                        print("ERROR: host_video_label not found!")
+                    # Validate frame data
+                    if frame_rgb is not None and frame_rgb.size > 0:
+                        # Create photo safely
+                        pil_image = Image.fromarray(frame_rgb)
+                        photo = ImageTk.PhotoImage(pil_image)
+                        
+                        # Update display with safety checks
+                        if hasattr(self, 'host_video_label') and self.host_video_label.winfo_exists():
+                            self.host_video_label.configure(image=photo, text="")
+                            self.host_video_label.image = photo  # Keep reference
+                            
                 except queue.Empty:
                     # No video frame available, skip this update
                     pass
+                except Exception as e:
+                    print(f"Video frame error: {e}")
                     
         except Exception as e:
-            print(f"Error updating video display: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Critical display error: {e}")
         
-        # Schedule next update
-        if self.host_video_enabled or self.host_screen_share_enabled:
-            self.root.after(33, self.update_video_display_from_queue)  # ~30 FPS
-        else:
-            self.root.after(100, self.update_video_display_from_queue)  # Check less frequently when stopped
+        # Schedule next update with safety checks and reduced frequency
+        try:
+            if hasattr(self, 'root') and self.root:
+                if self.host_video_enabled or self.host_screen_share_enabled:
+                    self.root.after(50, self.update_video_display_from_queue)  # Reduced to 20 FPS
+                else:
+                    self.root.after(200, self.update_video_display_from_queue)  # Check less frequently
+        except:
+            # GUI might be destroyed, stop scheduling
+            pass
         
     def broadcast_host_video_frame(self, frame):
         """Broadcast Host video frame to all clients"""
