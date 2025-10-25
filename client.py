@@ -125,8 +125,8 @@ class LANCommunicationClient:
             if not hasattr(self, 'root') or not self.root or not self.connected:
                 return
                 
-            # Check for screen sharing frames first (priority over video for display)
-            screen_frame_displayed = False
+            # Check for screen sharing frames first (always priority for main display)
+            screen_frame_available = False
             if hasattr(self, 'screen_frame_queue'):
                 try:
                     # Get screen frame from queue with timeout
@@ -138,20 +138,20 @@ class LANCommunicationClient:
                         pil_image = Image.fromarray(frame_rgb)
                         photo = ImageTk.PhotoImage(pil_image)
                         
-                        # Update main display with safety checks
+                        # Update main display with screen sharing
                         if hasattr(self, 'main_video_label') and self.main_video_label and self.main_video_label.winfo_exists():
-                            self.main_video_label.configure(image=photo, text="")
+                            self.main_video_label.configure(image=photo, text="🖥️ Screen Sharing")
                             self.main_video_label.image = photo  # Keep reference
-                            screen_frame_displayed = True
+                            screen_frame_available = True
                             
                 except queue.Empty:
-                    # No screen frame available, try video instead
+                    # No screen frame available
                     pass
                 except Exception as e:
                     print(f"Screen frame error: {e}")
             
-            # Check for video frames (if no screen frame was displayed)
-            if not screen_frame_displayed and hasattr(self, 'video_frame_queue'):
+            # Check for video frames
+            if hasattr(self, 'video_frame_queue'):
                 try:
                     # Get frame from queue with timeout
                     frame_data = self.video_frame_queue.get_nowait()
@@ -170,18 +170,33 @@ class LANCommunicationClient:
                         pil_image = Image.fromarray(frame_rgb)
                         photo = ImageTk.PhotoImage(pil_image)
                         
-                        # Update appropriate display based on source
-                        if client_id is None:
-                            # Local video - NO LONGER USED (handled by update_local_video_preview)
-                            # This is legacy code that won't execute since video_loop no longer queues local frames
-                            pass
+                        # Determine where to display the video
+                        if screen_frame_available:
+                            # Screen sharing is active, show video in small preview area
+                            if (hasattr(self, 'your_video_label') and self.your_video_label and 
+                                hasattr(self.your_video_label, 'winfo_exists') and self.your_video_label.winfo_exists()):
+                                if client_id == 0:  # Host video
+                                    display_text = "📹 Host Video"
+                                    header_text = "📹 Host Video"
+                                elif client_id in self.clients_list:
+                                    display_text = f"📹 {self.clients_list[client_id]['name']}"
+                                    header_text = f"📹 {self.clients_list[client_id]['name']}"
+                                else:
+                                    display_text = "📹 Remote Video"
+                                    header_text = "📹 Remote Video"
+                                    
+                                self.your_video_label.configure(image=photo, text=display_text)
+                                self.your_video_label.image = photo  # Keep reference
+                                
+                                # Update header to show it's remote video during screen sharing
+                                if hasattr(self, 'your_video_header') and self.your_video_header:
+                                    self.your_video_header.configure(text=header_text)
                         else:
-                            # Remote video - update main display
+                            # No screen sharing, show video in main display
                             if (hasattr(self, 'main_video_label') and self.main_video_label and 
                                 hasattr(self.main_video_label, 'winfo_exists') and self.main_video_label.winfo_exists()):
-                                # Show who's video this is
                                 if client_id == 0:  # Host video
-                                    display_text = "📹 Host"
+                                    display_text = "📹 Host Video"
                                 elif client_id in self.clients_list:
                                     display_text = f"📹 {self.clients_list[client_id]['name']}"
                                 else:
@@ -189,6 +204,17 @@ class LANCommunicationClient:
                                     
                                 self.main_video_label.configure(image=photo, text=display_text)
                                 self.main_video_label.image = photo  # Keep reference
+                                
+                                # Reset header to "Your Video" when no screen sharing
+                                if hasattr(self, 'your_video_header') and self.your_video_header:
+                                    self.your_video_header.configure(text="📹 Your Video")
+                                    
+                                # Reset your video label to show local status
+                                if hasattr(self, 'your_video_label') and self.your_video_label:
+                                    if self.video_enabled:
+                                        self.your_video_label.configure(text="📹 Camera On")
+                                    else:
+                                        self.your_video_label.configure(text="📹 Camera Off")
                             
                 except queue.Empty:
                     # No video frame available, skip this update
@@ -625,8 +651,8 @@ class LANCommunicationClient:
                                         fg='#888888', bg='#000000')
         self.main_video_label.pack(expand=True)
         
-        # Right sidebar
-        sidebar = tk.Frame(video_container, bg='#2d2d2d', width=350)
+        # Right sidebar (increased width for better visibility)
+        sidebar = tk.Frame(video_container, bg='#2d2d2d', width=400)
         sidebar.pack(side=tk.RIGHT, fill=tk.Y)
         sidebar.pack_propagate(False)
         
@@ -647,10 +673,11 @@ class LANCommunicationClient:
         your_video_frame = tk.Frame(parent, bg='#2d2d2d')
         your_video_frame.pack(fill=tk.X, padx=15, pady=15)
         
-        # Header
-        tk.Label(your_video_frame, text="📹 Your Video", 
-                font=('Segoe UI', 12, 'bold'), 
-                fg='white', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 10))
+        # Header (will be updated dynamically)
+        self.your_video_header = tk.Label(your_video_frame, text="📹 Your Video", 
+                                         font=('Segoe UI', 12, 'bold'), 
+                                         fg='white', bg='#2d2d2d')
+        self.your_video_header.pack(anchor=tk.W, pady=(0, 10))
         
         # Video preview
         preview_frame = tk.Frame(your_video_frame, bg='#000000', height=120)
@@ -687,7 +714,7 @@ class LANCommunicationClient:
                                               selectbackground='#0078d4',
                                               font=('Segoe UI', 9),
                                               relief='flat', borderwidth=0,
-                                              height=6)
+                                              height=4)
         self.participants_listbox.pack(fill=tk.X)
         
     def create_meeting_chat_section(self, parent):
@@ -706,7 +733,7 @@ class LANCommunicationClient:
                                    font=('Segoe UI', 9),
                                    relief='flat', borderwidth=0,
                                    wrap=tk.WORD, state=tk.DISABLED,
-                                   height=10)
+                                   height=8)
         self.chat_display.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # Chat input
@@ -749,40 +776,47 @@ class LANCommunicationClient:
                                              selectbackground='#0078d4',
                                              font=('Segoe UI', 9),
                                              relief='flat', borderwidth=0,
-                                             height=6)
+                                             height=4)
         self.shared_files_listbox.pack(fill=tk.BOTH, expand=True)
         
-        # File sharing controls
+        # File sharing controls (improved layout)
         file_controls_frame = tk.Frame(file_frame, bg='#2d2d2d')
-        file_controls_frame.pack(fill=tk.X)
+        file_controls_frame.pack(fill=tk.X, pady=(5, 0))
         
-        self.share_file_btn = tk.Button(file_controls_frame, text="📤 Share File", 
+        # First row of buttons
+        first_row = tk.Frame(file_controls_frame, bg='#2d2d2d')
+        first_row.pack(fill=tk.X, pady=(0, 5))
+        
+        self.share_file_btn = tk.Button(first_row, text="📤 Share File", 
                                        command=self.share_file,
                                        bg='#0078d4', fg='white', 
-                                       font=('Segoe UI', 9, 'bold'),
+                                       font=('Segoe UI', 10, 'bold'),
                                        relief='flat', borderwidth=0,
-                                       padx=10, pady=6,
+                                       padx=15, pady=8,
                                        cursor='hand2', state=tk.DISABLED)
-        self.share_file_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.share_file_btn.pack(side=tk.LEFT, padx=(0, 8))
         
-        self.download_file_btn = tk.Button(file_controls_frame, text="📥 Download", 
+        self.download_file_btn = tk.Button(first_row, text="📥 Download", 
                                           command=self.download_selected_file,
                                           bg='#107c10', fg='white', 
-                                          font=('Segoe UI', 9, 'bold'),
+                                          font=('Segoe UI', 10, 'bold'),
                                           relief='flat', borderwidth=0,
-                                          padx=10, pady=6,
+                                          padx=15, pady=8,
                                           cursor='hand2', state=tk.DISABLED)
-        self.download_file_btn.pack(side=tk.LEFT, padx=(0, 5))
+        self.download_file_btn.pack(side=tk.LEFT)
         
-        # File Manager button
-        self.file_manager_btn = tk.Button(file_controls_frame, text="📁 File Manager", 
+        # Second row - File Manager button (full width for visibility)
+        second_row = tk.Frame(file_controls_frame, bg='#2d2d2d')
+        second_row.pack(fill=tk.X)
+        
+        self.file_manager_btn = tk.Button(second_row, text="📁 Open File Manager", 
                                          command=self.open_file_manager,
                                          bg='#6c757d', fg='white', 
-                                         font=('Segoe UI', 9, 'bold'),
+                                         font=('Segoe UI', 11, 'bold'),
                                          relief='flat', borderwidth=0,
-                                         padx=10, pady=6,
+                                         padx=20, pady=10,
                                          cursor='hand2', state=tk.DISABLED)
-        self.file_manager_btn.pack(side=tk.LEFT)
+        self.file_manager_btn.pack(fill=tk.X)
         
     def create_meeting_controls(self, parent):
         """Create bottom meeting controls"""
