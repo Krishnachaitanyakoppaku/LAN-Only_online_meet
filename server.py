@@ -2408,9 +2408,8 @@ class LANCommunicationServer:
         """Process queued messages"""
         while self.running:
             try:
-                # Process any queued GUI updates
-                self.root.update_idletasks()
-                time.sleep(0.1)
+                # Reduced frequency to prevent GUI interference
+                time.sleep(0.5)  # Check less frequently
             except:
                 break
                 
@@ -3388,10 +3387,16 @@ class LANCommunicationServer:
             if hasattr(self, 'host_present_btn'):
                 self.host_present_btn.config(text="🖥️ Stop Presenting", bg='#28a745')
             
+            # Ensure all buttons remain visible and responsive
+            self.ensure_buttons_visible()
+            
             print("Starting screen sharing thread...")
             # Start screen sharing thread
             screen_thread = threading.Thread(target=self.host_screen_loop, daemon=True)
             screen_thread.start()
+            
+            # Start GUI responsiveness monitor
+            self.start_gui_monitor()
             
             self.log_message("Host screen sharing started")
             self.update_clients_display()
@@ -3437,6 +3442,47 @@ class LANCommunicationServer:
         self.log_message("Host screen sharing stopped")
         self.update_clients_display()
         print("Screen sharing stopped successfully")
+        
+    def ensure_buttons_visible(self):
+        """Ensure all buttons remain visible and responsive"""
+        try:
+            # Force update all button states to ensure visibility
+            if hasattr(self, 'start_server_btn') and self.start_server_btn:
+                self.start_server_btn.update_idletasks()
+            if hasattr(self, 'stop_server_btn') and self.stop_server_btn:
+                self.stop_server_btn.update_idletasks()
+            if hasattr(self, 'settings_btn') and self.settings_btn:
+                self.settings_btn.update_idletasks()
+            if hasattr(self, 'host_video_btn') and self.host_video_btn:
+                self.host_video_btn.update_idletasks()
+            if hasattr(self, 'host_mic_btn') and self.host_mic_btn:
+                self.host_mic_btn.update_idletasks()
+            if hasattr(self, 'host_speaker_btn') and self.host_speaker_btn:
+                self.host_speaker_btn.update_idletasks()
+            if hasattr(self, 'host_present_btn') and self.host_present_btn:
+                self.host_present_btn.update_idletasks()
+            if hasattr(self, 'host_stop_screen_btn') and self.host_stop_screen_btn:
+                self.host_stop_screen_btn.update_idletasks()
+        except Exception as e:
+            print(f"Error ensuring button visibility: {e}")
+            
+    def start_gui_monitor(self):
+        """Start GUI responsiveness monitor during screen sharing"""
+        def monitor_gui():
+            while self.host_screen_share_enabled:
+                try:
+                    # Ensure GUI remains responsive
+                    if hasattr(self, 'root') and self.root:
+                        self.root.update_idletasks()
+                        self.ensure_buttons_visible()
+                    time.sleep(1.0)  # Check every second
+                except Exception as e:
+                    print(f"GUI monitor error: {e}")
+                    break
+                    
+        # Start monitor thread
+        monitor_thread = threading.Thread(target=monitor_gui, daemon=True)
+        monitor_thread.start()
         
     def host_screen_loop(self):
         """Host screen sharing loop"""
@@ -3505,10 +3551,17 @@ class LANCommunicationServer:
                     if frame_count % 10 == 1:
                         print("Screen frame queue full, skipping frame")
                 
-                # Broadcast to clients via UDP
+                # Broadcast to clients via TCP
                 self.broadcast_host_screen_data(frame_rgb)
                 
-                time.sleep(1/10)  # ~10 FPS for screen sharing (reduced for better performance)
+                # Ensure GUI remains responsive during screen sharing
+                try:
+                    if hasattr(self, 'root') and self.root:
+                        self.root.update_idletasks()
+                except:
+                    pass
+                
+                time.sleep(1/5)  # Reduced to 5 FPS for better GUI responsiveness
                 
             except Exception as e:
                 print(f"Error in screen sharing loop: {e}")

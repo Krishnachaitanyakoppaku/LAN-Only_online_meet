@@ -1714,8 +1714,14 @@ class LANCommunicationClient:
             self.screen_sharing = True
             self.present_btn.config(text="🖥️\nSharing", bg='#fd7e14')
             
+            # Ensure all buttons remain visible and responsive
+            self.ensure_buttons_visible()
+            
             # Start screen sharing thread
             threading.Thread(target=self.screen_sharing_loop, daemon=True).start()
+            
+            # Start GUI responsiveness monitor
+            self.start_gui_monitor()
             
             # Notify server
             self.send_media_status_update()
@@ -1733,6 +1739,47 @@ class LANCommunicationClient:
         stop_msg = {'type': 'stop_presenting'}
         self.send_tcp_message(stop_msg)
         self.send_media_status_update()
+        
+    def ensure_buttons_visible(self):
+        """Ensure all buttons remain visible and responsive"""
+        try:
+            # Force update all button states to ensure visibility
+            if hasattr(self, 'video_btn') and self.video_btn:
+                self.video_btn.update_idletasks()
+            if hasattr(self, 'mic_btn') and self.mic_btn:
+                self.mic_btn.update_idletasks()
+            if hasattr(self, 'speaker_btn') and self.speaker_btn:
+                self.speaker_btn.update_idletasks()
+            if hasattr(self, 'present_btn') and self.present_btn:
+                self.present_btn.update_idletasks()
+            if hasattr(self, 'leave_btn') and self.leave_btn:
+                self.leave_btn.update_idletasks()
+            if hasattr(self, 'share_file_btn') and self.share_file_btn:
+                self.share_file_btn.update_idletasks()
+            if hasattr(self, 'download_file_btn') and self.download_file_btn:
+                self.download_file_btn.update_idletasks()
+            if hasattr(self, 'file_manager_btn') and self.file_manager_btn:
+                self.file_manager_btn.update_idletasks()
+        except Exception as e:
+            print(f"Error ensuring button visibility: {e}")
+            
+    def start_gui_monitor(self):
+        """Start GUI responsiveness monitor during screen sharing"""
+        def monitor_gui():
+            while self.screen_sharing and self.connected:
+                try:
+                    # Ensure GUI remains responsive
+                    if hasattr(self, 'root') and self.root:
+                        self.root.update_idletasks()
+                        self.ensure_buttons_visible()
+                    time.sleep(1.0)  # Check every second
+                except Exception as e:
+                    print(f"GUI monitor error: {e}")
+                    break
+                    
+        # Start monitor thread
+        monitor_thread = threading.Thread(target=monitor_gui, daemon=True)
+        monitor_thread.start()
         
     def screen_sharing_loop(self):
         """Screen sharing capture and transmission loop"""
@@ -1769,7 +1816,14 @@ class LANCommunicationClient:
                         # Send to server via TCP
                         self.send_screen_frame(frame_rgb)
                         
-                time.sleep(0.1)  # 10 FPS for screen sharing
+                        # Ensure GUI remains responsive during screen sharing
+                        try:
+                            if hasattr(self, 'root') and self.root:
+                                self.root.update_idletasks()
+                        except:
+                            pass
+                        
+                time.sleep(0.2)  # Reduced to 5 FPS for better GUI responsiveness
                 
             except Exception as e:
                 print(f"Screen sharing error: {e}")
