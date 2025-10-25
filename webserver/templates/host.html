@@ -1,0 +1,522 @@
+{% extends "base.html" %}
+
+{% block title %}LAN Meeting - Host Control{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>🎥 LAN Meeting - Host Control</h1>
+        <div class="status">
+            <div class="status-item">
+                <span class="status-online">●</span>
+                <span>Server Running</span>
+            </div>
+            <div class="status-item">
+                <span>👥</span>
+                <span id="participant-count">0 Participants</span>
+            </div>
+            <div class="status-item">
+                <span>🌐</span>
+                <span id="server-ip">Loading...</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="video-area">
+            <video id="main-video" class="video-display" autoplay muted style="display: none;"></video>
+            <canvas id="screen-canvas" class="video-display" style="display: none;"></canvas>
+            <div id="video-placeholder" class="video-placeholder">
+                🎥 Host Video Area<br>
+                <small>Start your camera or screen sharing to begin</small>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <!-- Host Media Controls -->
+            <div class="panel">
+                <h3>🎛️ Host Controls</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <button id="video-btn" class="btn btn-secondary">
+                        📹 Start Video
+                    </button>
+                    <button id="audio-btn" class="btn btn-secondary">
+                        🎤 Start Audio
+                    </button>
+                    <button id="screen-btn" class="btn btn-warning">
+                        🖥️ Share Screen
+                    </button>
+                    <button id="stop-screen-btn" class="btn btn-danger" style="display: none;">
+                        ⏹️ Stop Screen
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Participants Management -->
+            <div class="panel">
+                <h3>👥 Participants</h3>
+                <div id="participants-list" class="participants-list">
+                    <div class="participant">
+                        <div class="participant-info">
+                            <span>👑 Host (You)</span>
+                        </div>
+                        <div class="participant-status">
+                            <div id="host-video-status" class="status-icon inactive"></div>
+                            <div id="host-audio-status" class="status-icon inactive"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chat -->
+            <div class="panel">
+                <h3>💬 Group Chat</h3>
+                <div class="chat-area">
+                    <div id="chat-messages" class="chat-messages"></div>
+                    <div class="chat-input">
+                        <input type="text" id="chat-input" placeholder="Type a message...">
+                        <button id="send-chat" class="btn btn-primary">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Meeting Controls -->
+    <div class="controls">
+        <button id="mute-all-btn" class="btn btn-warning">
+            🔇 Mute All
+        </button>
+        <button id="disable-video-all-btn" class="btn btn-warning">
+            📹 Disable All Video
+        </button>
+        <button id="end-meeting-btn" class="btn btn-danger">
+            📞 End Meeting
+        </button>
+        <button id="file-manager-btn" class="btn btn-secondary">
+            📁 File Manager
+        </button>
+    </div>
+</div>
+
+<!-- File Manager Modal -->
+<div id="file-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 30px; border-radius: 10px; width: 80%; max-width: 600px;">
+        <h3 style="margin-bottom: 20px;">📁 File Manager</h3>
+        
+        <!-- Upload Area -->
+        <div id="upload-area" class="upload-area">
+            <p>📤 Drag & Drop files here or click to select</p>
+            <input type="file" id="file-input" multiple style="display: none;">
+        </div>
+        
+        <!-- Shared Files -->
+        <h4 style="margin: 20px 0 10px 0;">📥 Shared Files</h4>
+        <div id="shared-files" class="file-list"></div>
+        
+        <div style="text-align: right; margin-top: 20px;">
+            <button id="close-file-modal" class="btn btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+class HostController {
+    constructor() {
+        this.socket = io();
+        this.localStream = null;
+        this.screenStream = null;
+        this.isVideoEnabled = false;
+        this.isAudioEnabled = false;
+        this.isScreenSharing = false;
+        this.participants = new Map();
+        
+        this.initializeElements();
+        this.setupEventListeners();
+        this.setupSocketEvents();
+        this.updateServerInfo();
+    }
+    
+    initializeElements() {
+        this.videoBtn = document.getElementById('video-btn');
+        this.audioBtn = document.getElementById('audio-btn');
+        this.screenBtn = document.getElementById('screen-btn');
+        this.stopScreenBtn = document.getElementById('stop-screen-btn');
+        this.mainVideo = document.getElementById('main-video');
+        this.screenCanvas = document.getElementById('screen-canvas');
+        this.videoPlaceholder = document.getElementById('video-placeholder');
+        this.chatMessages = document.getElementById('chat-messages');
+        this.chatInput = document.getElementById('chat-input');
+        this.participantsList = document.getElementById('participants-list');
+        this.participantCount = document.getElementById('participant-count');
+    }
+    
+    setupEventListeners() {
+        // Media controls
+        this.videoBtn.addEventListener('click', () => this.toggleVideo());
+        this.audioBtn.addEventListener('click', () => this.toggleAudio());
+        this.screenBtn.addEventListener('click', () => this.startScreenShare());
+        this.stopScreenBtn.addEventListener('click', () => this.stopScreenShare());
+        
+        // Chat
+        document.getElementById('send-chat').addEventListener('click', () => this.sendChat());
+        this.chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.sendChat();
+        });
+        
+        // File manager
+        document.getElementById('file-manager-btn').addEventListener('click', () => this.openFileManager());
+        document.getElementById('close-file-modal').addEventListener('click', () => this.closeFileManager());
+        
+        // File upload
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            this.handleFileUpload(e.dataTransfer.files);
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            this.handleFileUpload(e.target.files);
+        });
+        
+        // Meeting controls
+        document.getElementById('mute-all-btn').addEventListener('click', () => this.muteAll());
+        document.getElementById('disable-video-all-btn').addEventListener('click', () => this.disableAllVideo());
+        document.getElementById('end-meeting-btn').addEventListener('click', () => this.endMeeting());
+    }
+    
+    setupSocketEvents() {
+        this.socket.on('connect', () => {
+            console.log('Connected to server');
+            this.socket.emit('join_meeting', { name: 'Host', isHost: true });
+        });
+        
+        this.socket.on('user_joined', (data) => {
+            this.addParticipant(data);
+            this.addChatMessage('System', `${data.name} joined the meeting`);
+        });
+        
+        this.socket.on('user_left', (data) => {
+            this.removeParticipant(data.client_id);
+            this.addChatMessage('System', `${data.name} left the meeting`);
+        });
+        
+        this.socket.on('chat_message', (data) => {
+            this.addChatMessage(data.sender, data.message);
+        });
+        
+        this.socket.on('video_frame', (data) => {
+            // Handle incoming video frames from participants
+            this.displayParticipantVideo(data.client_id, data.frame_data);
+        });
+        
+        this.socket.on('screen_frame', (data) => {
+            // Handle incoming screen sharing from participants
+            this.displayScreenShare(data.frame_data);
+        });
+    }
+    
+    async toggleVideo() {
+        if (!this.isVideoEnabled) {
+            try {
+                this.localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 1280, height: 720 }, 
+                    audio: false 
+                });
+                this.mainVideo.srcObject = this.localStream;
+                this.mainVideo.style.display = 'block';
+                this.videoPlaceholder.style.display = 'none';
+                
+                this.isVideoEnabled = true;
+                this.videoBtn.textContent = '📹 Stop Video';
+                this.videoBtn.className = 'btn btn-success';
+                document.getElementById('host-video-status').className = 'status-icon active';
+                
+                // Start sending video frames
+                this.startVideoStream();
+                
+            } catch (error) {
+                showNotification('Failed to access camera: ' + error.message, 'error');
+            }
+        } else {
+            this.stopVideo();
+        }
+    }
+    
+    stopVideo() {
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+            this.localStream = null;
+        }
+        
+        this.mainVideo.style.display = 'none';
+        this.videoPlaceholder.style.display = 'flex';
+        
+        this.isVideoEnabled = false;
+        this.videoBtn.textContent = '📹 Start Video';
+        this.videoBtn.className = 'btn btn-secondary';
+        document.getElementById('host-video-status').className = 'status-icon inactive';
+    }
+    
+    async startScreenShare() {
+        try {
+            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { width: 1920, height: 1080 },
+                audio: true
+            });
+            
+            const canvas = this.screenCanvas;
+            const ctx = canvas.getContext('2d');
+            const video = document.createElement('video');
+            video.srcObject = this.screenStream;
+            video.play();
+            
+            canvas.style.display = 'block';
+            this.videoPlaceholder.style.display = 'none';
+            if (this.mainVideo.style.display === 'block') {
+                this.mainVideo.style.display = 'none';
+            }
+            
+            this.isScreenSharing = true;
+            this.screenBtn.style.display = 'none';
+            this.stopScreenBtn.style.display = 'block';
+            
+            // Start screen sharing loop
+            const captureFrame = () => {
+                if (this.isScreenSharing && video.readyState === 4) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0);
+                    
+                    // Send frame to clients
+                    const frameData = canvas.toDataURL('image/jpeg', 0.8);
+                    this.socket.emit('screen_frame', { frame_data: frameData });
+                    
+                    setTimeout(captureFrame, 200); // 5 FPS
+                }
+            };
+            
+            video.addEventListener('loadedmetadata', captureFrame);
+            
+            showNotification('Screen sharing started', 'success');
+            
+        } catch (error) {
+            showNotification('Failed to start screen sharing: ' + error.message, 'error');
+        }
+    }
+    
+    stopScreenShare() {
+        if (this.screenStream) {
+            this.screenStream.getTracks().forEach(track => track.stop());
+            this.screenStream = null;
+        }
+        
+        this.screenCanvas.style.display = 'none';
+        this.isScreenSharing = false;
+        this.screenBtn.style.display = 'block';
+        this.stopScreenBtn.style.display = 'none';
+        
+        // Show video or placeholder
+        if (this.isVideoEnabled) {
+            this.mainVideo.style.display = 'block';
+        } else {
+            this.videoPlaceholder.style.display = 'flex';
+        }
+        
+        this.socket.emit('stop_presenting');
+        showNotification('Screen sharing stopped', 'info');
+    }
+    
+    startVideoStream() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const video = this.mainVideo;
+        
+        const captureFrame = () => {
+            if (this.isVideoEnabled && video.readyState === 4) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0);
+                
+                // Send frame to clients
+                const frameData = canvas.toDataURL('image/jpeg', 0.6);
+                this.socket.emit('video_frame', { frame_data: frameData });
+                
+                setTimeout(captureFrame, 100); // 10 FPS
+            }
+        };
+        
+        video.addEventListener('loadedmetadata', captureFrame);
+    }
+    
+    toggleAudio() {
+        // Audio implementation would go here
+        this.isAudioEnabled = !this.isAudioEnabled;
+        this.audioBtn.textContent = this.isAudioEnabled ? '🎤 Stop Audio' : '🎤 Start Audio';
+        this.audioBtn.className = this.isAudioEnabled ? 'btn btn-success' : 'btn btn-secondary';
+        document.getElementById('host-audio-status').className = this.isAudioEnabled ? 'status-icon active' : 'status-icon inactive';
+    }
+    
+    sendChat() {
+        const message = this.chatInput.value.trim();
+        if (message) {
+            this.socket.emit('chat_message', { sender: 'Host', message });
+            this.chatInput.value = '';
+        }
+    }
+    
+    addChatMessage(sender, message) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'chat-message';
+        messageDiv.innerHTML = `
+            <div class="chat-sender">${sender}</div>
+            <div>${message}</div>
+        `;
+        this.chatMessages.appendChild(messageDiv);
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    }
+    
+    addParticipant(data) {
+        this.participants.set(data.client_id, data);
+        this.updateParticipantsList();
+        this.updateParticipantCount();
+    }
+    
+    removeParticipant(clientId) {
+        this.participants.delete(clientId);
+        this.updateParticipantsList();
+        this.updateParticipantCount();
+    }
+    
+    updateParticipantsList() {
+        const hostItem = this.participantsList.querySelector('.participant');
+        this.participantsList.innerHTML = '';
+        this.participantsList.appendChild(hostItem);
+        
+        this.participants.forEach((participant, clientId) => {
+            const participantDiv = document.createElement('div');
+            participantDiv.className = 'participant';
+            participantDiv.innerHTML = `
+                <div class="participant-info">
+                    <span>👤 ${participant.name}</span>
+                </div>
+                <div class="participant-status">
+                    <div class="status-icon ${participant.video_enabled ? 'active' : 'inactive'}"></div>
+                    <div class="status-icon ${participant.audio_enabled ? 'active' : 'inactive'}"></div>
+                </div>
+            `;
+            this.participantsList.appendChild(participantDiv);
+        });
+    }
+    
+    updateParticipantCount() {
+        const count = this.participants.size;
+        this.participantCount.textContent = `${count} Participant${count !== 1 ? 's' : ''}`;
+    }
+    
+    async updateServerInfo() {
+        try {
+            const response = await fetch('/api/status');
+            const data = await response.json();
+            document.getElementById('server-ip').textContent = `${window.location.hostname}:${window.location.port}`;
+        } catch (error) {
+            console.error('Failed to get server info:', error);
+        }
+    }
+    
+    openFileManager() {
+        document.getElementById('file-modal').style.display = 'block';
+        this.loadSharedFiles();
+    }
+    
+    closeFileManager() {
+        document.getElementById('file-modal').style.display = 'none';
+    }
+    
+    async loadSharedFiles() {
+        try {
+            const response = await fetch('/api/files');
+            const files = await response.json();
+            const filesList = document.getElementById('shared-files');
+            
+            filesList.innerHTML = '';
+            files.forEach(file => {
+                const fileDiv = document.createElement('div');
+                fileDiv.className = 'file-item';
+                fileDiv.innerHTML = `
+                    <div class="file-info">
+                        <div class="file-name">📄 ${file.name}</div>
+                        <div class="file-details">${formatFileSize(file.size)} • Shared by ${file.shared_by}</div>
+                    </div>
+                    <button class="btn btn-primary" onclick="window.open('/download/${file.name}', '_blank')">
+                        📥 Download
+                    </button>
+                `;
+                filesList.appendChild(fileDiv);
+            });
+        } catch (error) {
+            showNotification('Failed to load files', 'error');
+        }
+    }
+    
+    async handleFileUpload(files) {
+        for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('shared_by', 'Host');
+            
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    showNotification(`File "${file.name}" uploaded successfully`, 'success');
+                    this.loadSharedFiles();
+                } else {
+                    showNotification(`Failed to upload "${file.name}"`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Upload error: ${error.message}`, 'error');
+            }
+        }
+    }
+    
+    muteAll() {
+        this.socket.emit('host_action', { action: 'mute_all' });
+        showNotification('Muted all participants', 'info');
+    }
+    
+    disableAllVideo() {
+        this.socket.emit('host_action', { action: 'disable_video_all' });
+        showNotification('Disabled video for all participants', 'info');
+    }
+    
+    endMeeting() {
+        if (confirm('Are you sure you want to end the meeting for everyone?')) {
+            this.socket.emit('host_action', { action: 'end_meeting' });
+            showNotification('Meeting ended', 'info');
+        }
+    }
+}
+
+// Initialize when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    new HostController();
+});
+</script>
+{% endblock %}

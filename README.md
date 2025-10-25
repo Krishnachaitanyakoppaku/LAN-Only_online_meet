@@ -1,309 +1,193 @@
-# LAN Communication System
+# 🎥 LAN Meeting System
 
-A comprehensive, standalone multi-user communication application designed for Local Area Network (LAN) environments. This system provides real-time collaboration tools including video conferencing, audio communication, screen sharing, group chat, and file sharing - all without requiring internet connectivity.
+A comprehensive offline video conferencing solution for local area networks (LAN). This system enables multi-user video calls, screen sharing, group chat, and file sharing without requiring an internet connection.
 
-## 🚀 Features
+## 📁 **Project Structure**
 
-### Core Modules
+This project contains **two versions** of the LAN meeting system:
 
-1. **Multi-User Video Conferencing**
-   - Real-time video capture and transmission via UDP
-   - Multiple participant video streams
-   - Dynamic video layout with main speaker view
-   - Video quality optimization for LAN bandwidth
+### 🌐 **Web Server Version** (Recommended)
+**Location**: `webserver/` directory
 
-2. **Multi-User Audio Conferencing**
-   - Real-time audio capture and streaming via UDP
-   - Server-side audio mixing
-   - Low-latency audio transmission
-   - Automatic audio level management
+Modern web-based interface that solves all GUI issues:
+- ✅ **Stable interface** - no button flickering or freezing
+- ✅ **Cross-platform** - works on any device with a browser
+- ✅ **Mobile support** - access from phones/tablets
+- ✅ **Easy client access** - just enter IP address
+- ✅ **Professional UI** - modern, responsive design
 
-3. **Screen & Slide Sharing**
-   - Presenter role management
-   - Real-time screen capture and transmission via TCP
-   - High-quality image compression
-   - Presenter controls (start/stop sharing)
+### 🖥️ **GUI Version** (Original)
+**Location**: `gui/` directory
 
-4. **Group Text Chat**
-   - Real-time messaging via TCP
-   - Chat history persistence
-   - Timestamp and sender identification
-   - System notifications
+Traditional desktop application using Tkinter:
+- ⚠️ **GUI limitations** - button visibility issues during screen sharing
+- ⚠️ **Platform dependent** - requires Python GUI libraries
+- ⚠️ **Desktop only** - no mobile support
 
-5. **File Sharing**
-   - Secure file transfer via TCP
-   - Progress tracking for uploads/downloads
-   - File metadata management
-   - Multi-user file distribution
+## 🚀 **Quick Start**
 
-## 🏗️ System Architecture
+### **Option 1: Web Server Version (Recommended)**
 
-### Network Architecture
-- **Client-Server Model**: Centralized server manages all communications
-- **TCP/IP Sockets**: Reliable communication for control, chat, and files
-- **UDP Sockets**: Low-latency streaming for video and audio
-- **LAN Only**: No internet connectivity required
-
-### Communication Protocols
-
-#### TCP Communications (Port 8888)
-- Client authentication and session management
-- Group chat messages
-- File transfers
-- Presenter role management
-- System control messages
-
-#### UDP Video Streaming (Port 8889)
-- Real-time video frame transmission
-- Compressed video data packets
-- Client-to-server-to-clients broadcasting
-
-#### UDP Audio Streaming (Port 8890)
-- Real-time audio data transmission
-- Audio mixing and distribution
-- Low-latency audio streaming
-
-## 📋 Requirements
-
-### System Requirements
-- **Operating System**: Windows 10/11, Linux, or macOS
-- **Python**: 3.8 or higher
-- **RAM**: Minimum 4GB (8GB recommended)
-- **Network**: LAN connectivity (Ethernet or WiFi)
-- **Hardware**: Webcam and microphone for full functionality
-
-### Python Dependencies
 ```bash
-pip install -r requirements.txt
+cd webserver
+pip install -r requirements_web.txt
+python start_web_meeting.py
 ```
 
-Required packages:
-- `opencv-python` - Video capture and processing
-- `pillow` - Image processing
-- `numpy` - Numerical operations
-- `pyaudio` - Audio capture and playback
-- `tkinter` - GUI framework (included with Python)
+**Access:**
+- **Host Control**: http://localhost:5000/host
+- **Client Interface**: http://localhost:5000/client
+- **LAN Access**: http://[YOUR_IP]:5000/client
 
-## 🚀 Quick Start
-
-### 1. Installation
+**Client Joining:**
 ```bash
-# Clone or download the project
-git clone <repository-url>
-cd lan-communication-system
+# Easy launcher
+python join_meeting.py
 
-# Install dependencies
-pip install -r requirements.txt
+# Windows users
+join_meeting.bat
+
+# Direct browser
+http://[SERVER_IP]:5000/client
 ```
 
-### 2. Start the Server
+### **Option 2: GUI Version**
+
 ```bash
+cd gui
+pip install -r requirements.txt
+
+# Start server (host)
 python server.py
-```
-- Click "Start Server" in the GUI
-- Server joins as "Host" participant automatically
-- Use Host controls to enable video/audio/presentation
-- Note the displayed IP address for clients to connect
 
-### 3. Connect Clients
-```bash
+# Start client (participants)
 python client.py
 ```
-- Enter the server's IP address
-- Enter your name
-- Click "Connect"
 
-### 4. Start Communicating
-- **Video**: Click "Start Video" to enable camera
-- **Audio**: Click "Start Audio" to enable microphone
-- **Chat**: Type messages in the chat area
-- **Present**: Click "Start Presenting" to share your screen
-- **Files**: Use the File Sharing tab to share files
+## ✨ **Features**
 
-## 🎯 Usage Guide
+### 🎬 **Video Conferencing**
+- Multi-user video calls with up to 50 participants
+- Real-time video streaming optimized for LAN
+- Local video preview for participants
+- Dynamic video grid that adapts to participant count
 
-### Server Operations
-1. **Starting the Server**
-   - Launch `server.py`
-   - Click "Start Server"
-   - Share the displayed IP address with participants
-   - Server automatically joins as "Host" participant
+### 🖥️ **Screen Sharing**
+- Presenter role management with permission system
+- High-quality screen capture
+- Multi-client screen viewing
+- Host controls to manage screen sharing
 
-2. **Host Participation**
-   - Enable/disable video with "Start/Stop Video"
-   - Enable/disable audio with "Start/Stop Audio"
-   - Request presenter role with "Start Presenting"
-   - Participate in group chat
-   - Host appears first in all participant lists
+### 🎤 **Audio Communication**
+- Real-time audio streaming with low latency
+- Individual microphone controls (mute/unmute)
+- Speaker controls for audio output
+- Host audio management
 
-3. **Monitoring Sessions**
-   - View all participants (including Host) in real-time
-   - Monitor activity logs and chat messages
-   - Manage server resources
+### 💬 **Group Chat**
+- Real-time text messaging for all participants
+- Message history preserved during session
+- System notifications for user events
 
-4. **Stopping the Server**
-   - Click "Stop Server" to gracefully disconnect all clients
-   - Host automatically leaves the session
-   - Close the application
+### 📁 **File Sharing**
+- Upload and share any file type
+- Download shared files
+- File management interface
+- Real-time notifications
 
-### Client Operations
-1. **Connecting**
-   - Enter server IP address
-   - Provide your display name
-   - Click "Connect"
+### 👑 **Host Controls**
+- Meeting management and participant controls
+- Permission management
+- Force commands (mute all, disable video, etc.)
+- Meeting settings configuration
 
-2. **Video Conferencing**
-   - Enable/disable video with "Start/Stop Video"
-   - View other participants in the video grid
-   - Main speaker appears in the large video area
+## 🌍 **Network Setup**
 
-3. **Audio Communication**
-   - Enable/disable audio with "Start/Stop Audio"
-   - Audio is automatically mixed by the server
-   - Adjust system volume as needed
+### **Same Computer:**
+- Host: http://localhost:5000/host (web) or `python server.py` (GUI)
+- Client: http://localhost:5000/client (web) or `python client.py` (GUI)
 
-4. **Screen Sharing**
-   - Request presenter role with "Start Presenting"
-   - Share your screen with "Share Screen"
-   - Only one presenter at a time
+### **LAN (Different Computers):**
+1. Find host IP: `ipconfig` (Windows) or `ifconfig` (Mac/Linux)
+2. Share with clients: http://[HOST_IP]:5000/client (web) or IP address (GUI)
 
-5. **Group Chat**
-   - Type messages in the chat input
-   - Press Enter or click "Send"
-   - View conversation history
+### **Mobile Devices (Web Version Only):**
+- Connect to same WiFi
+- Open browser: http://[HOST_IP]:5000/client
 
-6. **File Sharing**
-   - Go to "File Sharing" tab
-   - Select files to share with the group
-   - Download files shared by others
+## 🔒 **Security & Privacy**
 
-## 🔧 Configuration
+- ✅ **Completely offline** - no internet required
+- ✅ **LAN only** - all data stays on local network
+- ✅ **No external servers** - complete privacy and control
+- ✅ **Self-contained** - no external dependencies during meetings
 
-### Network Configuration
-- **Default Ports**:
-  - TCP Control: 8888
-  - UDP Video: 8889
-  - UDP Audio: 8890
+## 📋 **System Requirements**
 
-- **Firewall Settings**:
-  - Ensure the above ports are open on the server machine
-  - Allow Python applications through firewall
+### **Web Version:**
+- Python 3.7+
+- Modern web browser (Chrome, Firefox, Safari, Edge)
+- Network connection (LAN/WiFi)
 
-### Performance Tuning
-- **Video Quality**: Adjust resolution in video capture settings
-- **Audio Quality**: Modify sample rate and bit depth in audio settings
-- **Network Optimization**: Configure buffer sizes for your LAN speed
+### **GUI Version:**
+- Python 3.7+
+- Tkinter (usually included with Python)
+- OpenCV, PyAudio, PIL/Pillow
+- Desktop environment
 
-## 🛠️ Technical Details
+## 🎯 **Which Version to Choose?**
 
-### Video Processing
-- **Capture**: OpenCV for camera access
-- **Compression**: Real-time frame compression
-- **Transmission**: UDP packets with sequence numbers
-- **Display**: Multi-stream rendering with PIL/Tkinter
+| Feature | Web Version | GUI Version |
+|---------|-------------|-------------|
+| **Stability** | ✅ Excellent | ⚠️ GUI issues |
+| **Cross-platform** | ✅ Any browser | ⚠️ Python required |
+| **Mobile Support** | ✅ Full support | ❌ Not available |
+| **Setup Complexity** | ✅ Simple | ⚠️ More dependencies |
+| **Client Access** | ✅ Just enter IP | ⚠️ Need Python |
+| **Performance** | ✅ Smooth | ⚠️ Threading issues |
 
-### Audio Processing
-- **Capture**: PyAudio for microphone access
-- **Format**: 16-bit PCM, 44.1kHz, mono
-- **Mixing**: Server-side audio stream combination
-- **Playback**: Real-time audio output
+**Recommendation**: Use the **Web Server Version** for the best experience!
 
-### File Transfer
-- **Protocol**: TCP for reliability
-- **Chunking**: Large files split into manageable chunks
-- **Progress**: Real-time transfer progress tracking
-- **Integrity**: Checksum verification
+## 🛠️ **Troubleshooting**
 
-### Security Considerations
-- **LAN Only**: No external network access required
-- **Authentication**: Basic client identification
-- **Data Integrity**: TCP ensures reliable data transfer
-- **Privacy**: All communication stays within LAN
+### **Common Issues:**
 
-## 🐛 Troubleshooting
+**Connection Problems:**
+- Ensure all devices are on the same network
+- Check firewall settings
+- Verify IP addresses are correct
 
-### Common Issues
+**Web Version Issues:**
+- Allow browser camera/microphone permissions
+- Use Chrome or Firefox for best compatibility
+- Check if port 5000 is available
 
-1. **Camera Not Working**
-   - Check camera permissions
-   - Ensure no other applications are using the camera
-   - Try different camera indices in the code
+**GUI Version Issues:**
+- Install all dependencies: `pip install -r requirements.txt`
+- Check camera/microphone permissions
+- Try running as administrator if needed
 
-2. **Audio Issues**
-   - Verify microphone permissions
-   - Check audio device availability
-   - Adjust audio buffer settings
+## 📚 **Documentation**
 
-3. **Connection Problems**
-   - Verify server IP address
-   - Check firewall settings
-   - Ensure all devices are on the same LAN
+- **Web Version**: See `webserver/WEB_SETUP_GUIDE.md` for detailed setup
+- **GUI Version**: See `gui/README.md` for GUI-specific instructions
+- **Client Launchers**: Multiple easy ways to join meetings
 
-4. **Performance Issues**
-   - Reduce video resolution
-   - Lower frame rate
-   - Check network bandwidth
+## 🤝 **Contributing**
 
-### Error Messages
-- **"Cannot access camera"**: Camera permission or hardware issue
-- **"Connection refused"**: Server not running or wrong IP
-- **"Audio device error"**: Microphone permission or hardware issue
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
 
-## 📈 Performance Optimization
+## 📄 **License**
 
-### Server Optimization
-- Run on a machine with adequate CPU and RAM
-- Use wired Ethernet connection for stability
-- Monitor resource usage during sessions
+This project is licensed under the MIT License.
 
-### Client Optimization
-- Close unnecessary applications
-- Use wired connection when possible
-- Adjust video quality based on network conditions
+## 🙏 **Acknowledgments**
 
-### Network Optimization
-- Use Gigabit Ethernet for best performance
-- Minimize network congestion
-- Consider Quality of Service (QoS) settings
-
-## 🔮 Future Enhancements
-
-### Planned Features
-- End-to-end encryption for secure communications
-- Recording and playback functionality
-- Advanced audio processing (noise cancellation)
-- Mobile client applications
-- Whiteboard collaboration tools
-- Advanced file management with folders
-
-### Scalability Improvements
-- Support for larger groups (50+ participants)
-- Load balancing for multiple servers
-- Bandwidth adaptive streaming
-- Cloud deployment options
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
-
-## 📞 Support
-
-For technical support or questions:
-- Check the troubleshooting section
-- Review the technical documentation
-- Submit issues on the project repository
-
-## 🏆 Acknowledgments
-
-- OpenCV community for video processing capabilities
-- PyAudio developers for audio handling
-- Python tkinter team for GUI framework
-- Contributors and testers
+- Flask and SocketIO communities for web framework
+- OpenCV community for video processing
+- PyAudio developers for audio streaming
+- Python community for excellent networking libraries
 
 ---
 
-**Note**: This system is designed for LAN environments and does not require internet connectivity. All communications remain within your local network for privacy and security.
+**Get started with the Web Server version for the best experience!** 🚀
