@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #1e1e1e; 
+            color: white; 
+            padding: 20px; 
+            text-align: center;
+        }
+        .status { 
+            padding: 20px; 
+            margin: 20px; 
+            border-radius: 10px; 
+            font-size: 1.2rem;
+        }
+        .success { background: #28a745; }
+        .error { background: #dc3545; }
+        .info { background: #0078d4; }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            border-radius: 5px;
+            background: #0078d4;
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        button:hover { background: #106ebe; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Socket.IO Connection Test</h1>
+    
+    <div id="status" class="status info">
+        🔄 Testing Socket.IO connection...
+    </div>
+    
+    <div id="details"></div>
+    
+    <button onclick="testConnection()">🔄 Test Again</button>
+    <button onclick="location.href='/host'">🎥 Go to Host</button>
+    <button onclick="location.href='/client'">👥 Go to Client</button>
+
+    <!-- Socket.IO with fallback CDN -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let socket = null;
+        
+        function updateStatus(message, type, details = '') {
+            const statusDiv = document.getElementById('status');
+            const detailsDiv = document.getElementById('details');
+            
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            detailsDiv.innerHTML = details;
+            
+            console.log(`Status: ${message}`, details);
+        }
+        
+        function testConnection() {
+            updateStatus('🔄 Testing Socket.IO connection...', 'info');
+            
+            // Check if Socket.IO is loaded
+            if (typeof io === 'undefined') {
+                updateStatus('❌ Socket.IO library not loaded', 'error', 
+                    'The Socket.IO JavaScript library failed to load.<br>' +
+                    'This could be due to:<br>' +
+                    '• Network connectivity issues<br>' +
+                    '• Server not running<br>' +
+                    '• CDN unavailable');
+                
+                // Try to load from CDN
+                loadSocketIOFromCDN();
+                return;
+            }
+            
+            updateStatus('✅ Socket.IO library loaded', 'success');
+            
+            // Test connection
+            try {
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                socket = io();
+                
+                socket.on('connect', () => {
+                    updateStatus('✅ Socket.IO connection successful!', 'success',
+                        `Connected with ID: ${socket.id}<br>` +
+                        `Transport: ${socket.io.engine.transport.name}<br>` +
+                        `Server: ${location.host}`);
+                });
+                
+                socket.on('disconnect', (reason) => {
+                    updateStatus('⚠️ Socket.IO disconnected', 'error',
+                        `Reason: ${reason}<br>` +
+                        'This is normal when testing. Try refreshing the page.');
+                });
+                
+                socket.on('connect_error', (error) => {
+                    updateStatus('❌ Socket.IO connection failed', 'error',
+                        `Error: ${error.message}<br>` +
+                        'Make sure the server is running and accessible.');
+                });
+                
+                // Timeout test
+                setTimeout(() => {
+                    if (!socket.connected) {
+                        updateStatus('❌ Connection timeout', 'error',
+                            'Socket.IO failed to connect within 5 seconds.<br>' +
+                            'Check if the server is running and accessible.');
+                    }
+                }, 5000);
+                
+            } catch (error) {
+                updateStatus('❌ Socket.IO initialization failed', 'error',
+                    `Error: ${error.message}`);
+            }
+        }
+        
+        function loadSocketIOFromCDN() {
+            updateStatus('🔄 Loading Socket.IO from CDN...', 'info');
+            
+            const script = document.createElement('script');
+            script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+            script.onload = function() {
+                updateStatus('✅ Socket.IO loaded from CDN', 'success');
+                setTimeout(testConnection, 1000);
+            };
+            script.onerror = function() {
+                updateStatus('❌ Failed to load Socket.IO from CDN', 'error',
+                    'Both local and CDN Socket.IO failed to load.<br>' +
+                    'Check your internet connection.');
+            };
+            document.head.appendChild(script);
+        }
+        
+        // Auto-test on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(testConnection, 500);
+        });
+    </script>
+</body>
+</html>

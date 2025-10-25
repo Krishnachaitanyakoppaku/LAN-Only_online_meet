@@ -193,7 +193,47 @@
         </div>
     </div>
 
+    <!-- Socket.IO with fallback CDN -->
     <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // Fallback to CDN if local Socket.IO fails to load
+        if (typeof io === 'undefined') {
+            console.log('Local Socket.IO failed, loading from CDN...');
+            const script = document.createElement('script');
+            script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+            script.onload = function() {
+                console.log('Socket.IO loaded from CDN');
+                initializeClientApp();
+            };
+            script.onerror = function() {
+                console.error('Failed to load Socket.IO from CDN');
+                alert('Failed to load Socket.IO library. Please check your internet connection.');
+            };
+            document.head.appendChild(script);
+        } else {
+            console.log('Local Socket.IO loaded successfully');
+            initializeClientApp();
+        }
+        
+        function initializeClientApp() {
+            // Initialize client when Socket.IO is ready
+            if (typeof io === 'undefined') {
+                console.error('❌ Socket.IO still not loaded!');
+                alert('Socket.IO library failed to load. Please refresh the page.');
+                return;
+            }
+            
+            console.log('✅ Socket.IO loaded successfully');
+            
+            try {
+                window.clientController = new ClientController();
+                console.log('✅ Client controller initialized and ready!');
+            } catch (error) {
+                console.error('❌ Failed to initialize client controller:', error);
+                alert('Failed to initialize client controller: ' + error.message);
+            }
+        }
+    </script>
     <script>
         class ClientController {
             constructor() {
@@ -282,11 +322,20 @@
                 });
                 
                 this.socket.on('video_frame', (data) => {
-                    this.displayVideo(data.frame_data);
+                    // Display video from host or other participants
+                    if (!this.isScreenSharing) {
+                        this.displayVideo(data.frame_data, data.sender_name, data.is_host);
+                    }
                 });
                 
                 this.socket.on('screen_frame', (data) => {
-                    this.displayScreenShare(data.frame_data);
+                    // Display screen sharing
+                    this.displayScreenShare(data.frame_data, data.presenter_name, data.is_host);
+                });
+                
+                this.socket.on('audio_frame', (data) => {
+                    // Play received audio
+                    this.playAudioFrame(data.audio_data);
                 });
                 
                 this.socket.on('host_command', (data) => {
@@ -349,12 +398,40 @@
                 this.showNotification('Camera stopped', 'info');
             }
             
-            toggleAudio() {
-                this.isAudioEnabled = !this.isAudioEnabled;
-                this.audioBtn.textContent = this.isAudioEnabled ? '🎤 Stop Audio' : '🎤 Start Audio';
-                this.audioBtn.className = this.isAudioEnabled ? 'btn btn-success' : 'btn btn-secondary';
-                
-                this.showNotification(this.isAudioEnabled ? 'Audio started' : 'Audio stopped', 'info');
+            async toggleAudio() {
+                if (!this.isAudioEnabled) {
+                    try {
+                        // Start microphone
+                        this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        this.isAudioEnabled = true;
+                        this.audioBtn.textContent = '🎤 Stop Audio';
+                        this.audioBtn.className = 'btn btn-success';
+                        
+                        // Setup audio streaming
+                        this.setupAudio();
+                        this.showNotification('Microphone started', 'success');
+                        
+                    } catch (error) {
+                        this.showNotification('Failed to access microphone: ' + error.message, 'error');
+                    }
+                } else {
+                    // Stop microphone
+                    if (this.micStream) {
+                        this.micStream.getTracks().forEach(track => track.stop());
+                        this.micStream = null;
+                    }
+                    
+                    if (this.audioProcessor) {
+                        this.audioProcessor.disconnect();
+                        this.audioProcessor = null;
+                    }
+                    
+                    this.isAudioEnabled = false;
+                    this.audioBtn.textContent = '🎤 Start Audio';
+                    this.audioBtn.className = 'btn btn-secondary';
+                    
+                    this.showNotification('Microphone stopped', 'info');
+                }
             }
             
             async startScreenShare() {
@@ -429,7 +506,7 @@
                 video.addEventListener('loadedmetadata', captureFrame);
             }
             
-            displayVideo(frameData) {
+            displayVideo(frameData, senderName, isHost) {
                 const img = new Image();
                 img.onload = () => {
                     this.mainVideo.style.display = 'none';
@@ -450,15 +527,29 @@
                     
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
+                    
+                    // Add sender name overlay
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(10, 10, 200, 30);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '16px Arial';
+                    const prefix = isHost ? '👑' : '📹';
+                    ctx.fillText(`${prefix} ${senderName}`, 20, 30);
                 };
                 img.src = frameData;
             }
             
-            displayScreenShare(frameData) {
+            displayScreenShare(frameData, presenterName, isHost) {
                 const img = new Image();
                 img.onload = () => {
                     this.mainVideo.style.display = 'none';
                     this.videoPlaceholder.style.display = 'none';
+                    
+                    // Hide remote video canvas if exists
+                    const remoteCanvas = document.getElementById('remote-video-canvas');
+                    if (remoteCanvas) {
+                        remoteCanvas.style.display = 'none';
+                    }
                     
                     const canvas = this.screenCanvas;
                     canvas.style.display = 'block';
@@ -467,6 +558,14 @@
                     
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0);
+                    
+                    // Add presenter name overlay
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(10, 10, 300, 30);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '16px Arial';
+                    const prefix = isHost ? '👑' : '🖥️';
+                    ctx.fillText(`${prefix} ${presenterName} is presenting`, 20, 30);
                 };
                 img.src = frameData;
             }
@@ -514,6 +613,66 @@
                 }
             }
             
+            async setupAudio() {
+                try {
+                    // Setup audio context for playing received audio
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Setup microphone for sending audio
+                    if (this.micStream) {
+                        this.startAudioStream();
+                    }
+                } catch (error) {
+                    console.error('Audio setup error:', error);
+                }
+            }
+            
+            startAudioStream() {
+                if (!this.micStream) return;
+                
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(this.micStream);
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                
+                processor.onaudioprocess = (e) => {
+                    if (this.isAudioEnabled) {
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        const audioData = Array.from(inputData);
+                        
+                        // Send audio data to server
+                        this.socket.emit('audio_frame', { audio_data: audioData });
+                    }
+                };
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                
+                this.audioProcessor = processor;
+            }
+            
+            playAudioFrame(audioData) {
+                try {
+                    if (!this.audioContext) {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    
+                    const buffer = this.audioContext.createBuffer(1, audioData.length, 44100);
+                    const channelData = buffer.getChannelData(0);
+                    
+                    for (let i = 0; i < audioData.length; i++) {
+                        channelData[i] = audioData[i];
+                    }
+                    
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(this.audioContext.destination);
+                    source.start();
+                    
+                } catch (error) {
+                    console.error('Audio playback error:', error);
+                }
+            }
+            
             showNotification(message, type = 'info') {
                 const notification = document.createElement('div');
                 notification.style.cssText = `
@@ -528,10 +687,7 @@
             }
         }
         
-        // Initialize when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            new ClientController();
-        });
+        // Initialize when page loads - moved to initializeClientApp function above
     </script>
 </body>
 </html>

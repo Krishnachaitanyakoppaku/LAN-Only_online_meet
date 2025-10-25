@@ -14,7 +14,11 @@ import socket
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'lan-meeting-key'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   logger=True, 
+                   engineio_logger=True,
+                   async_mode='threading')
 
 # Global state
 clients = {}
@@ -39,6 +43,21 @@ def host():
 @app.route('/client')
 def client():
     return render_template('client_simple.html')
+
+@app.route('/test')
+def test_socketio():
+    return render_template('test_socketio.html')
+
+@app.route('/socket.io.js')
+def socketio_js():
+    """Serve Socket.IO JavaScript file manually if needed"""
+    try:
+        # Try to serve from flask-socketio
+        return send_from_directory(socketio.static_folder, 'socket.io.js')
+    except:
+        # Fallback - redirect to CDN
+        from flask import redirect
+        return redirect('https://cdn.socket.io/4.7.2/socket.io.min.js')
 
 @app.route('/api/status')
 def status():
@@ -165,22 +184,30 @@ def handle_chat_message(data):
 @socketio.on('video_frame')
 def handle_video_frame(data):
     try:
+        # Broadcast video frame to ALL clients (including host if it's from client)
         socketio.emit('video_frame', {
             'client_id': request.sid,
             'frame_data': data.get('frame_data'),
-            'sender_name': clients.get(request.sid, {}).get('name', 'Unknown')
-        }, include_self=False)
+            'sender_name': clients.get(request.sid, {}).get('name', 'Unknown'),
+            'is_host': clients.get(request.sid, {}).get('is_host', False)
+        }, broadcast=True, include_self=False)
+        
+        print(f"Broadcasting video from {clients.get(request.sid, {}).get('name', 'Unknown')}")
     except Exception as e:
         print(f"Error in video_frame: {e}")
 
 @socketio.on('screen_frame')
 def handle_screen_frame(data):
     try:
+        # Broadcast screen frame to ALL clients
         socketio.emit('screen_frame', {
             'presenter_id': request.sid,
             'frame_data': data.get('frame_data'),
-            'presenter_name': clients.get(request.sid, {}).get('name', 'Unknown')
-        }, include_self=False)
+            'presenter_name': clients.get(request.sid, {}).get('name', 'Unknown'),
+            'is_host': clients.get(request.sid, {}).get('is_host', False)
+        }, broadcast=True, include_self=False)
+        
+        print(f"Broadcasting screen from {clients.get(request.sid, {}).get('name', 'Unknown')}")
     except Exception as e:
         print(f"Error in screen_frame: {e}")
 
@@ -202,6 +229,21 @@ def handle_host_media_update(data):
             print(f"Host media: video={host_video}, audio={host_audio}, screen={host_screen}")
     except Exception as e:
         print(f"Error in host_media_update: {e}")
+
+@socketio.on('audio_frame')
+def handle_audio_frame(data):
+    try:
+        # Broadcast audio frame to ALL other clients
+        socketio.emit('audio_frame', {
+            'client_id': request.sid,
+            'audio_data': data.get('audio_data'),
+            'sender_name': clients.get(request.sid, {}).get('name', 'Unknown'),
+            'is_host': clients.get(request.sid, {}).get('is_host', False)
+        }, broadcast=True, include_self=False)
+        
+        # Don't print for audio as it's too frequent
+    except Exception as e:
+        print(f"Error in audio_frame: {e}")
 
 @socketio.on('host_action')
 def handle_host_action(data):
@@ -253,7 +295,7 @@ if __name__ == '__main__':
     print(f"📱 Host: http://localhost:{port}/host")
     print(f"👥 Client: http://localhost:{port}/client")
     print(f"🌍 LAN: http://{local_ip}:{port}/")
-    print("✅ All buttons working!")
+    print("✅ Server running - no browser auto-open")
     print("=" * 40)
     
-    socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)

@@ -68,6 +68,7 @@
         .btn-warning { background: #fd7e14; color: white; }
         .btn-secondary { background: #6c757d; color: white; }
         .btn:hover { transform: translateY(-2px); opacity: 0.9; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         .chat-area { 
             height: 200px; 
             background: #3d3d3d; 
@@ -113,6 +114,37 @@
             background: #4d4d4d; 
             border-radius: 5px; 
         }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease;
+        }
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .notification.success { background: #28a745; }
+        .notification.error { background: #dc3545; }
+        .notification.info { background: #0078d4; }
+        .notification.warning { background: #fd7e14; }
+        .debug-info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            max-width: 300px;
+        }
     </style>
 </head>
 <body>
@@ -124,7 +156,7 @@
                     <span>👥 Participants: <span id="participant-count">0</span></span>
                 </div>
                 <div class="status-item">
-                    <span>🌐 Server: <span id="server-status">Running</span></span>
+                    <span>🌐 Server: <span id="server-status">Connecting...</span></span>
                 </div>
             </div>
         </div>
@@ -164,23 +196,108 @@
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+    <div id="debug-info" class="debug-info">
+        <div>Socket.IO Status: <span id="socketio-status">Loading...</span></div>
+        <div>Connection: <span id="connection-status">Not connected</span></div>
+        <div>Last Action: <span id="last-action">None</span></div>
+    </div>
+
+    <!-- Load Socket.IO directly from CDN first -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" 
+            integrity="sha384-mZLF4UVrpi/QTWPA7BjNPEnkIfRFn9ZAC3Qz75BEkF4MQzTlzcKBdAiYz5KTpyJF" 
+            crossorigin="anonymous"
+            onerror="loadSocketIOFallback()"></script>
+    
     <script>
+        console.log('🚀 Host page loading...');
+        
+        // Debug functions
+        function updateDebugInfo(key, value) {
+            const element = document.getElementById(key);
+            if (element) {
+                element.textContent = value;
+            }
+        }
+        
+        function loadSocketIOFallback() {
+            console.log('CDN failed, trying local Socket.IO...');
+            updateDebugInfo('socketio-status', 'CDN failed, trying local...');
+            
+            const script = document.createElement('script');
+            script.src = '/socket.io/socket.io.js';
+            script.onload = function() {
+                console.log('Local Socket.IO loaded');
+                updateDebugInfo('socketio-status', 'Local loaded');
+                initializeApp();
+            };
+            script.onerror = function() {
+                console.error('Both CDN and local Socket.IO failed');
+                updateDebugInfo('socketio-status', 'Failed to load');
+                showNotification('Socket.IO failed to load from both CDN and local server', 'error');
+            };
+            document.head.appendChild(script);
+        }
+        
+        // Check if Socket.IO loaded from CDN
+        window.addEventListener('load', function() {
+            if (typeof io !== 'undefined') {
+                console.log('Socket.IO loaded from CDN');
+                updateDebugInfo('socketio-status', 'CDN loaded');
+                initializeApp();
+            } else {
+                loadSocketIOFallback();
+            }
+        });
+        
+        function initializeApp() {
+            if (typeof io === 'undefined') {
+                console.error('❌ Socket.IO still not available');
+                updateDebugInfo('socketio-status', 'Not available');
+                showNotification('Socket.IO library not available', 'error');
+                return;
+            }
+            
+            console.log('✅ Initializing app with Socket.IO');
+            updateDebugInfo('socketio-status', 'Available');
+            
+            try {
+                window.hostController = new HostController();
+                console.log('✅ Host controller initialized');
+            } catch (error) {
+                console.error('❌ Failed to initialize host controller:', error);
+                showNotification('Failed to initialize: ' + error.message, 'error');
+            }
+        }
+        
         class HostController {
             constructor() {
-                this.socket = io();
+                console.log('🎯 Initializing HostController...');
+                updateDebugInfo('last-action', 'Initializing...');
+                
+                // State variables
+                this.socket = null;
                 this.isVideoEnabled = false;
                 this.isAudioEnabled = false;
                 this.isScreenSharing = false;
                 this.localStream = null;
                 this.screenStream = null;
+                this.micStream = null;
+                this.audioContext = null;
+                this.audioProcessor = null;
                 
+                // Initialize
                 this.initElements();
                 this.setupEvents();
                 this.connectToServer();
+                
+                console.log('✅ HostController initialized successfully');
+                updateDebugInfo('last-action', 'Initialized');
             }
             
             initElements() {
+                console.log('🔧 Initializing elements...');
+                
+                // Button elements
                 this.videoBtn = document.getElementById('video-btn');
                 this.audioBtn = document.getElementById('audio-btn');
                 this.screenBtn = document.getElementById('screen-btn');
@@ -188,76 +305,193 @@
                 this.muteAllBtn = document.getElementById('mute-all-btn');
                 this.endMeetingBtn = document.getElementById('end-meeting-btn');
                 
+                // Video elements
                 this.mainVideo = document.getElementById('main-video');
                 this.screenCanvas = document.getElementById('screen-canvas');
                 this.videoPlaceholder = document.getElementById('video-placeholder');
                 
+                // Chat elements
                 this.chatMessages = document.getElementById('chat-messages');
                 this.chatInput = document.getElementById('chat-input');
                 this.sendChatBtn = document.getElementById('send-chat');
                 
+                // Participant elements
                 this.participantsList = document.getElementById('participants-list');
                 this.participantCount = document.getElementById('participant-count');
+                this.serverStatus = document.getElementById('server-status');
+                
+                // Verify all elements exist
+                const elements = {
+                    videoBtn: this.videoBtn,
+                    audioBtn: this.audioBtn,
+                    screenBtn: this.screenBtn,
+                    mainVideo: this.mainVideo,
+                    screenCanvas: this.screenCanvas,
+                    videoPlaceholder: this.videoPlaceholder
+                };
+                
+                for (const [name, element] of Object.entries(elements)) {
+                    if (!element) {
+                        console.error(`❌ Element not found: ${name}`);
+                        throw new Error(`Required element not found: ${name}`);
+                    }
+                }
+                
+                console.log('✅ All elements initialized');
             }
             
             setupEvents() {
-                this.videoBtn.addEventListener('click', () => this.toggleVideo());
-                this.audioBtn.addEventListener('click', () => this.toggleAudio());
-                this.screenBtn.addEventListener('click', () => this.startScreenShare());
-                this.stopScreenBtn.addEventListener('click', () => this.stopScreenShare());
-                this.muteAllBtn.addEventListener('click', () => this.muteAll());
-                this.endMeetingBtn.addEventListener('click', () => this.endMeeting());
+                console.log('🎯 Setting up event listeners...');
                 
-                this.sendChatBtn.addEventListener('click', () => this.sendChat());
-                this.chatInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') this.sendChat();
+                // Button event listeners
+                this.videoBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('📹 Video button clicked');
+                    updateDebugInfo('last-action', 'Video button clicked');
+                    this.toggleVideo();
                 });
+                
+                this.audioBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('🎤 Audio button clicked');
+                    updateDebugInfo('last-action', 'Audio button clicked');
+                    this.toggleAudio();
+                });
+                
+                this.screenBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('🖥️ Screen share button clicked');
+                    updateDebugInfo('last-action', 'Screen share clicked');
+                    this.startScreenShare();
+                });
+                
+                this.stopScreenBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('⏹️ Stop screen button clicked');
+                    updateDebugInfo('last-action', 'Stop screen clicked');
+                    this.stopScreenShare();
+                });
+                
+                this.muteAllBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('🔇 Mute all button clicked');
+                    updateDebugInfo('last-action', 'Mute all clicked');
+                    this.muteAll();
+                });
+                
+                this.endMeetingBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    console.log('📞 End meeting button clicked');
+                    updateDebugInfo('last-action', 'End meeting clicked');
+                    this.endMeeting();
+                });
+                
+                // Chat events
+                this.sendChatBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.sendChat();
+                });
+                
+                this.chatInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        this.sendChat();
+                    }
+                });
+                
+                console.log('✅ All event listeners set up');
             }
             
             connectToServer() {
-                this.socket.on('connect', () => {
-                    console.log('Connected to server');
-                    this.socket.emit('join_meeting', { name: 'Host', isHost: true });
-                });
+                console.log('🌐 Connecting to server...');
+                updateDebugInfo('connection-status', 'Connecting...');
                 
-                this.socket.on('meeting_joined', (data) => {
-                    console.log('Meeting joined successfully');
-                    this.updateParticipants(data.participants);
-                    data.chat_history.forEach(msg => this.addChatMessage(msg.sender, msg.message));
-                });
-                
-                this.socket.on('user_joined', (data) => {
-                    this.addChatMessage('System', `${data.name} joined the meeting`);
-                    this.updateParticipantCount();
-                });
-                
-                this.socket.on('user_left', (data) => {
-                    this.addChatMessage('System', `${data.name} left the meeting`);
-                    this.updateParticipantCount();
-                });
-                
-                this.socket.on('chat_message', (data) => {
-                    this.addChatMessage(data.sender, data.message);
-                });
-                
-                this.socket.on('video_frame', (data) => {
-                    // Handle participant video
-                    console.log('Received video frame from:', data.sender_name);
-                });
-                
-                this.socket.on('screen_frame', (data) => {
-                    // Handle participant screen sharing
-                    console.log('Received screen frame from:', data.presenter_name);
-                });
+                try {
+                    this.socket = io();
+                    
+                    this.socket.on('connect', () => {
+                        console.log('✅ Connected to server');
+                        updateDebugInfo('connection-status', 'Connected');
+                        this.serverStatus.textContent = 'Connected';
+                        this.socket.emit('join_meeting', { name: 'Host', isHost: true });
+                        this.showNotification('Connected to server', 'success');
+                    });
+                    
+                    this.socket.on('disconnect', () => {
+                        console.log('❌ Disconnected from server');
+                        updateDebugInfo('connection-status', 'Disconnected');
+                        this.serverStatus.textContent = 'Disconnected';
+                        this.showNotification('Disconnected from server', 'error');
+                    });
+                    
+                    this.socket.on('connect_error', (error) => {
+                        console.error('❌ Connection error:', error);
+                        updateDebugInfo('connection-status', 'Error: ' + error.message);
+                        this.serverStatus.textContent = 'Connection Error';
+                        this.showNotification('Connection error: ' + error.message, 'error');
+                    });
+                    
+                    this.socket.on('meeting_joined', (data) => {
+                        console.log('✅ Meeting joined successfully');
+                        updateDebugInfo('last-action', 'Meeting joined');
+                        this.updateParticipants(data.participants);
+                        if (data.chat_history) {
+                            data.chat_history.forEach(msg => this.addChatMessage(msg.sender, msg.message));
+                        }
+                    });
+                    
+                    this.socket.on('user_joined', (data) => {
+                        this.addChatMessage('System', `${data.name} joined the meeting`);
+                        this.updateParticipantCount();
+                    });
+                    
+                    this.socket.on('user_left', (data) => {
+                        this.addChatMessage('System', `${data.name} left the meeting`);
+                        this.updateParticipantCount();
+                    });
+                    
+                    this.socket.on('chat_message', (data) => {
+                        this.addChatMessage(data.sender, data.message);
+                    });
+                    
+                    this.socket.on('video_frame', (data) => {
+                        this.displayRemoteVideo(data.frame_data, data.sender_name);
+                    });
+                    
+                    this.socket.on('screen_frame', (data) => {
+                        this.displayRemoteScreen(data.frame_data, data.presenter_name);
+                    });
+                    
+                    this.socket.on('audio_frame', (data) => {
+                        this.playAudioFrame(data.audio_data);
+                    });
+                    
+                } catch (error) {
+                    console.error('❌ Failed to create socket connection:', error);
+                    updateDebugInfo('connection-status', 'Failed');
+                    this.showNotification('Failed to connect: ' + error.message, 'error');
+                }
             }
             
             async toggleVideo() {
+                console.log('📹 Toggle video called, current state:', this.isVideoEnabled);
+                updateDebugInfo('last-action', 'Toggling video...');
+                
                 if (!this.isVideoEnabled) {
                     try {
+                        console.log('📹 Requesting camera access...');
+                        this.showNotification('Requesting camera access...', 'info');
+                        
                         this.localStream = await navigator.mediaDevices.getUserMedia({ 
-                            video: { width: 1280, height: 720 }, 
+                            video: { 
+                                width: { ideal: 1280, max: 1920 }, 
+                                height: { ideal: 720, max: 1080 },
+                                facingMode: 'user'
+                            }, 
                             audio: false 
                         });
+                        
+                        console.log('📹 Camera access granted');
                         
                         this.mainVideo.srcObject = this.localStream;
                         this.mainVideo.style.display = 'block';
@@ -269,10 +503,23 @@
                         
                         this.startVideoStream();
                         this.updateHostStatus();
-                        this.showNotification('Camera started', 'success');
+                        this.showNotification('Camera started successfully!', 'success');
+                        updateDebugInfo('last-action', 'Video started');
                         
                     } catch (error) {
-                        this.showNotification('Failed to access camera: ' + error.message, 'error');
+                        console.error('❌ Camera error:', error);
+                        updateDebugInfo('last-action', 'Video failed: ' + error.name);
+                        let errorMsg = 'Failed to access camera';
+                        
+                        if (error.name === 'NotAllowedError') {
+                            errorMsg = 'Camera permission denied. Please allow camera access and try again.';
+                        } else if (error.name === 'NotFoundError') {
+                            errorMsg = 'No camera found. Please connect a camera and try again.';
+                        } else if (error.name === 'NotReadableError') {
+                            errorMsg = 'Camera is being used by another application.';
+                        }
+                        
+                        this.showNotification(errorMsg, 'error');
                     }
                 } else {
                     this.stopVideo();
@@ -280,11 +527,15 @@
             }
             
             stopVideo() {
+                console.log('📹 Stopping video...');
+                updateDebugInfo('last-action', 'Stopping video...');
+                
                 if (this.localStream) {
                     this.localStream.getTracks().forEach(track => track.stop());
                     this.localStream = null;
                 }
                 
+                this.mainVideo.srcObject = null;
                 this.mainVideo.style.display = 'none';
                 this.videoPlaceholder.style.display = 'flex';
                 
@@ -294,23 +545,101 @@
                 
                 this.updateHostStatus();
                 this.showNotification('Camera stopped', 'info');
+                updateDebugInfo('last-action', 'Video stopped');
             }
             
-            toggleAudio() {
-                this.isAudioEnabled = !this.isAudioEnabled;
-                this.audioBtn.textContent = this.isAudioEnabled ? '🎤 Stop Audio' : '🎤 Start Audio';
-                this.audioBtn.className = this.isAudioEnabled ? 'btn btn-success' : 'btn btn-secondary';
+            async toggleAudio() {
+                console.log('🎤 Toggle audio called, current state:', this.isAudioEnabled);
+                updateDebugInfo('last-action', 'Toggling audio...');
+                
+                if (!this.isAudioEnabled) {
+                    try {
+                        console.log('🎤 Requesting microphone access...');
+                        this.showNotification('Requesting microphone access...', 'info');
+                        
+                        this.micStream = await navigator.mediaDevices.getUserMedia({ 
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true
+                            }
+                        });
+                        
+                        console.log('🎤 Microphone access granted');
+                        
+                        this.isAudioEnabled = true;
+                        this.audioBtn.textContent = '🎤 Stop Audio';
+                        this.audioBtn.className = 'btn btn-success';
+                        
+                        this.setupAudio();
+                        this.updateHostStatus();
+                        this.showNotification('Microphone started successfully!', 'success');
+                        updateDebugInfo('last-action', 'Audio started');
+                        
+                    } catch (error) {
+                        console.error('❌ Microphone error:', error);
+                        updateDebugInfo('last-action', 'Audio failed: ' + error.name);
+                        let errorMsg = 'Failed to access microphone';
+                        
+                        if (error.name === 'NotAllowedError') {
+                            errorMsg = 'Microphone permission denied. Please allow microphone access and try again.';
+                        } else if (error.name === 'NotFoundError') {
+                            errorMsg = 'No microphone found. Please connect a microphone and try again.';
+                        } else if (error.name === 'NotReadableError') {
+                            errorMsg = 'Microphone is being used by another application.';
+                        }
+                        
+                        this.showNotification(errorMsg, 'error');
+                    }
+                } else {
+                    this.stopAudio();
+                }
+            }
+            
+            stopAudio() {
+                console.log('🎤 Stopping microphone...');
+                updateDebugInfo('last-action', 'Stopping audio...');
+                
+                if (this.micStream) {
+                    this.micStream.getTracks().forEach(track => track.stop());
+                    this.micStream = null;
+                }
+                
+                if (this.audioProcessor) {
+                    this.audioProcessor.disconnect();
+                    this.audioProcessor = null;
+                }
+                
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                this.isAudioEnabled = false;
+                this.audioBtn.textContent = '🎤 Start Audio';
+                this.audioBtn.className = 'btn btn-secondary';
                 
                 this.updateHostStatus();
-                this.showNotification(this.isAudioEnabled ? 'Audio started' : 'Audio stopped', 'info');
+                this.showNotification('Microphone stopped', 'info');
+                updateDebugInfo('last-action', 'Audio stopped');
             }
             
             async startScreenShare() {
+                console.log('🖥️ Starting screen share...');
+                updateDebugInfo('last-action', 'Starting screen share...');
+                
                 try {
+                    this.showNotification('Requesting screen share access...', 'info');
+                    
                     this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-                        video: { width: 1920, height: 1080 },
+                        video: { 
+                            width: { ideal: 1920, max: 1920 }, 
+                            height: { ideal: 1080, max: 1080 }
+                        },
                         audio: true
                     });
+                    
+                    console.log('🖥️ Screen access granted');
                     
                     const canvas = this.screenCanvas;
                     const ctx = canvas.getContext('2d');
@@ -335,23 +664,48 @@
                             ctx.drawImage(video, 0, 0);
                             
                             const frameData = canvas.toDataURL('image/jpeg', 0.8);
-                            this.socket.emit('screen_frame', { frame_data: frameData });
+                            if (this.socket && this.socket.connected) {
+                                this.socket.emit('screen_frame', { frame_data: frameData });
+                            }
                             
                             setTimeout(captureFrame, 200); // 5 FPS
                         }
                     };
                     
-                    video.addEventListener('loadedmetadata', captureFrame);
+                    video.addEventListener('loadedmetadata', () => {
+                        console.log('🖥️ Screen video loaded, starting capture...');
+                        captureFrame();
+                    });
+                    
+                    // Handle screen share ending
+                    this.screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+                        console.log('🖥️ Screen share ended by user');
+                        this.stopScreenShare();
+                    });
                     
                     this.updateHostStatus();
-                    this.showNotification('Screen sharing started', 'success');
+                    this.showNotification('Screen sharing started successfully!', 'success');
+                    updateDebugInfo('last-action', 'Screen share started');
                     
                 } catch (error) {
-                    this.showNotification('Failed to start screen sharing: ' + error.message, 'error');
+                    console.error('❌ Screen share error:', error);
+                    updateDebugInfo('last-action', 'Screen share failed: ' + error.name);
+                    let errorMsg = 'Failed to start screen sharing';
+                    
+                    if (error.name === 'NotAllowedError') {
+                        errorMsg = 'Screen sharing permission denied.';
+                    } else if (error.name === 'NotSupportedError') {
+                        errorMsg = 'Screen sharing not supported in this browser.';
+                    }
+                    
+                    this.showNotification(errorMsg, 'error');
                 }
             }
             
             stopScreenShare() {
+                console.log('🖥️ Stopping screen share...');
+                updateDebugInfo('last-action', 'Stopping screen share...');
+                
                 if (this.screenStream) {
                     this.screenStream.getTracks().forEach(track => track.stop());
                     this.screenStream = null;
@@ -370,9 +724,12 @@
                 
                 this.updateHostStatus();
                 this.showNotification('Screen sharing stopped', 'info');
+                updateDebugInfo('last-action', 'Screen share stopped');
             }
             
             startVideoStream() {
+                if (!this.localStream || !this.socket || !this.socket.connected) return;
+                
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const video = this.mainVideo;
@@ -384,7 +741,9 @@
                         ctx.drawImage(video, 0, 0);
                         
                         const frameData = canvas.toDataURL('image/jpeg', 0.6);
-                        this.socket.emit('video_frame', { frame_data: frameData });
+                        if (this.socket && this.socket.connected) {
+                            this.socket.emit('video_frame', { frame_data: frameData });
+                        }
                         
                         setTimeout(captureFrame, 100); // 10 FPS
                     }
@@ -393,17 +752,43 @@
                 video.addEventListener('loadedmetadata', captureFrame);
             }
             
+            setupAudio() {
+                if (!this.micStream) return;
+                
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = this.audioContext.createMediaStreamSource(this.micStream);
+                    this.audioProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+                    
+                    this.audioProcessor.onaudioprocess = (e) => {
+                        if (this.isAudioEnabled && this.socket && this.socket.connected) {
+                            const inputData = e.inputBuffer.getChannelData(0);
+                            const audioData = Array.from(inputData);
+                            this.socket.emit('audio_frame', { audio_data: audioData });
+                        }
+                    };
+                    
+                    source.connect(this.audioProcessor);
+                    this.audioProcessor.connect(this.audioContext.destination);
+                    
+                } catch (error) {
+                    console.error('Audio setup error:', error);
+                }
+            }
+            
             updateHostStatus() {
-                this.socket.emit('host_media_update', {
-                    video_enabled: this.isVideoEnabled,
-                    audio_enabled: this.isAudioEnabled,
-                    screen_sharing: this.isScreenSharing
-                });
+                if (this.socket && this.socket.connected) {
+                    this.socket.emit('host_media_update', {
+                        video_enabled: this.isVideoEnabled,
+                        audio_enabled: this.isAudioEnabled,
+                        screen_sharing: this.isScreenSharing
+                    });
+                }
             }
             
             sendChat() {
                 const message = this.chatInput.value.trim();
-                if (message) {
+                if (message && this.socket && this.socket.connected) {
                     this.socket.emit('chat_message', { sender: 'Host', message });
                     this.chatInput.value = '';
                 }
@@ -417,44 +802,83 @@
             }
             
             updateParticipants(participants) {
-                // Update participant count
                 this.participantCount.textContent = participants.length;
             }
             
             updateParticipantCount() {
-                // This will be called when participants join/leave
-                // The actual count will be updated via socket events
+                // Will be updated via socket events
             }
             
             muteAll() {
-                this.socket.emit('host_action', { action: 'mute_all' });
-                this.showNotification('Muted all participants', 'info');
+                if (this.socket && this.socket.connected) {
+                    this.socket.emit('host_action', { action: 'mute_all' });
+                    this.showNotification('Muted all participants', 'info');
+                    updateDebugInfo('last-action', 'Muted all');
+                }
             }
             
             endMeeting() {
                 if (confirm('Are you sure you want to end the meeting?')) {
-                    this.socket.emit('host_action', { action: 'end_meeting' });
-                    this.showNotification('Meeting ended', 'info');
+                    if (this.socket && this.socket.connected) {
+                        this.socket.emit('host_action', { action: 'end_meeting' });
+                        this.showNotification('Meeting ended', 'info');
+                        updateDebugInfo('last-action', 'Meeting ended');
+                    }
+                }
+            }
+            
+            displayRemoteVideo(frameData, senderName) {
+                console.log('Received video from:', senderName);
+            }
+            
+            displayRemoteScreen(frameData, presenterName) {
+                console.log('Received screen share from:', presenterName);
+            }
+            
+            playAudioFrame(audioData) {
+                try {
+                    if (!this.audioContext) {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    
+                    const buffer = this.audioContext.createBuffer(1, audioData.length, 44100);
+                    const channelData = buffer.getChannelData(0);
+                    
+                    for (let i = 0; i < audioData.length; i++) {
+                        channelData[i] = audioData[i];
+                    }
+                    
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(this.audioContext.destination);
+                    source.start();
+                    
+                } catch (error) {
+                    console.error('Audio playback error:', error);
                 }
             }
             
             showNotification(message, type = 'info') {
                 const notification = document.createElement('div');
-                notification.style.cssText = `
-                    position: fixed; top: 20px; right: 20px; z-index: 1000;
-                    padding: 15px 20px; border-radius: 8px; color: white; font-weight: bold;
-                    background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#0078d4'};
-                `;
+                notification.className = `notification ${type}`;
                 notification.textContent = message;
                 document.body.appendChild(notification);
                 
-                setTimeout(() => notification.remove(), 3000);
+                // Show notification
+                setTimeout(() => notification.classList.add('show'), 100);
+                
+                // Hide and remove notification
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => notification.remove(), 300);
+                }, 3000);
             }
         }
         
-        // Initialize when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            new HostController();
+        // Global error handler
+        window.addEventListener('error', (event) => {
+            console.error('❌ Global error:', event.error);
+            updateDebugInfo('last-action', 'Error: ' + event.error.message);
         });
     </script>
 </body>
