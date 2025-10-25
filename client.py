@@ -772,7 +772,17 @@ class LANCommunicationClient:
                                           relief='flat', borderwidth=0,
                                           padx=10, pady=6,
                                           cursor='hand2', state=tk.DISABLED)
-        self.download_file_btn.pack(side=tk.LEFT)
+        self.download_file_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # File Manager button
+        self.file_manager_btn = tk.Button(file_controls_frame, text="📁 File Manager", 
+                                         command=self.open_file_manager,
+                                         bg='#6c757d', fg='white', 
+                                         font=('Segoe UI', 9, 'bold'),
+                                         relief='flat', borderwidth=0,
+                                         padx=10, pady=6,
+                                         cursor='hand2', state=tk.DISABLED)
+        self.file_manager_btn.pack(side=tk.LEFT)
         
     def create_meeting_controls(self, parent):
         """Create bottom meeting controls"""
@@ -887,6 +897,7 @@ class LANCommunicationClient:
             # Enable file sharing controls
             self.share_file_btn.config(state=tk.NORMAL)
             self.download_file_btn.config(state=tk.NORMAL)
+            self.file_manager_btn.config(state=tk.NORMAL)
             
             # Auto-start speaker for receiving audio (always enabled by default)
             self.root.after(1000, self.start_speaker)  # Start speaker after 1 second
@@ -1937,6 +1948,269 @@ class LANCommunicationClient:
                 messagebox.showerror("Download Error", f"Failed to download file: {str(e)}")
         else:
             messagebox.showwarning("No Selection", "Please select a file first")
+            
+    def open_file_manager(self):
+        """Open dedicated file management interface"""
+        if not self.connected:
+            messagebox.showwarning("Not Connected", "Please connect to a meeting first")
+            return
+            
+        # Create file manager window
+        file_manager_window = tk.Toplevel(self.root)
+        file_manager_window.title("File Manager - Upload & Download")
+        file_manager_window.geometry("800x600")
+        file_manager_window.configure(bg='#2d2d2d')
+        file_manager_window.transient(self.root)
+        file_manager_window.grab_set()
+        
+        # Header
+        header_frame = tk.Frame(file_manager_window, bg='#1e1e1e', height=60)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        
+        tk.Label(header_frame, text="📁 File Manager", 
+                font=('Segoe UI', 18, 'bold'), 
+                fg='white', bg='#1e1e1e').pack(pady=15)
+        
+        # Main content
+        main_frame = tk.Frame(file_manager_window, bg='#2d2d2d')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Upload section
+        upload_frame = tk.LabelFrame(main_frame, text="📤 Upload Files", 
+                                    bg='#2d2d2d', fg='white',
+                                    font=('Segoe UI', 14, 'bold'))
+        upload_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        upload_inner = tk.Frame(upload_frame, bg='#2d2d2d')
+        upload_inner.pack(fill=tk.X, padx=15, pady=15)
+        
+        tk.Label(upload_inner, text="Share files with all meeting participants", 
+                font=('Segoe UI', 11), 
+                fg='#cccccc', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 15))
+        
+        upload_buttons_frame = tk.Frame(upload_inner, bg='#2d2d2d')
+        upload_buttons_frame.pack(fill=tk.X)
+        
+        tk.Button(upload_buttons_frame, text="📤 Select & Upload File", 
+                 command=self.share_file,
+                 bg='#0078d4', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=12,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        tk.Button(upload_buttons_frame, text="📁 Upload Multiple Files", 
+                 command=self.upload_multiple_files,
+                 bg='#6c757d', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=12,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(15, 0))
+        
+        # Download section
+        download_frame = tk.LabelFrame(main_frame, text="📥 Available Files", 
+                                      bg='#2d2d2d', fg='white',
+                                      font=('Segoe UI', 14, 'bold'))
+        download_frame.pack(fill=tk.BOTH, expand=True)
+        
+        download_inner = tk.Frame(download_frame, bg='#2d2d2d')
+        download_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        tk.Label(download_inner, text="Files shared by meeting participants", 
+                font=('Segoe UI', 11), 
+                fg='#cccccc', bg='#2d2d2d').pack(anchor=tk.W, pady=(0, 15))
+        
+        # Files list with details
+        files_list_frame = tk.Frame(download_inner, bg='#2d2d2d')
+        files_list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        
+        # Create treeview for better file display
+        columns = ('Name', 'Size', 'Shared By', 'Time')
+        self.files_tree = ttk.Treeview(files_list_frame, columns=columns, show='headings', height=10)
+        
+        # Configure columns
+        self.files_tree.heading('Name', text='File Name')
+        self.files_tree.heading('Size', text='Size')
+        self.files_tree.heading('Shared By', text='Shared By')
+        self.files_tree.heading('Time', text='Share Time')
+        
+        self.files_tree.column('Name', width=250)
+        self.files_tree.column('Size', width=100)
+        self.files_tree.column('Shared By', width=120)
+        self.files_tree.column('Time', width=120)
+        
+        # Scrollbar for treeview
+        files_scrollbar = ttk.Scrollbar(files_list_frame, orient="vertical", command=self.files_tree.yview)
+        self.files_tree.configure(yscrollcommand=files_scrollbar.set)
+        
+        self.files_tree.pack(side="left", fill="both", expand=True)
+        files_scrollbar.pack(side="right", fill="y")
+        
+        # Download controls
+        download_controls_frame = tk.Frame(download_inner, bg='#2d2d2d')
+        download_controls_frame.pack(fill=tk.X)
+        
+        tk.Button(download_controls_frame, text="📥 Download Selected", 
+                 command=lambda: self.download_from_tree(self.files_tree),
+                 bg='#107c10', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=12,
+                 cursor='hand2').pack(side=tk.LEFT)
+        
+        tk.Button(download_controls_frame, text="📥 Download All", 
+                 command=self.download_all_files,
+                 bg='#28a745', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=12,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(15, 0))
+        
+        tk.Button(download_controls_frame, text="🔄 Refresh List", 
+                 command=lambda: self.update_file_manager_list(self.files_tree),
+                 bg='#6c757d', fg='white', 
+                 font=('Segoe UI', 12, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=25, pady=12,
+                 cursor='hand2').pack(side=tk.RIGHT)
+        
+        # Populate the files list
+        self.update_file_manager_list(self.files_tree)
+        
+    def upload_multiple_files(self):
+        """Upload multiple files at once"""
+        try:
+            filenames = filedialog.askopenfilenames(
+                title="Select files to share",
+                filetypes=[("All files", "*.*")]
+            )
+            
+            if filenames:
+                success_count = 0
+                for filename in filenames:
+                    try:
+                        # Get file info
+                        file_size = os.path.getsize(filename)
+                        file_name = os.path.basename(filename)
+                        
+                        # Create file info
+                        file_info = {
+                            'name': file_name,
+                            'size': file_size,
+                            'path': filename,
+                            'shared_by': self.client_name,
+                            'share_time': datetime.now().isoformat()
+                        }
+                        
+                        # Send to server
+                        share_msg = {
+                            'type': 'file_share',
+                            'client_id': self.client_id,
+                            'file_info': file_info
+                        }
+                        self.send_tcp_message(share_msg)
+                        success_count += 1
+                        
+                    except Exception as e:
+                        print(f"Error sharing file {filename}: {e}")
+                        
+                messagebox.showinfo("Upload Complete", f"Successfully shared {success_count} out of {len(filenames)} files")
+                
+        except Exception as e:
+            messagebox.showerror("Upload Error", f"Failed to upload files: {str(e)}")
+            
+    def download_from_tree(self, tree):
+        """Download selected file from tree view"""
+        selection = tree.selection()
+        if selection:
+            item = tree.item(selection[0])
+            file_name = item['values'][0]
+            
+            if file_name in self.shared_files:
+                file_info = self.shared_files[file_name]
+                
+                try:
+                    # Open file dialog to choose download location
+                    download_path = filedialog.asksaveasfilename(
+                        initialname=file_name,
+                        title="Save file as",
+                        filetypes=[("All files", "*.*")]
+                    )
+                    
+                    if download_path:
+                        # Copy file to chosen location
+                        import shutil
+                        shutil.copy2(file_info['path'], download_path)
+                        
+                        # Notify server about download
+                        download_msg = {
+                            'type': 'file_downloaded',
+                            'client_id': self.client_id,
+                            'file_name': file_name
+                        }
+                        self.send_tcp_message(download_msg)
+                        
+                        self.add_chat_message("You", f"Downloaded: {file_name}")
+                        messagebox.showinfo("Download Complete", f"File saved to {download_path}")
+                        
+                except Exception as e:
+                    messagebox.showerror("Download Error", f"Failed to download file: {str(e)}")
+        else:
+            messagebox.showwarning("No Selection", "Please select a file first")
+            
+    def download_all_files(self):
+        """Download all available files"""
+        if not self.shared_files:
+            messagebox.showinfo("No Files", "No files available for download")
+            return
+            
+        # Choose download directory
+        download_dir = filedialog.askdirectory(title="Choose download directory")
+        if not download_dir:
+            return
+            
+        success_count = 0
+        for file_name, file_info in self.shared_files.items():
+            try:
+                import shutil
+                download_path = os.path.join(download_dir, file_name)
+                shutil.copy2(file_info['path'], download_path)
+                
+                # Notify server about download
+                download_msg = {
+                    'type': 'file_downloaded',
+                    'client_id': self.client_id,
+                    'file_name': file_name
+                }
+                self.send_tcp_message(download_msg)
+                success_count += 1
+                
+            except Exception as e:
+                print(f"Error downloading {file_name}: {e}")
+                
+        messagebox.showinfo("Download Complete", f"Downloaded {success_count} out of {len(self.shared_files)} files to {download_dir}")
+        self.add_chat_message("You", f"Downloaded {success_count} files")
+        
+    def update_file_manager_list(self, tree):
+        """Update the file manager list"""
+        # Clear existing items
+        for item in tree.get_children():
+            tree.delete(item)
+            
+        # Add files
+        for file_name, file_info in self.shared_files.items():
+            size_mb = f"{file_info['size'] / (1024*1024):.2f} MB"
+            shared_by = file_info.get('shared_by', 'Unknown')
+            share_time = file_info.get('share_time', '')
+            
+            if share_time:
+                try:
+                    share_time = datetime.fromisoformat(share_time).strftime("%H:%M:%S")
+                except:
+                    share_time = "Unknown"
+            
+            tree.insert('', 'end', values=(file_name, size_mb, shared_by, share_time))
             
     def handle_connection_lost(self):
         """Handle lost connection to server"""

@@ -3507,24 +3507,24 @@ class LANCommunicationServer:
         print("Host screen loop ended")
                 
     def broadcast_host_screen_data(self, frame):
-        """Broadcast Host screen data to all clients"""
+        """Broadcast Host screen data to all clients via TCP"""
         try:
-            # Encode frame as JPEG
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
-            result, encoded_img = cv2.imencode('.jpg', frame, encode_param)
+            # Compress frame
+            img = Image.fromarray(frame)
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=60)
+            frame_data = buffer.getvalue()
             
-            if result:
-                # Create packet with frame data
-                timestamp = int(time.time() * 1000) % (2**32)
-                packet = struct.pack('!II', self.host_id, timestamp) + encoded_img.tobytes()
-                
-                # Send to all clients
-                for client_id, client_info in self.clients.items():
-                    try:
-                        client_address = (client_info['address'][0], self.udp_video_port)
-                        self.udp_video_socket.sendto(packet, client_address)
-                    except:
-                        pass
+            # Create screen frame message
+            screen_msg = {
+                'type': 'screen_frame',
+                'client_id': self.host_id,
+                'presenter_id': self.host_id,
+                'frame_data': base64.b64encode(frame_data).decode('utf-8')
+            }
+            
+            # Send to all clients via TCP
+            self.broadcast_message(screen_msg)
                         
         except Exception as e:
             print(f"Error broadcasting Host screen: {e}")
