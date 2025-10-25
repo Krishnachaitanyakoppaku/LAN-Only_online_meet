@@ -78,6 +78,9 @@ class LANCommunicationServer:
         self.video_frame_queue = queue.Queue(maxsize=2)
         self.screen_frame_queue = queue.Queue(maxsize=2)
         
+        # UI state tracking to prevent flickering
+        self.current_display_mode = None  # 'screen_sharing', 'video', 'none'
+        
         # Permission requests
         self.pending_requests = {}  # {client_id: {'audio': bool, 'video': bool, 'screen': bool}}
         self.file_transfer_logs = []
@@ -2789,14 +2792,17 @@ class LANCommunicationServer:
         self.update_video_display_from_queue()
         
     def update_video_display_from_queue(self):
-        """Update video display from queue in main thread - CRASH SAFE VERSION"""
+        """Update video display from queue in main thread - STABLE VERSION"""
         try:
             # Safety check - ensure GUI still exists
             if not hasattr(self, 'root') or not self.root:
                 return
                 
-            # Check for screen sharing frames first (priority over video for display)
+            # Track current state to prevent unnecessary UI updates
             screen_frame_displayed = False
+            video_frame_displayed = False
+            
+            # Check for screen sharing frames first (priority over video for display)
             if self.host_screen_share_enabled and hasattr(self, 'screen_frame_queue'):
                 try:
                     # Get screen frame from queue with timeout
@@ -2836,23 +2842,36 @@ class LANCommunicationServer:
                         if hasattr(self, 'host_video_label') and self.host_video_label.winfo_exists():
                             self.host_video_label.configure(image=photo, text="")
                             self.host_video_label.image = photo  # Keep reference
+                            video_frame_displayed = True
                             
                 except queue.Empty:
                     # No video frame available, skip this update
                     pass
                 except Exception as e:
                     print(f"Video frame error: {e}")
+            
+            # Update display mode tracking (prevent unnecessary UI updates)
+            new_display_mode = 'screen_sharing' if screen_frame_displayed else ('video' if video_frame_displayed else 'none')
+            
+            # Only update UI state when mode actually changes
+            if self.current_display_mode != new_display_mode:
+                self.current_display_mode = new_display_mode
+                # Any additional UI state updates can go here if needed
                     
         except Exception as e:
             print(f"Critical display error: {e}")
         
-        # Schedule next update with safety checks and reduced frequency
+        # Schedule next update with safety checks and adaptive frequency
         try:
             if hasattr(self, 'root') and self.root:
-                if self.host_video_enabled or self.host_screen_share_enabled:
-                    self.root.after(50, self.update_video_display_from_queue)  # Reduced to 20 FPS
+                if self.host_screen_share_enabled:
+                    # Screen sharing is stable, can use lower refresh rate
+                    self.root.after(100, self.update_video_display_from_queue)  # 10 FPS for screen sharing
+                elif self.host_video_enabled:
+                    # Video mode needs higher refresh rate
+                    self.root.after(50, self.update_video_display_from_queue)  # 20 FPS for video
                 else:
-                    self.root.after(200, self.update_video_display_from_queue)  # Check less frequently
+                    self.root.after(200, self.update_video_display_from_queue)  # Check less frequently when idle
         except:
             # GUI might be destroyed, stop scheduling
             pass

@@ -53,6 +53,11 @@ class LANCommunicationClient:
         self.client_name = ""
         self.is_presenter = False
         
+        # UI state tracking to prevent flickering
+        self.current_display_mode = None  # 'screen_sharing', 'video', 'none'
+        self.current_video_source = None  # client_id of current video source
+        self.last_header_text = ""
+        
         # Sockets
         self.tcp_socket = None
         self.udp_video_socket = None
@@ -119,14 +124,17 @@ class LANCommunicationClient:
         self.update_video_display_from_queue()
         
     def update_video_display_from_queue(self):
-        """Update video display from queue in main thread - CRASH SAFE VERSION"""
+        """Update video display from queue in main thread - STABLE VERSION"""
         try:
             # Safety check - ensure GUI still exists and we're connected
             if not hasattr(self, 'root') or not self.root or not self.connected:
                 return
                 
-            # Check for screen sharing frames first (always priority for main display)
+            # Track current state to prevent unnecessary UI updates
             screen_frame_available = False
+            current_video_client = None
+            
+            # Check for screen sharing frames first (always priority for main display)
             if hasattr(self, 'screen_frame_queue'):
                 try:
                     # Get screen frame from queue with timeout
@@ -164,6 +172,8 @@ class LANCommunicationClient:
                         frame_rgb = frame_data
                         client_id = None
                     
+                    current_video_client = client_id
+                    
                     # Validate frame data
                     if frame_rgb is not None and frame_rgb.size > 0:
                         # Create photo safely
@@ -188,9 +198,10 @@ class LANCommunicationClient:
                                 self.your_video_label.configure(image=photo, text=display_text)
                                 self.your_video_label.image = photo  # Keep reference
                                 
-                                # Update header to show it's remote video during screen sharing
-                                if hasattr(self, 'your_video_header') and self.your_video_header:
+                                # Only update header if it changed (prevent flickering)
+                                if hasattr(self, 'your_video_header') and self.your_video_header and self.last_header_text != header_text:
                                     self.your_video_header.configure(text=header_text)
+                                    self.last_header_text = header_text
                         else:
                             # No screen sharing, show video in main display
                             if (hasattr(self, 'main_video_label') and self.main_video_label and 
@@ -204,31 +215,47 @@ class LANCommunicationClient:
                                     
                                 self.main_video_label.configure(image=photo, text=display_text)
                                 self.main_video_label.image = photo  # Keep reference
-                                
-                                # Reset header to "Your Video" when no screen sharing
-                                if hasattr(self, 'your_video_header') and self.your_video_header:
-                                    self.your_video_header.configure(text="📹 Your Video")
-                                    
-                                # Reset your video label to show local status
-                                if hasattr(self, 'your_video_label') and self.your_video_label:
-                                    if self.video_enabled:
-                                        self.your_video_label.configure(text="📹 Camera On")
-                                    else:
-                                        self.your_video_label.configure(text="📹 Camera Off")
                             
                 except queue.Empty:
                     # No video frame available, skip this update
                     pass
                 except Exception as e:
                     print(f"Video frame error: {e}")
+            
+            # Update UI state only when mode changes (prevent flickering)
+            new_display_mode = 'screen_sharing' if screen_frame_available else ('video' if current_video_client is not None else 'none')
+            
+            if self.current_display_mode != new_display_mode or self.current_video_source != current_video_client:
+                self.current_display_mode = new_display_mode
+                self.current_video_source = current_video_client
+                
+                # Update UI elements only when state changes
+                if new_display_mode != 'screen_sharing':
+                    # Reset header to "Your Video" when no screen sharing (only if changed)
+                    if hasattr(self, 'your_video_header') and self.your_video_header and self.last_header_text != "📹 Your Video":
+                        self.your_video_header.configure(text="📹 Your Video")
+                        self.last_header_text = "📹 Your Video"
+                        
+                    # Reset your video label to show local status (only if changed)
+                    if hasattr(self, 'your_video_label') and self.your_video_label:
+                        expected_text = "📹 Camera On" if self.video_enabled else "📹 Camera Off"
+                        current_text = self.your_video_label.cget('text')
+                        if current_text != expected_text and not current_text.startswith('📹 Host') and not current_text.startswith('📹 Remote'):
+                            self.your_video_label.configure(text=expected_text)
                     
         except Exception as e:
             print(f"Critical display error: {e}")
         
-        # Schedule next update with safety checks and reduced frequency
+        # Schedule next update with safety checks and adaptive frequency
         try:
             if hasattr(self, 'root') and self.root and self.connected:
-                self.root.after(50, self.update_video_display_from_queue)  # 20 FPS
+                # Use adaptive refresh rate - slower when display is stable
+                if new_display_mode == 'screen_sharing':
+                    # Screen sharing is stable, can use lower refresh rate
+                    self.root.after(100, self.update_video_display_from_queue)  # 10 FPS for screen sharing
+                else:
+                    # Video mode needs higher refresh rate
+                    self.root.after(50, self.update_video_display_from_queue)  # 20 FPS for video
         except:
             # GUI might be destroyed, stop scheduling
             pass
