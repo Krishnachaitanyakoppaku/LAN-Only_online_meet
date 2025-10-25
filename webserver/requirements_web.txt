@@ -1,15 +1,16 @@
 # LAN Meeting Web Server Requirements
-# All packages available offline - no internet required during meeting
+# Compatible with Python 3.12 - no internet required during meeting
 
-Flask==2.3.3
-Flask-SocketIO==5.3.6
-python-socketio==5.8.0
-python-engineio==4.7.1
-opencv-python==4.8.1.78
-numpy==1.24.3
-Pillow==10.0.1
-eventlet==0.33.3
+Flask>=2.3.0
+Flask-SocketIO>=5.3.0
+python-socketio>=5.8.0
+python-engineio>=4.7.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+eventlet>=0.33.0
+requests>=2.28.0
 
 # Optional for better performance
-gevent==23.7.0
-gevent-websocket==0.10.1
+gevent>=23.0.0
+gevent-websocket>=0.10.0

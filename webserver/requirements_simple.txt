@@ -1,0 +1,7 @@
+# Simplified requirements for Python 3.12 compatibility
+Flask
+Flask-SocketIO
+opencv-python
+numpy
+Pillow
+requests

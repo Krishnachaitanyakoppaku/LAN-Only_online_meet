@@ -9,7 +9,7 @@ import sys
 import webbrowser
 import time
 import threading
-from web_server import LANMeetingWebServer
+from web_server_complete import LANMeetingWebServer
 
 def get_local_ip():
     """Get local IP address"""

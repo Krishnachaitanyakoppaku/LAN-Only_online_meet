@@ -204,6 +204,21 @@ class HostController {
             this.socket.emit('join_meeting', { name: 'Host', isHost: true });
         });
         
+        this.socket.on('meeting_joined', (data) => {
+            console.log('Meeting joined successfully');
+            // Update participants list
+            data.participants.forEach(participant => {
+                if (participant.id !== this.socket.id) {
+                    this.addParticipant(participant);
+                }
+            });
+            
+            // Load chat history
+            data.chat_history.forEach(msg => {
+                this.addChatMessage(msg.sender, msg.message);
+            });
+        });
+        
         this.socket.on('user_joined', (data) => {
             this.addParticipant(data);
             this.addChatMessage('System', `${data.name} joined the meeting`);
@@ -227,6 +242,14 @@ class HostController {
             // Handle incoming screen sharing from participants
             this.displayScreenShare(data.frame_data);
         });
+        
+        this.socket.on('participant_count_update', (data) => {
+            this.updateParticipantCount();
+        });
+        
+        this.socket.on('error', (data) => {
+            showNotification(data.message || 'An error occurred', 'error');
+        });
     }
     
     async toggleVideo() {
@@ -247,6 +270,15 @@ class HostController {
                 
                 // Start sending video frames
                 this.startVideoStream();
+                
+                // Notify server about host media status change
+                this.socket.emit('host_media_update', {
+                    video_enabled: this.isVideoEnabled,
+                    audio_enabled: this.isAudioEnabled,
+                    screen_sharing: this.isScreenSharing
+                });
+                
+                showNotification('Camera started', 'success');
                 
             } catch (error) {
                 showNotification('Failed to access camera: ' + error.message, 'error');
@@ -269,6 +301,15 @@ class HostController {
         this.videoBtn.textContent = '📹 Start Video';
         this.videoBtn.className = 'btn btn-secondary';
         document.getElementById('host-video-status').className = 'status-icon inactive';
+        
+        // Notify server about host media status change
+        this.socket.emit('host_media_update', {
+            video_enabled: this.isVideoEnabled,
+            audio_enabled: this.isAudioEnabled,
+            screen_sharing: this.isScreenSharing
+        });
+        
+        showNotification('Camera stopped', 'info');
     }
     
     async startScreenShare() {
@@ -293,6 +334,13 @@ class HostController {
             this.isScreenSharing = true;
             this.screenBtn.style.display = 'none';
             this.stopScreenBtn.style.display = 'block';
+            
+            // Notify server about host media status change
+            this.socket.emit('host_media_update', {
+                video_enabled: this.isVideoEnabled,
+                audio_enabled: this.isAudioEnabled,
+                screen_sharing: this.isScreenSharing
+            });
             
             // Start screen sharing loop
             const captureFrame = () => {
@@ -336,6 +384,13 @@ class HostController {
             this.videoPlaceholder.style.display = 'flex';
         }
         
+        // Notify server about host media status change
+        this.socket.emit('host_media_update', {
+            video_enabled: this.isVideoEnabled,
+            audio_enabled: this.isAudioEnabled,
+            screen_sharing: this.isScreenSharing
+        });
+        
         this.socket.emit('stop_presenting');
         showNotification('Screen sharing stopped', 'info');
     }
@@ -363,11 +418,19 @@ class HostController {
     }
     
     toggleAudio() {
-        // Audio implementation would go here
         this.isAudioEnabled = !this.isAudioEnabled;
         this.audioBtn.textContent = this.isAudioEnabled ? '🎤 Stop Audio' : '🎤 Start Audio';
         this.audioBtn.className = this.isAudioEnabled ? 'btn btn-success' : 'btn btn-secondary';
         document.getElementById('host-audio-status').className = this.isAudioEnabled ? 'status-icon active' : 'status-icon inactive';
+        
+        // Notify server about host media status change
+        this.socket.emit('host_media_update', {
+            video_enabled: this.isVideoEnabled,
+            audio_enabled: this.isAudioEnabled,
+            screen_sharing: this.isScreenSharing
+        });
+        
+        showNotification(this.isAudioEnabled ? 'Audio started' : 'Audio stopped', 'info');
     }
     
     sendChat() {
