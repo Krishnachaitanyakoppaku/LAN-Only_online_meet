@@ -14,7 +14,14 @@ import struct
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
-from flask_cors import CORS
+
+# Try to import flask-cors, if not available, use manual CORS
+try:
+    from flask_cors import CORS
+    FLASK_CORS_AVAILABLE = True
+except ImportError:
+    FLASK_CORS_AVAILABLE = False
+    print("⚠️ flask-cors not available, using manual CORS headers")
 import cv2
 import numpy as np
 from PIL import Image
@@ -22,7 +29,19 @@ import io
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'lan_communication_secret_key'
-CORS(app)  # Enable CORS for all routes
+
+# Enable CORS
+if FLASK_CORS_AVAILABLE:
+    CORS(app)  # Use flask-cors if available
+else:
+    # Manual CORS headers
+    @app.after_request
+    def after_request(response):
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Global variables for session management

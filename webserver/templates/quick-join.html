@@ -78,7 +78,7 @@
         });
         
         function initializeSocket() {
-            // Auto-connect using the same host/port the client used to access this page
+            // Auto-connect using the same host/port the client used to access the page
             const serverUrl = `http://${window.location.host}`;
             console.log(`Connecting to server at: ${serverUrl}`);
             socket = io(serverUrl);
