@@ -1,0 +1,50 @@
+/* Additional CSS for server IP display in session page */
+
+.server-info-session {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.server-ip-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #666;
+    background: rgba(0, 0, 0, 0.05);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.server-ip-display i {
+    color: #007bff;
+}
+
+.server-ip-display span {
+    font-weight: 500;
+}
+
+/* Make it more prominent on smaller screens */
+@media (max-width: 768px) {
+    .server-info-session {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .server-ip-display {
+        font-size: 12px;
+        padding: 4px 8px;
+    }
+}
+
+/* Add some styling to make the session ID more prominent */
+#currentSessionId {
+    font-weight: bold;
+    color: #007bff;
+    background: rgba(0, 123, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+}

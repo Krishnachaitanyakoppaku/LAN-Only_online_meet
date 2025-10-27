@@ -13,13 +13,76 @@ let files = new Map();
 let isHost = false;
 let userPermissions = {};
 
+// Check media permissions status
+async function checkMediaPermissions() {
+    try {
+        console.log('🔍 [DEBUG] Checking media permissions...');
+        
+        if (navigator.permissions) {
+            const cameraPermission = await navigator.permissions.query({ name: 'camera' });
+            const microphonePermission = await navigator.permissions.query({ name: 'microphone' });
+            
+            console.log('🔍 [DEBUG] Camera permission:', cameraPermission.state);
+            console.log('🔍 [DEBUG] Microphone permission:', microphonePermission.state);
+            
+            return {
+                camera: cameraPermission.state,
+                microphone: microphonePermission.state
+            };
+        } else {
+            console.log('🔍 [DEBUG] Permissions API not supported');
+            return null;
+        }
+    } catch (error) {
+        console.log('🔍 [DEBUG] Error checking permissions:', error);
+        return null;
+    }
+}
+
 // Initialize session
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
     initializeSession();
     initializeSocket();
     setupEventListeners();
-    initializeMedia();
+    
+    // Check permissions first
+    const permissions = await checkMediaPermissions();
+    if (permissions) {
+        console.log('🔍 [DEBUG] Current permissions:', permissions);
+        
+        if (permissions.camera === 'denied' || permissions.microphone === 'denied') {
+            console.log('🔍 [DEBUG] Permissions denied, showing instructions');
+            showPermissionInstructions();
+        } else {
+            console.log('🔍 [DEBUG] Permissions OK, initializing media');
+            initializeMedia();
+        }
+    } else {
+        // Fallback: try to initialize media directly
+        console.log('🔍 [DEBUG] Cannot check permissions, trying direct access');
+        initializeMedia();
+    }
 });
+
+// Load server IP and display it
+function loadServerIP() {
+    fetch('/api/server-info')
+        .then(response => response.json())
+        .then(data => {
+            const serverIPElement = document.getElementById('sessionServerIP');
+            if (serverIPElement) {
+                serverIPElement.textContent = data.server_ip;
+                console.log('🌐 [DEBUG] Server IP loaded:', data.server_ip);
+            }
+        })
+        .catch(error => {
+            console.error('🌐 [DEBUG] Failed to load server IP:', error);
+            const serverIPElement = document.getElementById('sessionServerIP');
+            if (serverIPElement) {
+                serverIPElement.textContent = 'Unknown';
+            }
+        });
+}
 
 // Initialize audio context on user interaction (required by browsers)
 function initializeAudioContext() {
@@ -60,7 +123,12 @@ function initializeSession() {
     
     // Update UI
     document.getElementById('currentSessionId').textContent = currentSession;
-    document.getElementById('username').textContent = currentUser;
+    if (document.getElementById('username')) {
+        document.getElementById('username').textContent = currentUser;
+    }
+    
+    // Load and display server IP
+    loadServerIP();
     
     // Store in localStorage
     localStorage.setItem('currentSession', currentSession);
@@ -293,17 +361,44 @@ function setupEventListeners() {
 // Initialize media devices
 async function initializeMedia() {
     try {
-        console.log('🎥 Requesting camera and microphone access...');
+        console.log('🎥 [DEBUG] Requesting camera and microphone access...');
+        console.log('🎥 [DEBUG] User agent:', navigator.userAgent);
+        console.log('🎥 [DEBUG] Is HTTPS:', location.protocol === 'https:');
         
-        // Request camera and microphone access
-        localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
+        // Check if getUserMedia is supported
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('getUserMedia is not supported in this browser');
+        }
+        
+        // Request camera and microphone access with detailed constraints
+        const constraints = {
+            video: {
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: { ideal: 15 }
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        };
+        
+        console.log('🎥 [DEBUG] Requesting media with constraints:', constraints);
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        console.log('🎥 [DEBUG] Media access granted successfully!');
+        console.log('🎥 [DEBUG] Video tracks:', localStream.getVideoTracks().length);
+        console.log('🎥 [DEBUG] Audio tracks:', localStream.getAudioTracks().length);
+        
+        // Log track details
+        localStream.getVideoTracks().forEach((track, index) => {
+            console.log(`🎥 [DEBUG] Video track ${index}:`, track.label, track.getSettings());
         });
         
-        console.log('🎥 Media access granted');
-        console.log('🎥 Video tracks:', localStream.getVideoTracks().length);
-        console.log('🎥 Audio tracks:', localStream.getAudioTracks().length);
+        localStream.getAudioTracks().forEach((track, index) => {
+            console.log('🎤 [DEBUG] Audio track ${index}:', track.label, track.getSettings());
+        });
         
         // Display local video
         displayLocalVideo();
@@ -316,9 +411,158 @@ async function initializeMedia() {
             startAudioStreaming();
         }, 1000);
         
+        showMessage('Camera and microphone access granted!', 'success');
+        
     } catch (error) {
-        console.error('Error accessing media devices:', error);
-        showMessage('Could not access camera/microphone. Please check permissions.', 'error');
+        console.error('🎥 [DEBUG] Error accessing media devices:', error);
+        
+        let errorMessage = 'Could not access camera/microphone. ';
+        
+        if (error.name === 'NotAllowedError') {
+            errorMessage += 'Permission denied. Please allow camera and microphone access and refresh the page.';
+            console.log('🎥 [DEBUG] Permission denied - user needs to grant access');
+        } else if (error.name === 'NotFoundError') {
+            errorMessage += 'No camera or microphone found. Please connect a camera/microphone.';
+            console.log('🎥 [DEBUG] No media devices found');
+        } else if (error.name === 'NotReadableError') {
+            errorMessage += 'Camera/microphone is already in use by another application.';
+            console.log('🎥 [DEBUG] Media devices are busy');
+        } else if (error.name === 'OverconstrainedError') {
+            errorMessage += 'Camera/microphone constraints cannot be satisfied.';
+            console.log('🎥 [DEBUG] Media constraints too restrictive');
+            
+            // Try with simpler constraints
+            console.log('🎥 [DEBUG] Retrying with basic constraints...');
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+                console.log('🎥 [DEBUG] Basic constraints worked!');
+                displayLocalVideo();
+                startVideoStreaming();
+                setTimeout(() => startAudioStreaming(), 1000);
+                showMessage('Camera and microphone access granted with basic settings!', 'success');
+                return;
+            } catch (retryError) {
+                console.error('🎥 [DEBUG] Retry also failed:', retryError);
+            }
+        } else if (error.name === 'SecurityError') {
+            errorMessage += 'Security error. Please use HTTPS or localhost.';
+            console.log('🎥 [DEBUG] Security error - may need HTTPS');
+        } else {
+            errorMessage += `Unknown error: ${error.message}`;
+            console.log('🎥 [DEBUG] Unknown error:', error);
+        }
+        
+        showMessage(errorMessage, 'error', 10000);
+        
+        // Show manual permission instructions
+        showPermissionInstructions();
+    }
+}
+
+// Show permission instructions to user
+function showPermissionInstructions() {
+    const instructions = `
+        📋 To enable camera and microphone:
+        
+        1. Look for camera/microphone icon in browser address bar
+        2. Click it and select "Allow"
+        3. Refresh the page
+        
+        Or go to browser settings:
+        • Chrome: Settings > Privacy > Site Settings > Camera/Microphone
+        • Firefox: Settings > Privacy > Permissions > Camera/Microphone
+        • Safari: Preferences > Websites > Camera/Microphone
+    `;
+    
+    console.log('🎥 [DEBUG] Permission instructions:', instructions);
+    
+    // Create a modal with instructions
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'block';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Camera/Microphone Access Required</h3>
+                <button class="close-btn" onclick="this.closest('.modal').remove()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>To participate in the video call, please enable camera and microphone access:</p>
+                <ol>
+                    <li>Look for the camera/microphone icon in your browser's address bar</li>
+                    <li>Click it and select "Allow"</li>
+                    <li>Refresh the page</li>
+                </ol>
+                <p><strong>Alternative:</strong> Go to your browser settings and enable camera/microphone for this site.</p>
+                <button class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
+                <button class="btn btn-secondary" onclick="retryMediaAccess()">Try Again</button>
+                <button class="btn btn-info" onclick="testMediaAccess()">Test Camera/Mic</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+// Retry media access
+async function retryMediaAccess() {
+    console.log('🎥 [DEBUG] Retrying media access...');
+    document.querySelectorAll('.modal').forEach(modal => modal.remove());
+    await initializeMedia();
+}
+
+// Test media access function
+async function testMediaAccess() {
+    console.log('🧪 [DEBUG] Starting media access test...');
+    
+    try {
+        // Test basic media access
+        console.log('🧪 [DEBUG] Testing basic getUserMedia...');
+        const testStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+        });
+        
+        console.log('🧪 [DEBUG] Basic test successful!');
+        console.log('🧪 [DEBUG] Video tracks:', testStream.getVideoTracks().length);
+        console.log('🧪 [DEBUG] Audio tracks:', testStream.getAudioTracks().length);
+        
+        // Show success message
+        showMessage('✅ Camera and microphone access test successful!', 'success');
+        
+        // Stop test stream
+        testStream.getTracks().forEach(track => track.stop());
+        
+        // Now try to initialize the actual media
+        console.log('🧪 [DEBUG] Initializing actual media stream...');
+        await initializeMedia();
+        
+    } catch (error) {
+        console.error('🧪 [DEBUG] Media test failed:', error);
+        
+        let errorMsg = '❌ Media access test failed: ';
+        
+        switch (error.name) {
+            case 'NotAllowedError':
+                errorMsg += 'Permission denied. Please allow camera/microphone access.';
+                break;
+            case 'NotFoundError':
+                errorMsg += 'No camera or microphone found.';
+                break;
+            case 'NotReadableError':
+                errorMsg += 'Camera/microphone is busy or unavailable.';
+                break;
+            case 'SecurityError':
+                errorMsg += 'Security error. Try using HTTPS or localhost.';
+                break;
+            default:
+                errorMsg += error.message;
+        }
+        
+        showMessage(errorMsg, 'error', 8000);
+        showPermissionInstructions();
     }
 }
 

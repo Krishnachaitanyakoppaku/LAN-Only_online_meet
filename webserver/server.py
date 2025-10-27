@@ -600,7 +600,7 @@ def handle_create_session(data):
     if custom_session_id and custom_session_id.strip():
         session_id = custom_session_id.strip()
     else:
-        session_id = "main_session"  # Simple default session
+        session_id = SERVER_IP or get_host_ip()  # Use server IP as default session ID
     
     print(f"Create session request: username={username}, session_id={session_id}")
     
