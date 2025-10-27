@@ -37,15 +37,38 @@ UDP_SOCKET = None
 UDP_PORT = 5001
 
 def get_host_ip():
-    """Get the host machine's IP address"""
+    """Get the host machine's IP address that other computers can access"""
     try:
-        # Connect to a remote server to get local IP
+        # First try to get the IP that other computers can access
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
-        print(f"Detected host IP: {local_ip}")
-        return local_ip
+        
+        # Check if this is a local/private IP that other computers can access
+        if local_ip.startswith(('192.168.', '10.', '172.')):
+            print(f"Detected network IP: {local_ip}")
+            return local_ip
+        else:
+            # If it's not a private IP, try to get the actual network interface IP
+            import subprocess
+            try:
+                # Try to get IP from ifconfig (macOS/Linux)
+                result = subprocess.run(['ifconfig'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'inet ' in line and '127.0.0.1' not in line:
+                            ip = line.split()[1]
+                            if ip.startswith(('192.168.', '10.', '172.')):
+                                print(f"Detected network IP from ifconfig: {ip}")
+                                return ip
+            except:
+                pass
+            
+            print(f"Using detected IP: {local_ip}")
+            return local_ip
+            
     except Exception as e:
         print(f"Failed to detect IP, using localhost: {e}")
         return "localhost"
@@ -227,6 +250,15 @@ def host():
 def session():
     """Session page"""
     return render_template('session.html')
+
+@app.route('/api/server-info')
+def server_info():
+    """Get server information including IP address"""
+    return jsonify({
+        'server_ip': get_host_ip(),
+        'server_port': 5000,
+        'udp_port': 5001
+    })
 
 @socketio.on('connect')
 def handle_connect():

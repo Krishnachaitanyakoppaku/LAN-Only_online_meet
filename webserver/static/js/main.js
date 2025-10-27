@@ -9,7 +9,33 @@ document.addEventListener('DOMContentLoaded', function() {
     setupEventListeners();
     updateConnectionStatus('connecting');
     checkForSessionParameter();
+    loadServerInfo();
 });
+
+// Load server information
+function loadServerInfo() {
+    fetch('/api/server-info')
+        .then(response => response.json())
+        .then(data => {
+            const serverIPElement = document.getElementById('serverIP');
+            if (serverIPElement) {
+                serverIPElement.innerHTML = `
+                    <i class="fas fa-server"></i>
+                    <span>Server IP: ${data.server_ip}</span>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Failed to load server info:', error);
+            const serverIPElement = document.getElementById('serverIP');
+            if (serverIPElement) {
+                serverIPElement.innerHTML = `
+                    <i class="fas fa-server"></i>
+                    <span>Server IP: Unknown</span>
+                `;
+            }
+        });
+}
 
 // Check if user came with a session parameter
 function checkForSessionParameter() {

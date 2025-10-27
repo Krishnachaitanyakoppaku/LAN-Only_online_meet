@@ -31,6 +31,30 @@ body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
 }
 
+.server-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.server-ip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #e3f2fd;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1976d2;
+    border: 2px solid #bbdefb;
+}
+
+.server-ip i {
+    color: #1976d2;
+}
+
 .logo {
     display: flex;
     align-items: center;
