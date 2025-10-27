@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Access Test - LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .media-test {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        #testVideo {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+        }
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn:hover { opacity: 0.8; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="media-test">
+        <h1><i class="fas fa-video"></i> Media Access Test</h1>
+        <p>This page helps diagnose camera and microphone access issues.</p>
+        
+        <!-- Server Info -->
+        <div class="test-section">
+            <h3>Server Information</h3>
+            <div id="serverInfo">Loading...</div>
+        </div>
+        
+        <!-- Browser Info -->
+        <div class="test-section">
+            <h3>Browser Information</h3>
+            <div id="browserInfo"></div>
+        </div>
+        
+        <!-- Permission Status -->
+        <div class="test-section">
+            <h3>Permission Status</h3>
+            <button class="btn btn-info" onclick="checkPermissions()">Check Permissions</button>
+            <div id="permissionStatus"></div>
+        </div>
+        
+        <!-- Device List -->
+        <div class="test-section">
+            <h3>Available Devices</h3>
+            <button class="btn btn-info" onclick="listDevices()">List Devices</button>
+            <div id="deviceList"></div>
+        </div>
+        
+        <!-- Media Test -->
+        <div class="test-section">
+            <h3>Camera & Microphone Test</h3>
+            <button class="btn btn-primary" onclick="testMedia()">Test Camera & Microphone</button>
+            <button class="btn btn-danger" onclick="stopMedia()" disabled id="stopBtn">Stop Test</button>
+            <div id="mediaTestResult"></div>
+            <video id="testVideo" autoplay muted style="display: none;"></video>
+        </div>
+        
+        <!-- Troubleshooting -->
+        <div class="test-section">
+            <h3>Troubleshooting Steps</h3>
+            <div id="troubleshooting">
+                <ol>
+                    <li>Check browser address bar for camera/microphone icons</li>
+                    <li>Click any blocked icons and select "Allow"</li>
+                    <li>Refresh this page and try again</li>
+                    <li>Check browser settings for camera/microphone permissions</li>
+                    <li>Try a different browser (Chrome, Firefox, Edge)</li>
+                    <li>Ensure camera/microphone are not being used by other apps</li>
+                </ol>
+            </div>
+        </div>
+        
+        <!-- Console Log -->
+        <div class="test-section">
+            <h3>Debug Log</h3>
+            <button class="btn btn-info" onclick="clearLog()">Clear Log</button>
+            <pre id="debugLog"></pre>
+        </div>
+    </div>
+
+    <script>
+        let testStream = null;
+        
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServerInfo();
+            showBrowserInfo();
+            log('Page loaded - ready for testing');
+        });
+        
+        // Logging function
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('debugLog');
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(`[MEDIA-TEST] ${message}`);
+        }
+        
+        function clearLog() {
+            document.getElementById('debugLog').textContent = '';
+        }
+        
+        // Load server information
+        function loadServerInfo() {
+            fetch('/api/server-info')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('serverInfo').innerHTML = `
+                        <div class="info">
+                            <strong>Server IP:</strong> ${data.server_ip}<br>
+                            <strong>Server Port:</strong> ${data.server_port}<br>
+                            <strong>Protocol:</strong> ${location.protocol}<br>
+                            <strong>Current URL:</strong> ${location.href}
+                        </div>
+                    `;
+                    log(`Server IP: ${data.server_ip}`);
+                })
+                .catch(error => {
+                    document.getElementById('serverInfo').innerHTML = `
+                        <div class="error">Failed to load server info: ${error.message}</div>
+                    `;
+                    log(`Error loading server info: ${error.message}`);
+                });
+        }
+        
+        // Show browser information
+        function showBrowserInfo() {
+            const info = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                cookieEnabled: navigator.cookieEnabled,
+                onLine: navigator.onLine,
+                mediaDevicesExists: !!navigator.mediaDevices,
+                getUserMediaExists: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                permissionsSupported: !!navigator.permissions,
+                isHTTPS: location.protocol === 'https:',
+                isLocalhost: location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+            };
+            
+            let browserClass = 'info';
+            let httpsWarning = '';
+            
+            if (!info.mediaDevicesExists) {
+                browserClass = 'error';
+                if (!info.isHTTPS && !info.isLocalhost) {
+                    httpsWarning = `
+                        <div class="error" style="margin-top: 10px;">
+                            <strong>⚠️ HTTPS REQUIRED</strong><br>
+                            Camera/microphone access requires HTTPS when accessing from a different machine.<br>
+                            <strong>Current:</strong> ${location.protocol}//${location.host}<br>
+                            <strong>Try:</strong> https://${location.host} or http://localhost:5000
+                        </div>
+                    `;
+                }
+            }
+            
+            document.getElementById('browserInfo').innerHTML = `
+                <div class="${browserClass}">
+                    <strong>Browser:</strong> ${getBrowserName()}<br>
+                    <strong>Platform:</strong> ${info.platform}<br>
+                    <strong>Protocol:</strong> ${location.protocol}<br>
+                    <strong>Hostname:</strong> ${location.hostname}<br>
+                    <strong>Is HTTPS:</strong> ${info.isHTTPS ? 'Yes' : 'No'}<br>
+                    <strong>Is Localhost:</strong> ${info.isLocalhost ? 'Yes' : 'No'}<br>
+                    <strong>navigator.mediaDevices:</strong> ${info.mediaDevicesExists ? 'Available' : '❌ UNDEFINED'}<br>
+                    <strong>getUserMedia:</strong> ${info.getUserMediaExists ? 'Supported' : '❌ Not Available'}<br>
+                    <strong>Permissions API:</strong> ${info.permissionsSupported ? 'Supported' : 'Not Supported'}
+                </div>
+                ${httpsWarning}
+            `;
+            
+            log(`Browser: ${getBrowserName()}, mediaDevices: ${info.mediaDevicesExists}, getUserMedia: ${info.getUserMediaExists}`);
+            log(`Protocol: ${location.protocol}, Hostname: ${location.hostname}`);
+            
+            if (!info.mediaDevicesExists) {
+                log('CRITICAL: navigator.mediaDevices is undefined - likely HTTPS requirement');
+            }
+        }
+        
+        function getBrowserName() {
+            const ua = navigator.userAgent;
+            if (ua.includes('Chrome')) return 'Chrome';
+            if (ua.includes('Firefox')) return 'Firefox';
+            if (ua.includes('Safari')) return 'Safari';
+            if (ua.includes('Edge')) return 'Edge';
+            return 'Unknown';
+        }
+        
+        // Check permissions
+        async function checkPermissions() {
+            const statusDiv = document.getElementById('permissionStatus');
+            statusDiv.innerHTML = '<div class="info">Checking permissions...</div>';
+            
+            if (!navigator.permissions) {
+                statusDiv.innerHTML = '<div class="warning">Permissions API not supported</div>';
+                log('Permissions API not supported');
+                return;
+            }
+            
+            try {
+                const cameraPermission = await navigator.permissions.query({ name: 'camera' });
+                const microphonePermission = await navigator.permissions.query({ name: 'microphone' });
+                
+                statusDiv.innerHTML = `
+                    <div class="test-result ${getPermissionClass(cameraPermission.state)}">
+                        <strong>Camera:</strong> ${cameraPermission.state}
+                    </div>
+                    <div class="test-result ${getPermissionClass(microphonePermission.state)}">
+                        <strong>Microphone:</strong> ${microphonePermission.state}
+                    </div>
+                `;
+                
+                log(`Camera permission: ${cameraPermission.state}`);
+                log(`Microphone permission: ${microphonePermission.state}`);
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error">Error checking permissions: ${error.message}</div>`;
+                log(`Error checking permissions: ${error.message}`);
+            }
+        }
+        
+        function getPermissionClass(state) {
+            switch (state) {
+                case 'granted': return 'success';
+                case 'denied': return 'error';
+                case 'prompt': return 'warning';
+                default: return 'info';
+            }
+        }
+        
+        // List available devices
+        async function listDevices() {
+            const deviceDiv = document.getElementById('deviceList');
+            deviceDiv.innerHTML = '<div class="info">Listing devices...</div>';
+            
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                deviceDiv.innerHTML = '<div class="error">enumerateDevices not supported</div>';
+                log('enumerateDevices not supported');
+                return;
+            }
+            
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const audioDevices = devices.filter(d => d.kind === 'audioinput');
+                
+                let html = `
+                    <div class="test-result info">
+                        <strong>Video Devices:</strong> ${videoDevices.length}<br>
+                        <strong>Audio Devices:</strong> ${audioDevices.length}
+                    </div>
+                `;
+                
+                if (videoDevices.length > 0) {
+                    html += '<h4>Cameras:</h4>';
+                    videoDevices.forEach((device, index) => {
+                        html += `<div class="test-result info">${index + 1}. ${device.label || 'Camera ' + (index + 1)}</div>`;
+                    });
+                }
+                
+                if (audioDevices.length > 0) {
+                    html += '<h4>Microphones:</h4>';
+                    audioDevices.forEach((device, index) => {
+                        html += `<div class="test-result info">${index + 1}. ${device.label || 'Microphone ' + (index + 1)}</div>`;
+                    });
+                }
+                
+                deviceDiv.innerHTML = html;
+                log(`Found ${videoDevices.length} cameras, ${audioDevices.length} microphones`);
+                
+            } catch (error) {
+                deviceDiv.innerHTML = `<div class="error">Error listing devices: ${error.message}</div>`;
+                log(`Error listing devices: ${error.message}`);
+            }
+        }
+        
+        // Test media access
+        async function testMedia() {
+            const resultDiv = document.getElementById('mediaTestResult');
+            const video = document.getElementById('testVideo');
+            const stopBtn = document.getElementById('stopBtn');
+            
+            resultDiv.innerHTML = '<div class="info">Requesting camera and microphone access...</div>';
+            log('Starting media test...');
+            
+            // Check if navigator.mediaDevices exists
+            if (!navigator.mediaDevices) {
+                const errorMsg = `
+                    <div class="error">
+                        <strong>❌ navigator.mediaDevices is undefined</strong><br><br>
+                        <strong>This means:</strong><br>
+                        • Your browser doesn't support modern media APIs<br>
+                        • HTTPS is required for camera/microphone access<br>
+                        • You're using an outdated browser<br><br>
+                        <strong>Solutions:</strong><br>
+                        1. <strong>Use HTTPS:</strong> Access via https://172.17.213.107:5000<br>
+                        2. <strong>Use localhost:</strong> If on same machine, use http://localhost:5000<br>
+                        3. <strong>Update browser:</strong> Use latest Chrome, Firefox, or Edge<br>
+                        4. <strong>SSH Tunnel:</strong> ssh -L 5000:172.17.213.107:5000 user@server<br><br>
+                        <strong>Current URL:</strong> ${location.href}<br>
+                        <strong>Protocol:</strong> ${location.protocol} (needs to be https: for remote access)
+                    </div>
+                `;
+                resultDiv.innerHTML = errorMsg;
+                log('CRITICAL: navigator.mediaDevices is undefined - HTTPS required');
+                return;
+            }
+            
+            if (!navigator.mediaDevices.getUserMedia) {
+                resultDiv.innerHTML = '<div class="error">getUserMedia not supported in this browser</div>';
+                log('getUserMedia not supported');
+                return;
+            }
+            
+            try {
+                testStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 },
+                    audio: true
+                });
+                
+                video.srcObject = testStream;
+                video.style.display = 'block';
+                stopBtn.disabled = false;
+                
+                const videoTracks = testStream.getVideoTracks();
+                const audioTracks = testStream.getAudioTracks();
+                
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <strong>✅ Media access successful!</strong><br>
+                        Video tracks: ${videoTracks.length}<br>
+                        Audio tracks: ${audioTracks.length}
+                    </div>
+                `;
+                
+                log(`Media access successful! Video: ${videoTracks.length}, Audio: ${audioTracks.length}`);
+                
+                // Log track details
+                videoTracks.forEach((track, i) => {
+                    log(`Video track ${i}: ${track.label}`);
+                });
+                audioTracks.forEach((track, i) => {
+                    log(`Audio track ${i}: ${track.label}`);
+                });
+                
+            } catch (error) {
+                video.style.display = 'none';
+                
+                let errorClass = 'error';
+                let errorMessage = `❌ Media access failed: ${error.name}`;
+                let solution = '';
+                
+                switch (error.name) {
+                    case 'NotAllowedError':
+                        solution = 'Permission denied. Please allow camera and microphone access.';
+                        break;
+                    case 'NotFoundError':
+                        solution = 'No camera or microphone found. Check hardware connections.';
+                        break;
+                    case 'NotReadableError':
+                        solution = 'Camera/microphone is busy. Close other applications using them.';
+                        break;
+                    case 'OverconstrainedError':
+                        solution = 'Camera/microphone constraints cannot be satisfied.';
+                        break;
+                    case 'SecurityError':
+                        solution = 'Security error. Try using HTTPS or localhost.';
+                        break;
+                    default:
+                        solution = error.message;
+                }
+                
+                resultDiv.innerHTML = `
+                    <div class="${errorClass}">
+                        ${errorMessage}<br>
+                        <strong>Solution:</strong> ${solution}
+                    </div>
+                `;
+                
+                log(`Media access failed: ${error.name} - ${error.message}`);
+            }
+        }
+        
+        // Stop media test
+        function stopMedia() {
+            if (testStream) {
+                testStream.getTracks().forEach(track => track.stop());
+                testStream = null;
+            }
+            
+            const video = document.getElementById('testVideo');
+            video.style.display = 'none';
+            video.srcObject = null;
+            
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('mediaTestResult').innerHTML = '<div class="info">Media test stopped</div>';
+            
+            log('Media test stopped');
+        }
+    </script>
+</body>
+</html>

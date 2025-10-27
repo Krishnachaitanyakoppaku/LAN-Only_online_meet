@@ -333,6 +333,17 @@ def session():
     """Session page"""
     return render_template('session.html')
 
+@app.route('/media-test')
+def media_test():
+    """Media access test page"""
+    return render_template('media-test.html')
+
+@app.route('/check-host-method')
+def check_host_method():
+    """Check how host is accessing the server"""
+    with open('check_host_method.html', 'r') as f:
+        return f.read()
+
 @app.route('/quick-join')
 def quick_join_page():
     """Quick join page"""

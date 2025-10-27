@@ -1,153 +1,344 @@
 #!/usr/bin/env python3
 """
-LAN Communication Hub - Startup Script
-This script helps users start the server easily
+Automated server startup with SSH tunnel setup for clients
 """
 
 import os
 import sys
 import subprocess
-import platform
-import webbrowser
-import time
 import socket
+import time
+import threading
+import signal
+from datetime import datetime
 
-def check_python_version():
-    """Check if Python version is compatible"""
-    if sys.version_info < (3, 8):
-        print("❌ Error: Python 3.8 or higher is required")
-        print(f"Current version: {sys.version}")
-        return False
-    print(f"✅ Python version: {sys.version.split()[0]}")
-    return True
-
-def check_dependencies():
-    """Check if required packages are installed"""
-    required_packages = [
-        'flask', 'flask_socketio', 'opencv-python', 
-        'numpy', 'pillow', 'eventlet'
-    ]
+def get_host_ip():
+    """Get the host machine's IP address with multiple detection methods"""
     
-    missing_packages = []
-    
-    for package in required_packages:
-        try:
-            if package == 'opencv-python':
-                import cv2
-            elif package == 'pillow':
-                import PIL
-            elif package == 'flask_socketio':
-                import flask_socketio
-            else:
-                __import__(package)
-            print(f"✅ {package} is installed")
-        except ImportError:
-            missing_packages.append(package)
-            print(f"❌ {package} is not installed")
-    
-    if missing_packages:
-        print(f"\n📦 Installing missing packages: {', '.join(missing_packages)}")
-        try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + missing_packages)
-            print("✅ All packages installed successfully")
-        except subprocess.CalledProcessError:
-            print("❌ Failed to install packages. Please run: pip install -r requirements.txt")
-            return False
-    
-    return True
-
-def get_local_ip():
-    """Get the local IP address"""
+    # Method 1: Connect to external server to get routable IP
     try:
-        # Connect to a remote server to get local IP
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
-        return local_ip
-    except:
-        return "localhost"
-
-def check_port_available(port):
-    """Check if port is available"""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('', port))
-        s.close()
-        return True
-    except:
-        return False
-
-def start_server():
-    """Start the Flask server"""
-    print("\n🚀 Starting LAN Communication Hub Server...")
-    print("=" * 50)
-    
-    # Check if port is available
-    if not check_port_available(5000):
-        print("❌ Port 5000 is already in use")
-        print("Please stop any other services using port 5000 or modify the server.py file")
-        return False
-    
-    # Get local IP
-    local_ip = get_local_ip()
-    
-    print(f"🌐 Server will be available at:")
-    print(f"   Local:   http://localhost:5000")
-    print(f"   Network: http://{local_ip}:5000")
-    print(f"\n📱 Share the network URL with other users on your LAN")
-    print(f"🔧 UDP streaming port: 5001")
-    print("\n" + "=" * 50)
-    
-    # Start the server
-    try:
-        # Import and run the server
-        import server
-        print("✅ Server started successfully!")
-        print("Press Ctrl+C to stop the server")
         
-        # Open browser after a short delay
-        def open_browser():
-            time.sleep(2)
-            webbrowser.open('http://localhost:5000')
-        
-        import threading
-        browser_thread = threading.Thread(target=open_browser)
-        browser_thread.daemon = True
-        browser_thread.start()
-        
-        # Run the server
-        server.socketio.run(server.app, host='0.0.0.0', port=5000, debug=False)
-        
-    except KeyboardInterrupt:
-        print("\n\n👋 Server stopped by user")
+        # Verify it's a private network IP
+        if local_ip.startswith(('192.168.', '10.', '172.')):
+            print(f"✅ Detected network IP via external connection: {local_ip}")
+            return local_ip
     except Exception as e:
-        print(f"\n❌ Error starting server: {e}")
-        return False
+        print(f"⚠️  External IP detection failed: {e}")
     
-    return True
+    # Method 2: Get all network interfaces
+    try:
+        import subprocess
+        
+        # Try different OS-specific commands
+        commands = [
+            ['hostname', '-I'],  # Linux
+            ['ifconfig'],        # Linux/Mac
+            ['ipconfig']         # Windows
+        ]
+        
+        for cmd in commands:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    output = result.stdout
+                    
+                    # Extract IP addresses from output
+                    import re
+                    ip_pattern = r'\b(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3})\b'
+                    ips = re.findall(ip_pattern, output)
+                    
+                    if ips:
+                        detected_ip = ips[0]
+                        print(f"✅ Detected network IP via {cmd[0]}: {detected_ip}")
+                        return detected_ip
+                        
+            except Exception:
+                continue
+                
+    except Exception as e:
+        print(f"⚠️  Network interface detection failed: {e}")
+    
+    # Method 3: Fallback to hostname resolution
+    try:
+        import socket
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        
+        if local_ip != '127.0.0.1' and local_ip.startswith(('192.168.', '10.', '172.')):
+            print(f"✅ Detected IP via hostname resolution: {local_ip}")
+            return local_ip
+            
+    except Exception as e:
+        print(f"⚠️  Hostname resolution failed: {e}")
+    
+    # Final fallback
+    print("❌ Could not detect network IP, using localhost")
+    print("💡 You may need to manually specify the server IP for clients")
+    return "localhost"
 
-def main():
-    """Main function"""
-    print("🎯 LAN Communication Hub - Startup Script")
-    print("=" * 50)
+def print_banner():
+    """Print startup banner"""
+    print("=" * 70)
+    print("🚀 LAN COMMUNICATION HUB - AUTO SETUP")
+    print("=" * 70)
+    print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+
+def check_dependencies():
+    """Check if required dependencies are available"""
+    print("🔍 Checking dependencies...")
     
-    # Check Python version
-    if not check_python_version():
-        sys.exit(1)
-    
-    # Check dependencies
-    if not check_dependencies():
-        sys.exit(1)
+    # Check Python packages
+    try:
+        import flask
+        import flask_socketio
+        print("✅ Python packages: OK")
+    except ImportError as e:
+        print(f"❌ Missing Python package: {e}")
+        print("💡 Install with: pip install flask flask-socketio")
+        return False
     
     # Check if server.py exists
     if not os.path.exists('server.py'):
-        print("❌ server.py not found. Please run this script from the project directory")
-        sys.exit(1)
+        print("❌ server.py not found in current directory")
+        return False
     
-    # Start server
-    if not start_server():
-        sys.exit(1)
+    print("✅ Dependencies: OK")
+    return True
+
+def start_server():
+    """Start the main server"""
+    print("🖥️  Starting main server...")
+    
+    try:
+        # Start server in background
+        server_process = subprocess.Popen([
+            sys.executable, 'server.py'
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait a moment for server to start
+        time.sleep(3)
+        
+        # Check if server is running
+        if server_process.poll() is None:
+            print("✅ Server started successfully")
+            return server_process
+        else:
+            stdout, stderr = server_process.communicate()
+            print(f"❌ Server failed to start:")
+            print(f"   stdout: {stdout.decode()}")
+            print(f"   stderr: {stderr.decode()}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error starting server: {e}")
+        return None
+
+def create_client_script(server_ip):
+    """Create SSH tunnel script for clients"""
+    
+    # Get current user as default
+    import getpass
+    default_username = getpass.getuser()
+    
+    # Windows batch script
+    windows_script = f"""@echo off
+echo 🔗 Setting up SSH tunnel for LAN Communication Hub
+echo Server IP: {server_ip}
+echo.
+set /p username="Enter username for {server_ip} (default: {default_username}): "
+if "%username%"=="" set username={default_username}
+echo.
+echo This will create a tunnel so you can access the server via localhost
+echo Keep this window open while using the application
+echo.
+ssh -L 5000:{server_ip}:5000 %username%@{server_ip}
+"""
+    
+    # Linux/Mac bash script
+    unix_script = f"""#!/bin/bash
+echo "🔗 Setting up SSH tunnel for LAN Communication Hub"
+echo "Server IP: {server_ip}"
+echo ""
+read -p "Enter username for {server_ip} (default: {default_username}): " username
+username=${{username:-{default_username}}}
+echo ""
+echo "This will create a tunnel so you can access the server via localhost"
+echo "Keep this terminal open while using the application"
+echo ""
+ssh -L 5000:{server_ip}:5000 $username@{server_ip}
+"""
+    
+    # Python script (cross-platform)
+    python_script = f"""#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+import getpass
+
+def setup_ssh_tunnel():
+    server_ip = "{server_ip}"
+    default_username = getpass.getuser()
+    username = input(f"Enter username for {{server_ip}} (default: {{default_username}}): ").strip() or default_username
+    
+    print("🔗 Setting up SSH tunnel for LAN Communication Hub")
+    print(f"Server IP: {{server_ip}}")
+    print(f"Username: {{username}}")
+    print()
+    print("This will create a tunnel so you can access via http://localhost:5000")
+    print("Keep this terminal open while using the application")
+    print()
+    
+    try:
+        cmd = ["ssh", "-L", f"5000:{{server_ip}}:5000", f"{{username}}@{{server_ip}}"]
+        print(f"Running: {{' '.join(cmd)}}")
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        print("\\n🔌 SSH tunnel closed")
+    except Exception as e:
+        print(f"❌ Error: {{e}}")
+        print()
+        print("💡 Make sure SSH is installed and you can connect to the server")
+        print(f"💡 Test connection: ssh {{username}}@{{server_ip}}")
 
 if __name__ == "__main__":
-    main()
+    setup_ssh_tunnel()
+"""
+    
+    # Write scripts
+    try:
+        with open('client_connect.bat', 'w') as f:
+            f.write(windows_script)
+        
+        with open('client_connect.sh', 'w') as f:
+            f.write(unix_script)
+        
+        # Make shell script executable
+        os.chmod('client_connect.sh', 0o755)
+        
+        with open('client_connect.py', 'w') as f:
+            f.write(python_script)
+        
+        print("✅ Client connection scripts created:")
+        print("   📁 client_connect.bat (Windows)")
+        print("   📁 client_connect.sh (Linux/Mac)")
+        print("   📁 client_connect.py (Cross-platform)")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error creating client scripts: {e}")
+        return False
+
+def show_connection_info(server_ip):
+    """Show connection information"""
+    print()
+    print("=" * 70)
+    print("🌐 CONNECTION INFORMATION")
+    print("=" * 70)
+    
+    print(f"🖥️  SERVER (Host) - This Machine:")
+    print(f"   Primary URL: http://localhost:5000")
+    print(f"   Network URL: http://{server_ip}:5000")
+    print(f"   Action: Create session")
+    print()
+    
+    print(f"💻 CLIENTS (Participants) - Other Machines:")
+    print(f"   🎯 RECOMMENDED: Use SSH Tunnel")
+    print(f"     1. Run: python3 connect_client.py")
+    print(f"     2. Script will auto-detect this server ({server_ip})")
+    print(f"     3. Enter SSH username when prompted")
+    print(f"     4. Access: http://localhost:5000")
+    print(f"     5. Join with session ID: {server_ip}")
+    print()
+    
+    print(f"   📋 ALTERNATIVE: Direct Connection")
+    print(f"     URL: http://{server_ip}:5000")
+    print(f"     Note: May not work for camera/microphone (HTTPS required)")
+    print()
+    
+    print(f"   📁 MANUAL SCRIPTS (if auto-script fails):")
+    print(f"     Windows: client_connect.bat")
+    print(f"     Linux/Mac: ./client_connect.sh")
+    print(f"     Cross-platform: python3 client_connect.py")
+    print()
+    
+    print("🎯 SESSION INFORMATION:")
+    print(f"   Server IP: {server_ip}")
+    print(f"   Session ID: {server_ip}")
+    print(f"   Port: 5000")
+    print()
+    
+    print("🔧 TROUBLESHOOTING URLS:")
+    print(f"   Media access test: http://{server_ip}:5000/media-test")
+    print(f"   Host method check: http://{server_ip}:5000/check-host-method")
+    print(f"   Server debug info: http://{server_ip}:5000/api/debug/sessions")
+    print()
+
+def handle_shutdown(signum, frame):
+    """Handle shutdown gracefully"""
+    print("\n🔌 Shutting down server...")
+    sys.exit(0)
+
+def monitor_server(server_process):
+    """Monitor server process"""
+    while True:
+        if server_process.poll() is not None:
+            print("❌ Server process stopped unexpectedly")
+            break
+        time.sleep(5)
+
+def main():
+    """Main startup function"""
+    # Handle Ctrl+C gracefully
+    signal.signal(signal.SIGINT, handle_shutdown)
+    
+    print_banner()
+    
+    # Check dependencies
+    if not check_dependencies():
+        print("\n❌ Dependency check failed. Please fix the issues above.")
+        return 1
+    
+    # Get server IP
+    server_ip = get_host_ip()
+    print(f"🌐 Detected server IP: {server_ip}")
+    
+    # Start server
+    server_process = start_server()
+    if not server_process:
+        print("\n❌ Failed to start server")
+        return 1
+    
+    # Create client scripts
+    if create_client_script(server_ip):
+        print("✅ Client setup completed")
+    
+    # Show connection info
+    show_connection_info(server_ip)
+    
+    print("=" * 70)
+    print("🎉 SETUP COMPLETE!")
+    print("=" * 70)
+    print("Server is running. Press Ctrl+C to stop.")
+    print()
+    
+    # Monitor server
+    try:
+        monitor_server(server_process)
+    except KeyboardInterrupt:
+        print("\n🔌 Shutting down...")
+    finally:
+        if server_process and server_process.poll() is None:
+            server_process.terminate()
+            server_process.wait()
+        print("✅ Server stopped")
+    
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check Host Access Method</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Host Access Method Check</h1>
+    <p>This page shows exactly how the host is accessing the server.</p>
+    
+    <div id="results"></div>
+    
+    <script>
+        function checkHostMethod() {
+            const results = document.getElementById('results');
+            
+            const info = {
+                fullURL: location.href,
+                hostname: location.hostname,
+                protocol: location.protocol,
+                port: location.port,
+                isLocalhost: location.hostname === 'localhost' || location.hostname === '127.0.0.1',
+                mediaDevicesExists: !!navigator.mediaDevices,
+                getUserMediaExists: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+            };
+            
+            let html = `
+                <div class="result info">
+                    <h3>Host Access Information</h3>
+                    <strong>Full URL:</strong> ${info.fullURL}<br>
+                    <strong>Hostname:</strong> ${info.hostname}<br>
+                    <strong>Protocol:</strong> ${info.protocol}<br>
+                    <strong>Port:</strong> ${info.port || 'default'}<br>
+                    <strong>Is Localhost:</strong> ${info.isLocalhost ? 'YES' : 'NO'}<br>
+                    <strong>navigator.mediaDevices:</strong> ${info.mediaDevicesExists ? 'Available' : 'UNDEFINED'}<br>
+                    <strong>getUserMedia:</strong> ${info.getUserMediaExists ? 'Available' : 'Not Available'}
+                </div>
+            `;
+            
+            if (info.isLocalhost && info.mediaDevicesExists) {
+                html += `
+                    <div class="result success">
+                        <h3>✅ HOST USES LOCALHOST</h3>
+                        <p>The host is accessing via localhost, which is why camera/microphone works.</p>
+                        <p><strong>Client Solution:</strong> Use SSH tunnel to access localhost too!</p>
+                        <p><strong>Command:</strong> ssh -L 5000:172.17.213.107:5000 user@172.17.213.107</p>
+                        <p><strong>Then access:</strong> http://localhost:5000</p>
+                    </div>
+                `;
+            } else if (!info.isLocalhost && info.mediaDevicesExists) {
+                html += `
+                    <div class="result info">
+                        <h3>🤔 HOST USES IP ADDRESS</h3>
+                        <p>The host is accessing via IP address but still has camera/microphone access.</p>
+                        <p>This might be due to:</p>
+                        <ul>
+                            <li>Browser permissions already granted</li>
+                            <li>Different browser security settings</li>
+                            <li>HTTPS being used</li>
+                        </ul>
+                        <p><strong>Client should try:</strong> Same browser, same settings, or HTTPS</p>
+                    </div>
+                `;
+            } else if (!info.mediaDevicesExists) {
+                html += `
+                    <div class="result error">
+                        <h3>❌ HOST ALSO HAS ISSUES</h3>
+                        <p>navigator.mediaDevices is undefined on host too!</p>
+                        <p>This means both host and client need HTTPS or localhost access.</p>
+                    </div>
+                `;
+            }
+            
+            html += `
+                <div class="result info">
+                    <h3>📋 Instructions for Client</h3>
+                    <p>Client should access using the same method as host:</p>
+                    <ul>
+                        <li><strong>If host uses localhost:</strong> Client needs SSH tunnel</li>
+                        <li><strong>If host uses IP:</strong> Client needs same browser/settings</li>
+                        <li><strong>If host uses HTTPS:</strong> Client needs HTTPS too</li>
+                    </ul>
+                </div>
+            `;
+            
+            results.innerHTML = html;
+            
+            // Also log to console for easy copying
+            console.log('HOST ACCESS METHOD:', info);
+        }
+        
+        // Run check when page loads
+        document.addEventListener('DOMContentLoaded', checkHostMethod);
+    </script>
+</body>
+</html>
