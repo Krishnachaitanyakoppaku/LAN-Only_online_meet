@@ -355,12 +355,18 @@ def handle_disconnect():
             break
     
     if user_id:
-        session_id = session_manager.leave_session(user_id)
+        # Don't immediately remove user from session on disconnect
+        # Instead, just update their connection status
+        print(f"User {user_id} disconnected, but keeping session alive")
+        
+        # Remove from connected_users but keep in session
         del connected_users[user_id]
         
-        # Notify other users
-        if session_id:
-            socketio.emit('user_left', {
+        # Only notify other users, don't remove from session yet
+        # Sessions will be cleaned up after a timeout or manual leave
+        if user_id in session_manager.user_sessions:
+            session_id = session_manager.user_sessions[user_id]
+            socketio.emit('user_disconnected', {
                 'user': user_id,
                 'session': session_id
             }, room=session_id)
@@ -412,14 +418,38 @@ def handle_join_session(data):
         print(f"Join session error: Session {session_id} not found")
         print(f"Available sessions: {list(session_manager.sessions.keys())}")
         
-        # Provide helpful error message
+        # Provide helpful error message with server IP
+        server_ip = get_host_ip()
         available_sessions = list(session_manager.sessions.keys())
         if available_sessions:
             error_msg = f'Session "{session_id}" not found. Available sessions: {", ".join(available_sessions)}. Please check the session ID or ask the host to share the correct session ID.'
         else:
-            error_msg = f'Session "{session_id}" not found. No active sessions available. Please ask the host to create a session first.'
+            error_msg = f'Session "{session_id}" not found. No active sessions available. Please ask the host to create a session first.\n\n💡 The correct session ID should be the server IP: {server_ip}'
         
         emit('join_error', {'message': error_msg})
+
+@socketio.on('leave_session')
+def handle_leave_session(data):
+    """Handle user explicitly leaving a session"""
+    username = data.get('username')
+    
+    if username and username in session_manager.user_sessions:
+        session_id = session_manager.leave_session(username)
+        
+        # Remove from connected users if still connected
+        if username in connected_users:
+            del connected_users[username]
+        
+        # Notify other users
+        if session_id:
+            socketio.emit('user_left', {
+                'user': username,
+                'session': session_id
+            }, room=session_id)
+        
+        emit('leave_success', {'message': 'Left session successfully'})
+    else:
+        emit('leave_error', {'message': 'Not in any session'})
 
 @socketio.on('create_session')
 def handle_create_session(data):
