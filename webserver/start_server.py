@@ -88,26 +88,97 @@ def print_banner():
     print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
 
+def install_requirements():
+    """Install requirements from requirements.txt if available"""
+    if os.path.exists('requirements.txt'):
+        print("📦 Found requirements.txt - installing dependencies...")
+        try:
+            import subprocess
+            result = subprocess.run([
+                sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'
+            ], capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print("✅ Dependencies installed successfully")
+                return True
+            else:
+                print(f"⚠️  Some dependencies may have failed to install:")
+                print(f"   {result.stderr}")
+                return True  # Continue anyway
+        except Exception as e:
+            print(f"❌ Failed to install requirements: {e}")
+            return False
+    else:
+        print("📦 No requirements.txt found - checking individual packages...")
+        return True
+
 def check_dependencies():
     """Check if required dependencies are available"""
     print("🔍 Checking dependencies...")
     
-    # Check Python packages
+    # Try to install from requirements.txt first
+    if not install_requirements():
+        return False
+    
+    # Check essential packages
+    essential_missing = []
+    optional_missing = []
+    
     try:
         import flask
         import flask_socketio
-        print("✅ Python packages: OK")
+        print("✅ Flask packages: OK")
     except ImportError as e:
-        print(f"❌ Missing Python package: {e}")
-        print("💡 Install with: pip install flask flask-socketio")
-        return False
+        print(f"❌ Missing Flask packages: {e}")
+        essential_missing.append("Flask Flask-SocketIO")
+    
+    # Check SSL support for HTTPS
+    try:
+        import ssl
+        print("✅ SSL support: OK")
+    except ImportError:
+        print("⚠️  SSL support not available - will use HTTP only")
+    
+    # Check for pyOpenSSL (needed for adhoc SSL)
+    try:
+        import OpenSSL
+        print("✅ pyOpenSSL: OK (HTTPS will work)")
+    except ImportError:
+        print("❌ pyOpenSSL not found (required for HTTPS)")
+        essential_missing.append("pyOpenSSL")
+    
+    # Check optional packages
+    try:
+        import cv2
+        import numpy as np
+        from PIL import Image
+        print("✅ Media processing packages: OK")
+    except ImportError:
+        print("ℹ️  Media processing packages not available (optional)")
+        optional_missing.append("opencv-python Pillow numpy")
     
     # Check if server.py exists
     if not os.path.exists('server.py'):
         print("❌ server.py not found in current directory")
         return False
     
-    print("✅ Dependencies: OK")
+    if essential_missing:
+        print(f"\n❌ Missing essential packages:")
+        for pkg in essential_missing:
+            print(f"   • {pkg}")
+        print(f"\n💡 Install with:")
+        print(f"   python3 install_essential.py")
+        print("   OR")
+        print(f"   pip install {' '.join(essential_missing)}")
+        return False
+    
+    if optional_missing:
+        print(f"\nℹ️  Optional packages not installed:")
+        for pkg in optional_missing:
+            print(f"   • {pkg}")
+        print("💡 Install later with: pip install opencv-python Pillow numpy")
+    
+    print("✅ Essential dependencies: OK")
     return True
 
 def start_server():
@@ -242,41 +313,43 @@ def show_connection_info(server_ip):
     print("=" * 70)
     
     print(f"🖥️  SERVER (Host) - This Machine:")
-    print(f"   Primary URL: http://localhost:5000")
-    print(f"   Network URL: http://{server_ip}:5000")
+    print(f"   HTTPS URL: https://localhost:5000 (recommended)")
+    print(f"   HTTPS URL: https://{server_ip}:5000")
+    print(f"   HTTP URL: http://localhost:5000 (fallback)")
     print(f"   Action: Create session")
     print()
     
     print(f"💻 CLIENTS (Participants) - Other Machines:")
-    print(f"   🎯 RECOMMENDED: Use SSH Tunnel")
+    print(f"   🎯 RECOMMENDED: HTTPS Direct Connection")
+    print(f"     URL: https://{server_ip}:5000")
+    print(f"     Note: Browser will show security warning for self-signed certificate")
+    print(f"     Action: Click 'Advanced' → 'Proceed to {server_ip} (unsafe)'")
+    print(f"     Result: Camera/microphone will work!")
+    print()
+    
+    print(f"   📋 ALTERNATIVE: SSH Tunnel (if HTTPS doesn't work)")
     print(f"     1. Run: python3 connect_client.py")
-    print(f"     2. Script will auto-detect this server ({server_ip})")
-    print(f"     3. Enter SSH username when prompted")
-    print(f"     4. Access: http://localhost:5000")
-    print(f"     5. Join with session ID: {server_ip}")
-    print()
-    
-    print(f"   📋 ALTERNATIVE: Direct Connection")
-    print(f"     URL: http://{server_ip}:5000")
-    print(f"     Note: May not work for camera/microphone (HTTPS required)")
-    print()
-    
-    print(f"   📁 MANUAL SCRIPTS (if auto-script fails):")
-    print(f"     Windows: client_connect.bat")
-    print(f"     Linux/Mac: ./client_connect.sh")
-    print(f"     Cross-platform: python3 client_connect.py")
+    print(f"     2. Access: http://localhost:5000")
+    print(f"     3. Join with session ID: {server_ip}")
     print()
     
     print("🎯 SESSION INFORMATION:")
     print(f"   Server IP: {server_ip}")
     print(f"   Session ID: {server_ip}")
-    print(f"   Port: 5000")
+    print(f"   HTTPS Port: 5000")
+    print()
+    
+    print("🔒 HTTPS CERTIFICATE INFO:")
+    print("   • Server uses self-signed certificate")
+    print("   • Browser will show security warning")
+    print("   • This is normal and safe for local network")
+    print("   • Click 'Advanced' and 'Proceed' to continue")
     print()
     
     print("🔧 TROUBLESHOOTING URLS:")
-    print(f"   Media access test: http://{server_ip}:5000/media-test")
-    print(f"   Host method check: http://{server_ip}:5000/check-host-method")
-    print(f"   Server debug info: http://{server_ip}:5000/api/debug/sessions")
+    print(f"   Media test (HTTPS): https://{server_ip}:5000/media-test")
+    print(f"   Media test (HTTP): http://{server_ip}:5000/media-test")
+    print(f"   Server debug: https://{server_ip}:5000/api/debug/sessions")
     print()
 
 def handle_shutdown(signum, frame):

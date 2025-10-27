@@ -22,10 +22,16 @@ try:
 except ImportError:
     FLASK_CORS_AVAILABLE = False
     print("⚠️ flask-cors not available, using manual CORS headers")
-import cv2
-import numpy as np
-from PIL import Image
-import io
+# Optional imports for advanced media processing
+try:
+    import cv2
+    import numpy as np
+    from PIL import Image
+    import io
+    MEDIA_PROCESSING_AVAILABLE = True
+except ImportError:
+    MEDIA_PROCESSING_AVAILABLE = False
+    print("ℹ️  Advanced media processing not available (opencv/PIL not installed)")
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'lan_communication_secret_key'
@@ -1015,5 +1021,12 @@ if __name__ == '__main__':
     print(f"Server will be available at: http://{SERVER_IP}:5000")
     print("UDP streaming port: 5001")
     
-    # Run the server
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Run the server with HTTPS (self-signed certificate)
+    try:
+        print("🔒 Starting server with HTTPS (self-signed certificate)...")
+        print("⚠️  You may see browser security warnings - click 'Advanced' and 'Proceed'")
+        socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
+    except Exception as e:
+        print(f"❌ HTTPS failed: {e}")
+        print("🔄 Falling back to HTTP...")
+        socketio.run(app, host='0.0.0.0', port=5000, debug=True)

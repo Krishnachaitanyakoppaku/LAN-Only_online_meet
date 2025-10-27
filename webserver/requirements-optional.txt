@@ -1,0 +1,7 @@
+# Optional dependencies for advanced media processing
+# These are not required for basic HTTPS functionality
+
+# Media processing (optional, for advanced features)
+opencv-python>=4.5.0
+Pillow>=9.0.0
+numpy>=1.20.0

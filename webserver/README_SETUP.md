@@ -1,6 +1,30 @@
 # 🚀 LAN Communication Hub - Auto Setup
 
-This setup automatically handles SSH tunnels for seamless camera/microphone access across different machines.
+This setup provides HTTPS support for seamless camera/microphone access across different machines.
+
+## 📦 Installation
+
+### Quick Fix (Recommended):
+```bash
+python3 quick_fix.py
+```
+Installs only pyOpenSSL for HTTPS support.
+
+### Complete Install:
+```bash
+python3 install_essential.py
+```
+Installs all essential packages.
+
+### Manual Install:
+```bash
+pip install pyOpenSSL Flask Flask-SocketIO
+```
+
+### Required Dependencies:
+- **pyOpenSSL** (HTTPS support for camera/microphone) - REQUIRED
+- **Flask & Flask-SocketIO** (web server)
+- **Optional**: opencv-python, Pillow, numpy (advanced features)
 
 ## 🎯 Quick Start
 
@@ -10,21 +34,23 @@ python3 start_server.py
 ```
 
 This will:
-- ✅ Start the server automatically
+- ✅ Start the server with HTTPS (self-signed certificate)
 - ✅ Detect server IP address automatically
-- ✅ Create client connection scripts
+- ✅ Enable camera/microphone access for all clients
 - ✅ Show connection instructions
 
 ### For Clients (Participants):
+
+**Option 1: HTTPS Direct Connection (Recommended)**
+1. Go to: `https://[server-ip]:5000`
+2. Browser shows security warning → Click "Advanced" → "Proceed"
+3. Camera/microphone will work immediately!
+
+**Option 2: SSH Tunnel (Alternative)**
 ```bash
 python3 connect_client.py
 ```
-
-This will:
-- ✅ Scan network for servers automatically
-- ✅ Test SSH connection
-- ✅ Setup SSH tunnel automatically
-- ✅ Provide localhost access for camera/microphone
+This sets up SSH tunnel for localhost access.
 
 ## 📋 Step-by-Step Instructions
 
@@ -43,8 +69,8 @@ python3 connect_client.py
 The script will automatically scan for and detect available servers.
 
 ### 3. Access Application
-- **Host**: Go to `http://localhost:5000` or `http://[detected-server-ip]:5000`
-- **Clients**: Go to `http://localhost:5000` (after SSH tunnel)
+- **Host**: Go to `https://localhost:5000` (HTTPS recommended)
+- **Clients**: Go to `https://[server-ip]:5000` (accept security warning)
 
 ### 4. Join Session
 - **Host**: Create session (session ID will be auto-detected server IP)
