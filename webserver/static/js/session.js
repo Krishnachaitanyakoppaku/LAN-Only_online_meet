@@ -128,11 +128,27 @@ function initializeSocket() {
     
     // Video events
     socket.on('video_stream', function(data) {
+        console.log(`📹 Received video stream from ${data.username} (I am ${currentUser})`);
+        
+        // Don't display our own video back to ourselves
+        if (data.username === currentUser) {
+            console.log(`📹 Ignoring own video from ${data.username}`);
+            return;
+        }
+        
         displayVideoStream(data.username, data.data);
     });
     
     // Audio events
     socket.on('audio_stream', function(data) {
+        console.log(`🎤 Received audio stream from ${data.username} (I am ${currentUser})`);
+        
+        // Don't play our own audio back to ourselves
+        if (data.username === currentUser) {
+            console.log(`🎤 Ignoring own audio from ${data.username}`);
+            return;
+        }
+        
         playAudioStream(data.username, data.data);
     });
     
@@ -246,11 +262,17 @@ function setupEventListeners() {
 // Initialize media devices
 async function initializeMedia() {
     try {
+        console.log('🎥 Requesting camera and microphone access...');
+        
         // Request camera and microphone access
         localStream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: true
         });
+        
+        console.log('🎥 Media access granted');
+        console.log('🎥 Video tracks:', localStream.getVideoTracks().length);
+        console.log('🎥 Audio tracks:', localStream.getAudioTracks().length);
         
         // Display local video
         displayLocalVideo();
@@ -258,8 +280,10 @@ async function initializeMedia() {
         // Start sending video data
         startVideoStreaming();
         
-        // Start sending audio data
-        startAudioStreaming();
+        // Delay audio streaming slightly to ensure everything is ready
+        setTimeout(() => {
+            startAudioStreaming();
+        }, 1000);
         
     } catch (error) {
         console.error('Error accessing media devices:', error);
@@ -334,6 +358,7 @@ function startVideoStreaming() {
                 session_id: currentSession,
                 data: dataURL
             });
+            console.log(`📹 Sent video frame from ${currentUser} to session ${currentSession}`);
         }
         
         if (isVideoEnabled) {
@@ -346,33 +371,75 @@ function startVideoStreaming() {
 
 // Start audio streaming
 function startAudioStreaming() {
-    if (!localStream) return;
+    console.log('🎤 Starting audio streaming...');
+    
+    if (!localStream) {
+        console.error('🎤 No localStream available for audio');
+        return;
+    }
     
     const audioTrack = localStream.getAudioTracks()[0];
-    if (!audioTrack) return;
+    if (!audioTrack) {
+        console.error('🎤 No audio track available');
+        return;
+    }
     
-    // Create audio context for processing
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(localStream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    console.log('🎤 Audio track found:', audioTrack.label);
     
-    processor.onaudioprocess = function(e) {
-        if (isAudioEnabled) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const dataArray = new Float32Array(inputData);
-            
-            // Convert to base64 and send
-            const dataString = Array.from(dataArray).map(x => x.toString()).join(',');
-            socket.emit('audio_data', {
-                username: currentUser,
-                session_id: currentSession,
-                data: dataString
+    try {
+        // Create audio context for processing
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('🎤 Audio context created, state:', audioContext.state);
+        
+        // Resume audio context if suspended (required by some browsers)
+        if (audioContext.state === 'suspended') {
+            audioContext.resume().then(() => {
+                console.log('🎤 Audio context resumed');
             });
         }
-    };
-    
-    source.connect(processor);
-    processor.connect(audioContext.destination);
+        
+        const source = audioContext.createMediaStreamSource(localStream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        
+        let audioFrameCount = 0;
+        
+        processor.onaudioprocess = function(e) {
+            if (isAudioEnabled && currentUser && currentSession) {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const dataArray = new Float32Array(inputData);
+                
+                // Check if there's actual audio data (not just silence)
+                const hasAudio = dataArray.some(sample => Math.abs(sample) > 0.001);
+                
+                if (hasAudio) {
+                    // Convert to string and send
+                    const dataString = Array.from(dataArray).map(x => x.toString()).join(',');
+                    socket.emit('audio_data', {
+                        username: currentUser,
+                        session_id: currentSession,
+                        data: dataString
+                    });
+                    
+                    audioFrameCount++;
+                    if (audioFrameCount % 50 === 0) { // Log every 50th frame to avoid spam
+                        console.log(`🎤 Sent audio frame #${audioFrameCount} from ${currentUser} to session ${currentSession}`);
+                    }
+                }
+            } else {
+                if (!isAudioEnabled) console.log('🎤 Audio disabled');
+                if (!currentUser) console.log('🎤 No currentUser');
+                if (!currentSession) console.log('🎤 No currentSession');
+            }
+        };
+        
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        console.log('🎤 Audio streaming setup complete');
+        
+    } catch (error) {
+        console.error('🎤 Error setting up audio streaming:', error);
+    }
 }
 
 // Display video stream from other users
@@ -424,9 +491,31 @@ function removeVideoStream(username) {
 
 // Play audio stream
 function playAudioStream(username, data) {
-    // This is a simplified implementation
-    // In a real application, you'd need proper audio mixing
     console.log('Received audio from:', username);
+    
+    try {
+        // Convert the comma-separated string back to Float32Array
+        const audioArray = new Float32Array(data.split(',').map(x => parseFloat(x)));
+        
+        // Create audio context if not exists
+        if (!window.audioContext) {
+            window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        
+        // Create audio buffer
+        const audioBuffer = window.audioContext.createBuffer(1, audioArray.length, 44100);
+        audioBuffer.copyToChannel(audioArray, 0);
+        
+        // Create buffer source and play
+        const source = window.audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(window.audioContext.destination);
+        source.start();
+        
+        console.log(`🔊 Playing audio from ${username}, ${audioArray.length} samples`);
+    } catch (error) {
+        console.error('Error playing audio:', error);
+    }
 }
 
 // Toggle video
@@ -468,6 +557,13 @@ function toggleAudio() {
         if (audioTrack) {
             audioTrack.enabled = isAudioEnabled;
         }
+    }
+    
+    // If enabling audio and we haven't started streaming yet, start it now
+    if (isAudioEnabled && !window.audioStreamingStarted) {
+        console.log('🎤 Starting audio streaming due to user interaction');
+        startAudioStreaming();
+        window.audioStreamingStarted = true;
     }
     
     const btn = document.getElementById('audioToggle');

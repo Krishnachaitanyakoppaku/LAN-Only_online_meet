@@ -358,6 +358,16 @@ def session_discovery_page():
     """Session discovery page - enter session ID to connect to server"""
     return render_template('session-discovery.html')
 
+@app.route('/audio-test')
+def audio_test_page():
+    """Audio streaming test page"""
+    return render_template('audio-test.html')
+
+@app.route('/debug-audio')
+def debug_audio_page():
+    """Debug audio broadcasting"""
+    return render_template('debug-audio.html')
+
 @app.route('/api/server-info')
 def server_info():
     """Get server information including IP address"""
@@ -479,9 +489,11 @@ def handle_join_session(data):
     if session_manager.join_session(session_id, username):
         join_room(session_id)
         
-        print(f"User {username} successfully joined session {session_id}")
-        print(f"Session host: {session_manager.get_session_host(session_id)}")
-        print(f"Is {username} host: {session_manager.is_host(username, session_id)}")
+        print(f"✅ User {username} successfully joined session {session_id}")
+        print(f"   Session host: {session_manager.get_session_host(session_id)}")
+        print(f"   Is {username} host: {session_manager.is_host(username, session_id)}")
+        print(f"   All users in session: {session_manager.get_session_users(session_id)}")
+        print(f"   Socket {request.sid} joined room {session_id}")
         
         # Notify other users
         socketio.emit('user_joined', {
@@ -771,12 +783,15 @@ def handle_video_data(data):
     video_data = data.get('data')
     session_id = data.get('session_id')
     
+    print(f"📹 Received video data from {username} in session {session_id}")
+    
     if username and video_data and session_id:
         # Broadcast video data to all users except sender
         socketio.emit('video_stream', {
             'username': username,
             'data': video_data
         }, room=session_id, include_self=False)
+        print(f"📹 Broadcasted video from {username} to room {session_id}")
 
 @socketio.on('audio_data')
 def handle_audio_data(data):
@@ -785,17 +800,46 @@ def handle_audio_data(data):
     audio_data = data.get('data')
     session_id = data.get('session_id')
     
+    print(f"🎤 Received audio data from {username} in session '{session_id}' (sender SID: {request.sid})")
+    
     if username and audio_data and session_id:
         # Check if user has audio permission
         permissions = session_manager.get_user_permissions(session_id, username)
         if permissions and not permissions.get('audio_enabled', True):
+            print(f"🎤 Audio blocked for {username} - no permission")
             return
         
-        # Broadcast audio data to all users except sender
+        # Get all users in the session for debugging
+        session_users = session_manager.get_session_users(session_id)
+        print(f"🎤 Session '{session_id}' has users: {session_users}")
+        
+        # Check who's connected
+        print(f"🎤 Connected users: {list(connected_users.keys())}")
+        for user, sid in connected_users.items():
+            print(f"   - {user}: {sid}")
+        
+        # Broadcast audio data to all users except sender using Socket.IO rooms
         socketio.emit('audio_stream', {
             'username': username,
             'data': audio_data
         }, room=session_id, include_self=False)
+        print(f"🎤 Broadcasted audio from {username} to room '{session_id}' via Socket.IO")
+        
+        # Debug: Show who's in the room using Flask-SocketIO method
+        try:
+            from flask_socketio import rooms
+            user_rooms = rooms(request.sid)
+            print(f"🎤 Sender {username} (SID: {request.sid}) is in rooms: {user_rooms}")
+            
+            # Check all connected users and their rooms
+            for user, sid in connected_users.items():
+                user_rooms = rooms(sid)
+                print(f"🎤 User {user} (SID: {sid}) is in rooms: {user_rooms}")
+                
+        except Exception as e:
+            print(f"🎤 Could not get room info: {e}")
+    else:
+        print(f"🎤 Invalid audio data: username={username}, session_id={session_id}, has_data={bool(audio_data)}")
 
 # Host Control Events
 @socketio.on('toggle_user_video')

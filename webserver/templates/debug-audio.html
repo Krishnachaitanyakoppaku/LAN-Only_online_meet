@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .log { background: #f0f0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; }
+        .host { background: #e7f3ff; }
+        .client { background: #fff3e7; }
+    </style>
+</head>
+<body>
+    <h1>Audio Broadcasting Debug</h1>
+    
+    <div>
+        <button onclick="becomeHost()">Become Host</button>
+        <button onclick="becomeClient()">Become Client</button>
+        <button onclick="sendAudio()">Send Audio</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div>
+        <strong>Role:</strong> <span id="role">None</span><br>
+        <strong>Session:</strong> <span id="session">None</span><br>
+        <strong>Username:</strong> <span id="username">None</span>
+    </div>
+    
+    <div id="log" class="log"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        let socket = io();
+        let currentRole = null;
+        let currentSession = null;
+        let currentUsername = null;
+        
+        socket.on('connect', function() {
+            log('✅ Connected to server');
+        });
+        
+        socket.on('create_success', function(data) {
+            currentSession = data.session;
+            currentUsername = 'debug_host';
+            currentRole = 'host';
+            updateUI();
+            log(`🏠 HOST: Created session ${data.session}`);
+        });
+        
+        socket.on('join_success', function(data) {
+            currentSession = data.session;
+            currentUsername = 'debug_client';
+            currentRole = 'client';
+            updateUI();
+            log(`👤 CLIENT: Joined session ${data.session}`);
+        });
+        
+        socket.on('audio_stream', function(data) {
+            log(`🔊 RECEIVED audio from: ${data.username}`);
+        });
+        
+        function becomeHost() {
+            socket.emit('create_session', {username: 'debug_host'});
+            log('🏠 Requesting to become host...');
+        }
+        
+        function becomeClient() {
+            socket.emit('join_session', {
+                username: 'debug_client',
+                session_id: 'main_session'
+            });
+            log('👤 Requesting to join as client...');
+        }
+        
+        function sendAudio() {
+            if (!currentSession || !currentUsername) {
+                log('❌ Not in a session!');
+                return;
+            }
+            
+            socket.emit('audio_data', {
+                username: currentUsername,
+                session_id: currentSession,
+                data: '0.1,0.2,0.3,0.4,0.5'
+            });
+            
+            log(`🎤 SENT audio as ${currentUsername} to session ${currentSession}`);
+        }
+        
+        function updateUI() {
+            document.getElementById('role').textContent = currentRole || 'None';
+            document.getElementById('session').textContent = currentSession || 'None';
+            document.getElementById('username').textContent = currentUsername || 'None';
+        }
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

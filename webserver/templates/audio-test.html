@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Streaming Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .log { background: #f5f5f5; padding: 20px; border-radius: 5px; height: 400px; overflow-y: scroll; font-family: monospace; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Audio Streaming Test</h1>
+        
+        <div class="status info">
+            <strong>Instructions:</strong>
+            <ol>
+                <li>Click "Start Audio Test" to begin</li>
+                <li>Speak into your microphone</li>
+                <li>Check the logs to see if audio data is being sent</li>
+                <li>Open this page in another tab/window to test receiving</li>
+            </ol>
+        </div>
+        
+        <div>
+            <button onclick="startAudioTest()">Start Audio Test</button>
+            <button onclick="stopAudioTest()">Stop Audio Test</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <h3>Debug Log:</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        let socket;
+        let localStream;
+        let audioContext;
+        let processor;
+        let isStreaming = false;
+        
+        // Initialize socket connection
+        socket = io();
+        
+        socket.on('connect', function() {
+            log('✅ Connected to server');
+            
+            // Join a test session
+            socket.emit('join_session', {
+                username: 'audio_test_user',
+                session_id: 'main_session'
+            });
+        });
+        
+        socket.on('join_success', function(data) {
+            log(`✅ Joined session: ${data.session}`);
+            showStatus('Ready to test audio streaming', 'success');
+        });
+        
+        socket.on('audio_stream', function(data) {
+            log(`🔊 Received audio from: ${data.username}`);
+            showStatus(`Received audio from ${data.username}`, 'success');
+        });
+        
+        async function startAudioTest() {
+            try {
+                log('🎤 Starting audio test...');
+                
+                // Get microphone access
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                    video: false
+                });
+                
+                log('✅ Microphone access granted');
+                
+                const audioTrack = localStream.getAudioTracks()[0];
+                log(`🎤 Audio track: ${audioTrack.label}`);
+                
+                // Create audio context
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                log(`🎤 Audio context state: ${audioContext.state}`);
+                
+                // Resume if suspended
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                    log('🎤 Audio context resumed');
+                }
+                
+                // Create audio processing chain
+                const source = audioContext.createMediaStreamSource(localStream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+                
+                let frameCount = 0;
+                
+                processor.onaudioprocess = function(e) {
+                    if (isStreaming) {
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        const dataArray = new Float32Array(inputData);
+                        
+                        // Check for actual audio (not silence)
+                        const maxAmplitude = Math.max(...dataArray.map(Math.abs));
+                        
+                        if (maxAmplitude > 0.001) {
+                            frameCount++;
+                            
+                            // Convert to string
+                            const dataString = Array.from(dataArray).map(x => x.toString()).join(',');
+                            
+                            // Send to server
+                            socket.emit('audio_data', {
+                                username: 'audio_test_user',
+                                session_id: 'main_session',
+                                data: dataString
+                            });
+                            
+                            if (frameCount % 10 === 0) {
+                                log(`🎤 Sent audio frame #${frameCount}, max amplitude: ${maxAmplitude.toFixed(4)}`);
+                            }
+                        }
+                    }
+                };
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                
+                isStreaming = true;
+                log('✅ Audio streaming started - speak into your microphone!');
+                showStatus('Audio streaming active - speak into microphone', 'success');
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        function stopAudioTest() {
+            isStreaming = false;
+            
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            
+            log('🛑 Audio streaming stopped');
+            showStatus('Audio streaming stopped', 'info');
+        }
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
