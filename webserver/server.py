@@ -15,6 +15,9 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
+# Import SSL helper for HTTPS certificate generation
+from ssl_helper import get_ssl_context, get_local_ip as ssl_get_local_ip
+
 # Try to import flask-cors, if not available, use manual CORS
 try:
     from flask_cors import CORS
@@ -48,7 +51,7 @@ else:
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
         return response
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Global variables for session management
 connected_users = {}
@@ -384,6 +387,11 @@ def audio_test_page():
 def debug_audio_page():
     """Debug audio broadcasting"""
     return render_template('debug-audio.html')
+
+@app.route('/camera-test')
+def camera_test_page():
+    """Camera and microphone test page for HTTPS"""
+    return render_template('camera-test.html')
 
 @app.route('/api/server-info')
 def server_info():
@@ -1018,15 +1026,44 @@ if __name__ == '__main__':
         start_udp_listener()
     
     print("Starting LAN Communication Server...")
-    print(f"Server will be available at: http://{SERVER_IP}:5000")
     print("UDP streaming port: 5001")
     
-    # Run the server with HTTPS (self-signed certificate)
-    try:
-        print("🔒 Starting server with HTTPS (self-signed certificate)...")
-        print("⚠️  You may see browser security warnings - click 'Advanced' and 'Proceed'")
-        socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
-    except Exception as e:
-        print(f"❌ HTTPS failed: {e}")
-        print("🔄 Falling back to HTTP...")
-        socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    # Generate SSL certificate for HTTPS (required for camera/microphone access)
+    print("🔒 Setting up HTTPS for camera/microphone access...")
+    ssl_context = get_ssl_context(SERVER_IP)
+    
+    if ssl_context:
+        print(f"✅ SSL certificate generated successfully!")
+        print(f"🌐 Server will be available at: https://{SERVER_IP}:5000")
+        print("⚠️  You may see browser security warnings for self-signed certificate")
+        print(f"   Click 'Advanced' → 'Proceed to {SERVER_IP} (unsafe)' to continue")
+        print("   This is normal for self-signed certificates and safe for local network use")
+        
+        try:
+            # For Flask-SocketIO with eventlet, we need to create an SSL context object
+            import ssl
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(ssl_context[0], ssl_context[1])  # cert_file, key_file
+            
+            socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context=ssl_ctx)
+        except Exception as e:
+            print(f"❌ HTTPS with custom certificate failed: {e}")
+            print("🔄 Trying with Flask's adhoc SSL...")
+            try:
+                socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
+            except Exception as e2:
+                print(f"❌ Adhoc SSL also failed: {e2}")
+                print("🔄 Falling back to HTTP (camera/microphone may not work)...")
+                print(f"🌐 Server available at: http://{SERVER_IP}:5000")
+                socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    else:
+        print("⚠️  Could not generate SSL certificate")
+        print("🔄 Trying Flask's built-in adhoc SSL...")
+        try:
+            socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
+            print(f"🌐 Server available at: https://{SERVER_IP}:5000")
+        except Exception as e:
+            print(f"❌ Adhoc SSL failed: {e}")
+            print("🔄 Falling back to HTTP (camera/microphone may not work)...")
+            print(f"🌐 Server available at: http://{SERVER_IP}:5000")
+            socketio.run(app, host='0.0.0.0', port=5000, debug=True)

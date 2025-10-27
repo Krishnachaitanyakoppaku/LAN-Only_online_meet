@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera & Microphone Test - HTTPS</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        video {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        .ssl-info {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 HTTPS Camera & Microphone Test</h1>
+        
+        <div class="ssl-info">
+            <strong>🔐 SSL Certificate Status:</strong> Self-signed certificate active<br>
+            <strong>📍 Server:</strong> <span id="serverInfo">Loading...</span><br>
+            <strong>✅ HTTPS Required:</strong> Camera and microphone access requires HTTPS
+        </div>
+
+        <div id="status" class="status info">
+            Click "Start Camera & Microphone" to test media access
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" onclick="startMedia()">Start Camera & Microphone</button>
+            <button id="stopBtn" onclick="stopMedia()" disabled>Stop Media</button>
+        </div>
+
+        <div>
+            <h3>📹 Camera Feed:</h3>
+            <video id="videoElement" autoplay muted></video>
+        </div>
+
+        <div>
+            <h3>🎤 Audio Level:</h3>
+            <div id="audioLevel" style="width: 100%; height: 20px; background: #eee; border-radius: 10px; overflow: hidden;">
+                <div id="audioBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #28a745, #ffc107, #dc3545); transition: width 0.1s;"></div>
+            </div>
+            <p id="audioStatus">Audio monitoring will start when microphone is accessed</p>
+        </div>
+
+        <div>
+            <h3>📊 Technical Details:</h3>
+            <ul id="techDetails">
+                <li>Protocol: <strong id="protocol">HTTPS ✅</strong></li>
+                <li>User Agent: <strong id="userAgent"></strong></li>
+                <li>Permissions API: <strong id="permissionsAPI"></strong></li>
+                <li>MediaDevices API: <strong id="mediaDevicesAPI"></strong></li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let mediaStream = null;
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+
+        // Update server info
+        document.getElementById('serverInfo').textContent = window.location.host;
+        document.getElementById('protocol').textContent = window.location.protocol.toUpperCase() + ' ✅';
+        document.getElementById('userAgent').textContent = navigator.userAgent.split(' ').slice(-2).join(' ');
+
+        // Check API support
+        document.getElementById('permissionsAPI').textContent = 'permissions' in navigator ? 'Supported ✅' : 'Not Supported ❌';
+        document.getElementById('mediaDevicesAPI').textContent = 'mediaDevices' in navigator ? 'Supported ✅' : 'Not Supported ❌';
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function startMedia() {
+            try {
+                updateStatus('🔄 Requesting camera and microphone access...', 'info');
+                
+                // Request both video and audio
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+
+                // Display video
+                const videoElement = document.getElementById('videoElement');
+                videoElement.srcObject = mediaStream;
+
+                // Setup audio monitoring
+                setupAudioMonitoring();
+
+                updateStatus('✅ Camera and microphone access granted! HTTPS is working correctly.', 'success');
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+
+            } catch (error) {
+                console.error('Media access error:', error);
+                let errorMessage = '❌ Failed to access camera/microphone: ';
+                
+                if (error.name === 'NotAllowedError') {
+                    errorMessage += 'Permission denied. Please allow camera and microphone access.';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage += 'No camera or microphone found.';
+                } else if (error.name === 'NotSupportedError') {
+                    errorMessage += 'Browser does not support media access.';
+                } else if (error.name === 'NotSecureError') {
+                    errorMessage += 'HTTPS required for media access.';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                updateStatus(errorMessage, 'error');
+            }
+        }
+
+        function setupAudioMonitoring() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(mediaStream);
+                
+                analyser.fftSize = 256;
+                microphone.connect(analyser);
+                
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                function updateAudioLevel() {
+                    if (!analyser) return;
+                    
+                    analyser.getByteFrequencyData(dataArray);
+                    
+                    // Calculate average volume
+                    let sum = 0;
+                    for (let i = 0; i < bufferLength; i++) {
+                        sum += dataArray[i];
+                    }
+                    const average = sum / bufferLength;
+                    const percentage = (average / 255) * 100;
+                    
+                    // Update visual indicator
+                    document.getElementById('audioBar').style.width = percentage + '%';
+                    document.getElementById('audioStatus').textContent = 
+                        `Audio Level: ${Math.round(percentage)}% ${percentage > 10 ? '🎤' : '🔇'}`;
+                    
+                    requestAnimationFrame(updateAudioLevel);
+                }
+                
+                updateAudioLevel();
+                
+            } catch (error) {
+                console.error('Audio monitoring setup failed:', error);
+                document.getElementById('audioStatus').textContent = 'Audio monitoring failed: ' + error.message;
+            }
+        }
+
+        function stopMedia() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+                analyser = null;
+                microphone = null;
+            }
+            
+            document.getElementById('videoElement').srcObject = null;
+            document.getElementById('audioBar').style.width = '0%';
+            document.getElementById('audioStatus').textContent = 'Audio monitoring stopped';
+            
+            updateStatus('📴 Camera and microphone stopped', 'info');
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+
+        // Check if page is loaded over HTTPS
+        if (window.location.protocol !== 'https:') {
+            updateStatus('⚠️ WARNING: This page is not loaded over HTTPS. Camera and microphone access may be blocked.', 'error');
+        }
+    </script>
+</body>
+</html>
