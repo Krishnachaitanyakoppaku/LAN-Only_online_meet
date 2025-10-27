@@ -137,8 +137,11 @@
         let socket;
         
         document.addEventListener('DOMContentLoaded', function() {
-            // Auto-connect using the same host the client used to access this page
-            socket = io();
+            // Auto-connect using the same host/port the client used to access this page
+            // This ensures clients connect to the actual server IP, not localhost
+            const serverUrl = `http://${window.location.host}`;
+            console.log(`Connecting to server at: ${serverUrl}`);
+            socket = io(serverUrl);
             
             socket.on('connect', function() {
                 console.log('Connected to server');
@@ -158,9 +161,23 @@
                 localStorage.setItem('currentSession', data.session);
                 localStorage.setItem('isHost', 'true');
                 
-                // Show share information
-                const shareUrl = `${window.location.origin}/simple-join`;
-                document.getElementById('shareUrl').textContent = shareUrl;
+                // Show share information - provide multiple options
+                const serverIP = window.location.hostname;
+                const directUrl = `${window.location.origin}/simple-join`;
+                const finderUrl = `${window.location.origin}/static/meeting-finder.html?session=${serverIP}`;
+                
+                document.getElementById('shareUrl').innerHTML = `
+                    <div style="text-align: left; font-size: 14px;">
+                        <strong>📋 Direct Link:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${directUrl}</code>
+                        
+                        <strong>🔍 Universal Finder:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${finderUrl}</code>
+                        
+                        <strong>🏷️ Session ID:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${serverIP}</code>
+                    </div>
+                `;
                 document.getElementById('shareInfo').style.display = 'block';
             });
             
@@ -178,8 +195,22 @@
                 localStorage.setItem('currentSession', data.session);
                 localStorage.setItem('isHost', data.is_host);
                 
-                const shareUrl = `${window.location.origin}/simple-join`;
-                document.getElementById('shareUrl').textContent = shareUrl;
+                const serverIP = window.location.hostname;
+                const directUrl = `${window.location.origin}/simple-join`;
+                const finderUrl = `${window.location.origin}/static/meeting-finder.html?session=${serverIP}`;
+                
+                document.getElementById('shareUrl').innerHTML = `
+                    <div style="text-align: left; font-size: 14px;">
+                        <strong>📋 Direct Link:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${directUrl}</code>
+                        
+                        <strong>🔍 Universal Finder:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${finderUrl}</code>
+                        
+                        <strong>🏷️ Session ID:</strong><br>
+                        <code style="background: #f8f9fa; padding: 5px; border-radius: 3px; display: block; margin: 5px 0;">${serverIP}</code>
+                    </div>
+                `;
                 document.getElementById('shareInfo').style.display = 'block';
             });
             
@@ -215,12 +246,23 @@
         }
         
         function copyShareUrl() {
-            const shareUrl = document.getElementById('shareUrl').textContent;
-            navigator.clipboard.writeText(shareUrl).then(function() {
-                showStatus('Link copied to clipboard!', 'success');
+            const serverIP = window.location.hostname;
+            const directUrl = `${window.location.origin}/simple-join`;
+            const finderUrl = `${window.location.origin}/static/meeting-finder.html?session=${serverIP}`;
+            
+            const textToCopy = `Join my LAN meeting:
+
+📋 Direct Link: ${directUrl}
+🔍 Universal Finder: ${finderUrl}
+🏷️ Session ID: ${serverIP}
+
+Use any of these options to join!`;
+            
+            navigator.clipboard.writeText(textToCopy).then(function() {
+                showStatus('Meeting info copied to clipboard!', 'success');
             }).catch(function(err) {
                 console.error('Could not copy text: ', err);
-                showStatus('Failed to copy link', 'error');
+                showStatus('Failed to copy to clipboard', 'error');
             });
         }
     </script>

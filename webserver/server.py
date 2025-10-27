@@ -14,6 +14,7 @@ import struct
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_cors import CORS
 import cv2
 import numpy as np
 from PIL import Image
@@ -21,6 +22,7 @@ import io
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'lan_communication_secret_key'
+CORS(app)  # Enable CORS for all routes
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 # Global variables for session management
@@ -326,6 +328,16 @@ def simple_join_page():
 def simple_host_page():
     """Simple host page"""
     return render_template('simple-host.html')
+
+@app.route('/connection-test')
+def connection_test_page():
+    """Connection test page"""
+    return render_template('connection-test.html')
+
+@app.route('/find-meeting')
+def session_discovery_page():
+    """Session discovery page - enter session ID to connect to server"""
+    return render_template('session-discovery.html')
 
 @app.route('/api/server-info')
 def server_info():

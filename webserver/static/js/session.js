@@ -57,7 +57,11 @@ function initializeSession() {
 
 // Initialize Socket.IO connection
 function initializeSocket() {
-    socket = io();
+    // Auto-connect using the same host/port the client used to access the page
+    // This ensures clients connect to the actual server IP, not localhost
+    const serverUrl = `http://${window.location.host}`;
+    console.log(`Connecting to server at: ${serverUrl}`);
+    socket = io(serverUrl);
     
     socket.on('connect', function() {
         console.log('Connected to server');

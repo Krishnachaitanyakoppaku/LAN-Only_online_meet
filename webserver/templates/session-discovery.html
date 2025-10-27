@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Meeting - LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .discovery-container {
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .discovery-container h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .discovery-container p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .discovery-container input {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .discovery-container input:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        .discovery-container button {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-top: 10px;
+        }
+        .discovery-container button:hover {
+            background: #0056b3;
+        }
+        .discovery-container button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .help-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            text-align: left;
+        }
+        .help-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .help-section ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .help-section li {
+            margin: 5px 0;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="discovery-container">
+        <h1><i class="fas fa-search"></i> Find Meeting</h1>
+        <p>Enter the session ID (server IP address) provided by the meeting host</p>
+        
+        <form id="discoveryForm">
+            <input type="text" id="sessionId" placeholder="Enter session ID (e.g., 192.168.1.100)" required>
+            <small style="color: #666; display: block; margin-bottom: 15px;">
+                The session ID is usually the host's IP address
+            </small>
+            
+            <button type="submit" id="connectBtn">
+                <i class="fas fa-search"></i> Find & Join Meeting
+            </button>
+        </form>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="help-section">
+            <h3><i class="fas fa-question-circle"></i> How to get the Session ID?</h3>
+            <ul>
+                <li><strong>Ask the host</strong> for their server IP address</li>
+                <li>It usually looks like: <code>192.168.1.100</code> or <code>10.0.0.5</code></li>
+                <li>The host can find it by running the server and checking the console</li>
+                <li>Or the host can share a direct link like: <code>http://192.168.1.100:5000/simple-join</code></li>
+            </ul>
+            
+            <h3><i class="fas fa-lightbulb"></i> What happens next?</h3>
+            <ul>
+                <li>We'll check if the server is running at that IP address</li>
+                <li>If found, you'll be redirected to the meeting page</li>
+                <li>You can then enter your name and join the meeting</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('discoveryForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const sessionId = document.getElementById('sessionId').value.trim();
+                if (!sessionId) {
+                    showStatus('Please enter a session ID', 'error');
+                    return;
+                }
+                
+                // Validate IP format (basic validation)
+                const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+                if (!ipPattern.test(sessionId) && sessionId !== 'localhost') {
+                    showStatus('Please enter a valid IP address (e.g., 192.168.1.100)', 'error');
+                    return;
+                }
+                
+                connectToSession(sessionId);
+            });
+        });
+        
+        function connectToSession(sessionId) {
+            const connectBtn = document.getElementById('connectBtn');
+            connectBtn.disabled = true;
+            connectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+            
+            showStatus('Checking if server is available...', 'info');
+            
+            // Test if server is reachable
+            const serverUrl = `http://${sessionId}:5000`;
+            
+            // Try to fetch server info to test connectivity
+            fetch(`${serverUrl}/api/server-info`)
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error(`Server responded with status: ${response.status}`);
+                })
+                .then(data => {
+                    showStatus('✅ Server found! Redirecting to meeting...', 'success');
+                    
+                    // Redirect to the server's simple-join page
+                    setTimeout(() => {
+                        window.location.href = `${serverUrl}/simple-join`;
+                    }, 1500);
+                })
+                .catch(error => {
+                    console.error('Connection test failed:', error);
+                    showStatus(`❌ Cannot connect to server at ${sessionId}:5000. Please check the IP address and ensure the server is running.`, 'error');
+                    
+                    connectBtn.disabled = false;
+                    connectBtn.innerHTML = '<i class="fas fa-search"></i> Find & Join Meeting';
+                });
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

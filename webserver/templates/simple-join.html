@@ -94,8 +94,11 @@
         let socket;
         
         document.addEventListener('DOMContentLoaded', function() {
-            // Auto-connect using the same host the client used to access this page
-            socket = io();
+            // Auto-connect using the same host/port the client used to access this page
+            // This ensures clients connect to the actual server IP, not localhost
+            const serverUrl = `http://${window.location.host}`;
+            console.log(`Connecting to server at: ${serverUrl}`);
+            socket = io(serverUrl);
             
             socket.on('connect', function() {
                 console.log('Connected to server');
