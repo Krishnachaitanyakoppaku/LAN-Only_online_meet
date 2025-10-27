@@ -36,6 +36,9 @@ download_logs = []
 UDP_SOCKET = None
 UDP_PORT = 5001
 
+# Cache server IP at startup to avoid detection issues during request handling
+SERVER_IP = None
+
 def get_host_ip():
     """Get the host machine's IP address that other computers can access"""
     try:
@@ -313,7 +316,7 @@ def session():
 def server_info():
     """Get server information including IP address"""
     return jsonify({
-        'server_ip': get_host_ip(),
+        'server_ip': SERVER_IP or get_host_ip(),
         'server_port': 5000,
         'udp_port': 5001
     })
@@ -332,7 +335,7 @@ def debug_sessions():
             for session_id, session_data in session_manager.sessions.items()
         },
         'connected_users': list(connected_users.keys()),
-        'server_ip': get_host_ip(),
+        'server_ip': SERVER_IP or get_host_ip(),
         'total_sessions': len(session_manager.sessions),
         'total_users': len(connected_users)
     })
@@ -419,12 +422,11 @@ def handle_join_session(data):
         print(f"Available sessions: {list(session_manager.sessions.keys())}")
         
         # Provide helpful error message with server IP
-        server_ip = get_host_ip()
         available_sessions = list(session_manager.sessions.keys())
         if available_sessions:
             error_msg = f'Session "{session_id}" not found. Available sessions: {", ".join(available_sessions)}. Please check the session ID or ask the host to share the correct session ID.'
         else:
-            error_msg = f'Session "{session_id}" not found. No active sessions available. Please ask the host to create a session first.\n\n💡 The correct session ID should be the server IP: {server_ip}'
+            error_msg = f'Session "{session_id}" not found. No active sessions available. Please ask the host to create a session first.\n\n💡 The correct session ID should be the server IP: {SERVER_IP}'
         
         emit('join_error', {'message': error_msg})
 
@@ -821,12 +823,16 @@ def handle_get_user_permissions(data):
     })
 
 if __name__ == '__main__':
+    # Initialize server IP at startup
+    SERVER_IP = get_host_ip()
+    print(f"Server IP detected: {SERVER_IP}")
+    
     # Setup UDP socket for media streaming
     if setup_udp_socket():
         start_udp_listener()
     
     print("Starting LAN Communication Server...")
-    print("Server will be available at: http://localhost:5000")
+    print(f"Server will be available at: http://{SERVER_IP}:5000")
     print("UDP streaming port: 5001")
     
     # Run the server
