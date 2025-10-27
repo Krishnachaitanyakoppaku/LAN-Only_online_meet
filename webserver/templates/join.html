@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Host Session - LAN Communication Hub</title>
+    <title>Join Session - LAN Communication Hub</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -12,7 +12,7 @@
         <header class="header">
             <div class="logo">
                 <i class="fas fa-network-wired"></i>
-                <h1>Host New Session</h1>
+                <h1>Join Session</h1>
             </div>
             <div class="connection-status" id="connectionStatus">
                 <i class="fas fa-circle"></i>
@@ -24,29 +24,29 @@
             <div class="welcome-section">
                 <div class="welcome-card">
                     <div class="welcome-icon">
-                        <i class="fas fa-plus-circle"></i>
+                        <i class="fas fa-sign-in-alt"></i>
                     </div>
-                    <h2>Create New Session</h2>
-                    <p>Start a new collaboration session and invite others to join.</p>
+                    <h2>Join Existing Session</h2>
+                    <p>Enter the session ID provided by the host to join their collaboration session.</p>
                     
-                    <form id="hostForm" class="session-form">
+                    <form id="joinForm" class="session-form">
                         <div class="form-group">
-                            <label for="hostUsername">Your Username</label>
-                            <input type="text" id="hostUsername" required placeholder="Enter your username">
+                            <label for="joinUsername">Your Username</label>
+                            <input type="text" id="joinUsername" required placeholder="Enter your username">
                         </div>
                         <div class="form-group">
-                            <label for="sessionId">Session ID (Optional)</label>
-                            <input type="text" id="sessionId" placeholder="Leave empty for auto-generated">
-                            <small class="form-help">Share this ID with others to let them join your session</small>
+                            <label for="joinSessionId">Session ID</label>
+                            <input type="text" id="joinSessionId" required placeholder="Enter session ID">
+                            <small class="form-help">Get this from the session host</small>
                         </div>
                         <button type="submit" class="btn btn-primary btn-full">
-                            <i class="fas fa-play"></i>
-                            Start Session
+                            <i class="fas fa-sign-in-alt"></i>
+                            Join Session
                         </button>
                     </form>
                     
                     <div class="session-info">
-                        <h3>Session Features</h3>
+                        <h3>What You'll Get</h3>
                         <ul class="feature-list">
                             <li><i class="fas fa-video"></i> Video conferencing</li>
                             <li><i class="fas fa-microphone"></i> Audio conferencing</li>

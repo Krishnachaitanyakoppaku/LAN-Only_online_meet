@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-network-wired"></i>
+                <h1>LAN Communication Hub</h1>
+            </div>
+            <div class="connection-status" id="connectionStatus">
+                <i class="fas fa-circle"></i>
+                <span>Connecting...</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="welcome-section">
+                <div class="welcome-card">
+                    <div class="welcome-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <h2>Welcome to LAN Communication Hub</h2>
+                    <p>Connect with your team over your local network. Share video, audio, files, and collaborate in real-time.</p>
+                    
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" onclick="showHostModal()">
+                            <i class="fas fa-plus"></i>
+                            Host Session
+                        </button>
+                        <button class="btn btn-secondary" onclick="showJoinModal()">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Join Session
+                        </button>
+                    </div>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-video"></i>
+                        </div>
+                        <h3>Video Conferencing</h3>
+                        <p>Real-time video calls with multiple participants</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-microphone"></i>
+                        </div>
+                        <h3>Audio Conferencing</h3>
+                        <p>Crystal clear audio with automatic mixing</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-desktop"></i>
+                        </div>
+                        <h3>Screen Sharing</h3>
+                        <p>Share your screen or presentations</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-comments"></i>
+                        </div>
+                        <h3>Group Chat</h3>
+                        <p>Real-time text messaging</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-file-upload"></i>
+                        </div>
+                        <h3>File Sharing</h3>
+                        <p>Share files with progress tracking</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <h3>LAN Only</h3>
+                        <p>Secure local network communication</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Host Session Modal -->
+        <div id="hostModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Host New Session</h3>
+                    <button class="close-btn" onclick="closeHostModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="hostForm">
+                        <div class="form-group">
+                            <label for="hostUsername">Your Username</label>
+                            <input type="text" id="hostUsername" required placeholder="Enter your username">
+                        </div>
+                        <div class="form-group">
+                            <label for="sessionId">Session ID (Optional)</label>
+                            <input type="text" id="sessionId" placeholder="Leave empty for auto-generated">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-full">
+                            <i class="fas fa-play"></i>
+                            Start Session
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Join Session Modal -->
+        <div id="joinModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Join Session</h3>
+                    <button class="close-btn" onclick="closeJoinModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form id="joinForm">
+                        <div class="form-group">
+                            <label for="joinUsername">Your Username</label>
+                            <input type="text" id="joinUsername" required placeholder="Enter your username">
+                        </div>
+                        <div class="form-group">
+                            <label for="joinSessionId">Session ID</label>
+                            <input type="text" id="joinSessionId" required placeholder="Enter session ID">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-full">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Join Session
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error/Success Messages -->
+        <div id="messageContainer" class="message-container"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

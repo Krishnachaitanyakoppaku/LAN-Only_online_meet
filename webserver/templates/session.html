@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN Communication Hub - Session</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/session.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="session-container">
+        <!-- Header -->
+        <header class="session-header">
+            <div class="session-info">
+                <h2 id="sessionTitle">Session: <span id="currentSessionId">Loading...</span></h2>
+                <div class="user-count">
+                    <i class="fas fa-users"></i>
+                    <span id="userCount">1</span> participants
+                </div>
+            </div>
+            <div class="session-controls">
+                <button class="btn btn-sm host-control" id="logsBtn" style="display: none;">
+                    <i class="fas fa-list-alt"></i>
+                    Logs
+                </button>
+                <button class="btn btn-sm" id="settingsBtn">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" id="leaveBtn">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Leave
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <div class="session-main">
+            <!-- Video/Audio Section -->
+            <div class="media-section">
+                <div class="video-grid" id="videoGrid">
+                    <!-- Video streams will be added here -->
+                </div>
+                
+                <!-- Screen Share Display -->
+                <div class="screen-share-container" id="screenShareContainer" style="display: none;">
+                    <div class="screen-share-header">
+                        <span id="screenSharePresenter">Screen sharing by: </span>
+                        <button class="btn btn-sm" id="fullscreenBtn">
+                            <i class="fas fa-expand"></i>
+                        </button>
+                    </div>
+                    <div class="screen-share-content">
+                        <img id="screenShareImage" alt="Screen Share">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <!-- Participants List -->
+                <div class="participants-section">
+                    <h3>
+                        <i class="fas fa-users"></i>
+                        Participants
+                    </h3>
+                    <div class="participants-list" id="participantsList">
+                        <!-- Participants will be added here -->
+                    </div>
+                </div>
+
+                <!-- Chat Section -->
+                <div class="chat-section">
+                    <div class="chat-header">
+                        <h3>
+                            <i class="fas fa-comments"></i>
+                            Chat
+                        </h3>
+                        <button class="btn btn-sm" id="chatToggle">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
+                    <div class="chat-content" id="chatContent">
+                        <div class="chat-messages" id="chatMessages">
+                            <!-- Messages will be added here -->
+                        </div>
+                        <div class="chat-input-container">
+                            <input type="text" id="chatInput" placeholder="Type a message...">
+                            <button class="btn btn-primary" id="sendBtn">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Sharing Section -->
+                <div class="files-section">
+                    <div class="files-header">
+                        <h3>
+                            <i class="fas fa-file-upload"></i>
+                            Files
+                        </h3>
+                        <button class="btn btn-sm" id="uploadBtn">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="files-content" id="filesContent">
+                        <div class="files-list" id="filesList">
+                            <!-- Files will be added here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Bar -->
+        <div class="control-bar">
+            <div class="media-controls">
+                <button class="control-btn" id="videoToggle">
+                    <i class="fas fa-video"></i>
+                    <span>Video</span>
+                </button>
+                <button class="control-btn" id="audioToggle">
+                    <i class="fas fa-microphone"></i>
+                    <span>Audio</span>
+                </button>
+                <button class="control-btn" id="screenShareBtn">
+                    <i class="fas fa-desktop"></i>
+                    <span>Share Screen</span>
+                </button>
+            </div>
+            
+            <div class="session-info-bar">
+                <span id="currentUser">User: <span id="username">Loading...</span></span>
+                <div class="connection-indicator" id="connectionIndicator">
+                    <i class="fas fa-circle"></i>
+                    <span>Connected</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Upload Modal -->
+        <div id="fileUploadModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Upload File</h3>
+                    <button class="close-btn" onclick="closeFileUploadModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>Drag and drop files here or click to select</p>
+                        <input type="file" id="fileInput" multiple style="display: none;">
+                    </div>
+                    <div class="upload-progress" id="uploadProgress" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <span id="progressText">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Settings</h3>
+                    <button class="close-btn" onclick="closeSettingsModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h4>Audio/Video Settings</h4>
+                        <div class="form-group">
+                            <label for="videoDevice">Video Device</label>
+                            <select id="videoDevice">
+                                <option value="">Default Camera</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="audioDevice">Audio Device</label>
+                            <select id="audioDevice">
+                                <option value="">Default Microphone</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h4>Display Settings</h4>
+                        <div class="form-group">
+                            <label for="videoQuality">Video Quality</label>
+                            <select id="videoQuality">
+                                <option value="high">High</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/session.js') }}"></script>
+</body>
+</html>
