@@ -312,6 +312,21 @@ def session():
     """Session page"""
     return render_template('session.html')
 
+@app.route('/quick-join')
+def quick_join_page():
+    """Quick join page"""
+    return render_template('quick-join.html')
+
+@app.route('/simple-join')
+def simple_join_page():
+    """Simple join page - like your WebSocket example"""
+    return render_template('simple-join.html')
+
+@app.route('/simple-host')
+def simple_host_page():
+    """Simple host page"""
+    return render_template('simple-host.html')
+
 @app.route('/api/server-info')
 def server_info():
     """Get server information including IP address"""
@@ -319,6 +334,23 @@ def server_info():
         'server_ip': SERVER_IP or get_host_ip(),
         'server_port': 5000,
         'udp_port': 5001
+    })
+
+@app.route('/api/sessions')
+def list_sessions():
+    """List available sessions for joining"""
+    return jsonify({
+        'sessions': [
+            {
+                'id': session_id,
+                'host': session_data['host'],
+                'user_count': len(session_data['users']),
+                'created_at': session_data['created_at'].isoformat() if session_data.get('created_at') else None
+            }
+            for session_id, session_data in session_manager.sessions.items()
+        ],
+        'server_ip': get_host_ip(),
+        'total_sessions': len(session_manager.sessions)
     })
 
 @app.route('/api/debug/sessions')
@@ -384,10 +416,26 @@ def handle_join_session(data):
     print(f"Current connected users: {list(connected_users.keys())}")
     print(f"Current sessions: {list(session_manager.sessions.keys())}")
     
-    if not username or not session_id:
-        print("Join session error: Missing username or session_id")
-        emit('join_error', {'message': 'Username and session ID required'})
+    if not username:
+        print("Join session error: Missing username")
+        emit('join_error', {'message': 'Username required'})
         return
+    
+    # If no session_id provided, try to auto-join the main session
+    if not session_id:
+        # Try main session first
+        if "main_session" in session_manager.sessions:
+            session_id = "main_session"
+            print(f"Auto-joining main session: {session_id}")
+        else:
+            # Fall back to first available session
+            available_sessions = list(session_manager.sessions.keys())
+            if available_sessions:
+                session_id = available_sessions[0]
+                print(f"Auto-joining first available session: {session_id}")
+            else:
+                emit('join_error', {'message': 'No active sessions available. Please ask the host to create a session first.'})
+                return
     
     # Check if username is already connected
     if username in connected_users:
@@ -430,6 +478,52 @@ def handle_join_session(data):
         
         emit('join_error', {'message': error_msg})
 
+@socketio.on('quick_join')
+def handle_quick_join(data):
+    """Handle quick join - automatically join the first available session"""
+    username = data.get('username')
+    
+    print(f"Quick join request: username={username}")
+    
+    if not username:
+        print("Quick join error: Missing username")
+        emit('join_error', {'message': 'Username required'})
+        return
+    
+    # Find first available session
+    available_sessions = list(session_manager.sessions.keys())
+    if not available_sessions:
+        emit('join_error', {'message': 'No active sessions available. Please ask the host to create a session first.'})
+        return
+    
+    session_id = available_sessions[0]
+    print(f"Quick joining session: {session_id}")
+    
+    # Store user connection
+    connected_users[username] = request.sid
+    
+    # Join session
+    if session_manager.join_session(session_id, username):
+        join_room(session_id)
+        
+        print(f"User {username} successfully quick-joined session {session_id}")
+        
+        # Notify other users
+        socketio.emit('user_joined', {
+            'user': username,
+            'session': session_id,
+            'users': session_manager.get_session_users(session_id)
+        }, room=session_id)
+        
+        emit('join_success', {
+            'session': session_id,
+            'users': session_manager.get_session_users(session_id),
+            'host': session_manager.get_session_host(session_id),
+            'is_host': session_manager.is_host(username, session_id)
+        })
+    else:
+        emit('join_error', {'message': 'Failed to join session'})
+
 @socketio.on('leave_session')
 def handle_leave_session(data):
     """Handle user explicitly leaving a session"""
@@ -459,11 +553,11 @@ def handle_create_session(data):
     username = data.get('username')
     custom_session_id = data.get('session_id')
     
-    # Use custom session ID if provided, otherwise use IP address
+    # Use a simple default session name - no need for complex IP detection
     if custom_session_id and custom_session_id.strip():
         session_id = custom_session_id.strip()
     else:
-        session_id = get_host_ip()
+        session_id = "main_session"  # Simple default session
     
     print(f"Create session request: username={username}, session_id={session_id}")
     

@@ -54,6 +54,7 @@ function checkForSessionParameter() {
 
 // Initialize Socket.IO connection
 function initializeSocket() {
+    // Auto-connect using the same host/port the client used to access the page
     socket = io();
     
     socket.on('connect', function() {
@@ -148,14 +149,14 @@ function setupEventListeners() {
             const username = document.getElementById('joinUsername').value.trim();
             const sessionId = document.getElementById('joinSessionId').value.trim();
             
-            if (!username || !sessionId) {
-                showMessage('Please enter both username and session ID', 'error');
+            if (!username) {
+                showMessage('Please enter a username', 'error');
                 return;
             }
             
             socket.emit('join_session', {
                 username: username,
-                session_id: sessionId
+                session_id: sessionId || undefined // Send undefined if empty
             });
         });
     }
@@ -522,6 +523,51 @@ function hideTooltip() {
 document.addEventListener('DOMContentLoaded', function() {
     initializeHelp();
 });
+
+// Quick join function
+function quickJoin() {
+    const username = document.getElementById('joinUsername').value.trim();
+    
+    if (!username) {
+        showMessage('Please enter a username first', 'error');
+        return;
+    }
+    
+    socket.emit('quick_join', {
+        username: username
+    });
+}
+
+// Show available sessions
+function showAvailableSessions() {
+    fetch('/api/sessions')
+        .then(response => response.json())
+        .then(data => {
+            if (data.sessions.length === 0) {
+                showMessage('No active sessions found. Ask the host to create a session first.', 'info');
+                return;
+            }
+            
+            let message = `📋 Available Sessions (${data.sessions.length}):\n\n`;
+            data.sessions.forEach(session => {
+                message += `🏠 Session: ${session.id}\n`;
+                message += `   Host: ${session.host}\n`;
+                message += `   Users: ${session.user_count}\n`;
+                if (session.created_at) {
+                    message += `   Created: ${new Date(session.created_at).toLocaleString()}\n`;
+                }
+                message += `\n`;
+            });
+            
+            message += `💡 Tip: Use "Quick Join" to automatically join the first available session!`;
+            
+            alert(message);
+        })
+        .catch(error => {
+            console.error('Failed to get sessions:', error);
+            showMessage('Failed to get session list. Please check if the server is running.', 'error');
+        });
+}
 
 // Check server status and debug information
 function checkServerStatus() {

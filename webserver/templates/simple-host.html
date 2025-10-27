@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Host Meeting - LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .simple-host {
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .simple-host h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .simple-host p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .simple-host input {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        .simple-host button {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .simple-host button:hover {
+            background: #0056b3;
+        }
+        .simple-host button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .share-info {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        .share-info h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .share-url {
+            background: white;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .copy-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="simple-host">
+        <h1><i class="fas fa-users"></i> Host Meeting</h1>
+        <p>Create a meeting room that others can join. Share the link with your team!</p>
+        
+        <form id="hostForm">
+            <input type="text" id="username" placeholder="Your Name (Host)" required>
+            <button type="submit" id="hostBtn">
+                <i class="fas fa-plus"></i> Create Meeting
+            </button>
+        </form>
+        
+        <div id="status" class="status"></div>
+        
+        <div id="shareInfo" class="share-info">
+            <h3><i class="fas fa-share-alt"></i> Share this with your team:</h3>
+            <div class="share-url" id="shareUrl"></div>
+            <button class="copy-btn" onclick="copyShareUrl()">
+                <i class="fas fa-copy"></i> Copy Link
+            </button>
+            <p style="margin-top: 15px; font-size: 14px; color: #666;">
+                Anyone on your network can use this link to join the meeting instantly!
+            </p>
+            <button style="margin-top: 15px; background: #28a745;" onclick="window.location.href='/session'">
+                <i class="fas fa-video"></i> Enter Meeting Room
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        let socket;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto-connect using the same host the client used to access this page
+            socket = io();
+            
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                showStatus('Connected to server!', 'success');
+            });
+            
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                showStatus('Disconnected from server', 'error');
+            });
+            
+            socket.on('create_success', function(data) {
+                showStatus('Meeting created successfully!', 'success');
+                
+                // Store session data
+                localStorage.setItem('currentUser', document.getElementById('username').value);
+                localStorage.setItem('currentSession', data.session);
+                localStorage.setItem('isHost', 'true');
+                
+                // Show share information
+                const shareUrl = `${window.location.origin}/simple-join`;
+                document.getElementById('shareUrl').textContent = shareUrl;
+                document.getElementById('shareInfo').style.display = 'block';
+            });
+            
+            socket.on('create_error', function(data) {
+                showStatus(data.message, 'error');
+                document.getElementById('hostBtn').disabled = false;
+                document.getElementById('hostBtn').innerHTML = '<i class="fas fa-plus"></i> Create Meeting';
+            });
+            
+            socket.on('join_success', function(data) {
+                // This happens if the session already existed and we joined it instead
+                showStatus('Joined existing meeting as host!', 'success');
+                
+                localStorage.setItem('currentUser', document.getElementById('username').value);
+                localStorage.setItem('currentSession', data.session);
+                localStorage.setItem('isHost', data.is_host);
+                
+                const shareUrl = `${window.location.origin}/simple-join`;
+                document.getElementById('shareUrl').textContent = shareUrl;
+                document.getElementById('shareInfo').style.display = 'block';
+            });
+            
+            // Handle form submission
+            document.getElementById('hostForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value.trim();
+                if (!username) {
+                    showStatus('Please enter your name', 'error');
+                    return;
+                }
+                
+                // Disable button and show loading
+                document.getElementById('hostBtn').disabled = true;
+                document.getElementById('hostBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+                
+                showStatus('Creating meeting room...', 'info');
+                
+                // Create session - will use default "main_session"
+                socket.emit('create_session', {
+                    username: username
+                    // No custom session_id - will use default
+                });
+            });
+        });
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+        
+        function copyShareUrl() {
+            const shareUrl = document.getElementById('shareUrl').textContent;
+            navigator.clipboard.writeText(shareUrl).then(function() {
+                showStatus('Link copied to clipboard!', 'success');
+            }).catch(function(err) {
+                console.error('Could not copy text: ', err);
+                showStatus('Failed to copy link', 'error');
+            });
+        }
+    </script>
+</body>
+</html>

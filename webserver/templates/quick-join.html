@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Join - LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-network-wired"></i>
+                <h1>Quick Join</h1>
+            </div>
+            <div class="connection-status" id="connectionStatus">
+                <i class="fas fa-circle"></i>
+                <span>Connecting...</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="welcome-section">
+                <div class="welcome-card">
+                    <div class="welcome-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h2>Quick Join Session</h2>
+                    <p>Enter your name and we'll automatically connect you to the first available session.</p>
+                    
+                    <form id="quickJoinForm" class="session-form">
+                        <div class="form-group">
+                            <label for="quickJoinUsername">Your Username</label>
+                            <input type="text" id="quickJoinUsername" required placeholder="Enter your username">
+                        </div>
+                        <button type="submit" class="btn btn-success btn-full">
+                            <i class="fas fa-bolt"></i>
+                            Quick Join Now!
+                        </button>
+                    </form>
+                    
+                    <div class="quick-actions" style="margin-top: 20px;">
+                        <button class="btn btn-info btn-full" onclick="showAvailableSessions()" style="margin-bottom: 10px;">
+                            <i class="fas fa-list"></i>
+                            Show Available Sessions
+                        </button>
+                        <button class="btn btn-secondary btn-full" onclick="window.location.href='/join'">
+                            <i class="fas fa-cog"></i>
+                            Advanced Join (Specify Session)
+                        </button>
+                    </div>
+                    
+                    <div class="session-info">
+                        <h3>How Quick Join Works</h3>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-search"></i> Automatically finds available sessions</li>
+                            <li><i class="fas fa-bolt"></i> Joins the first session instantly</li>
+                            <li><i class="fas fa-users"></i> No need to know server IP or session ID</li>
+                            <li><i class="fas fa-shield-alt"></i> Safe and secure local network connection</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Error/Success Messages -->
+        <div id="messageContainer" class="message-container"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        let socket;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            setupEventListeners();
+        });
+        
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                updateConnectionStatus('connected');
+            });
+            
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                updateConnectionStatus('disconnected');
+            });
+            
+            socket.on('join_success', function(data) {
+                showMessage('Successfully joined session!', 'success');
+                localStorage.setItem('currentUser', document.getElementById('quickJoinUsername').value);
+                localStorage.setItem('currentSession', data.session);
+                localStorage.setItem('isHost', data.is_host);
+                
+                setTimeout(() => {
+                    window.location.href = '/session';
+                }, 1000);
+            });
+            
+            socket.on('join_error', function(data) {
+                showMessage(data.message, 'error', 8000);
+            });
+        }
+        
+        function setupEventListeners() {
+            const quickJoinForm = document.getElementById('quickJoinForm');
+            quickJoinForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const username = document.getElementById('quickJoinUsername').value.trim();
+                
+                if (!username) {
+                    showMessage('Please enter a username', 'error');
+                    return;
+                }
+                
+                showMessage('Looking for available sessions...', 'info');
+                
+                socket.emit('quick_join', {
+                    username: username
+                });
+            });
+        }
+        
+        function showAvailableSessions() {
+            fetch('/api/sessions')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.sessions.length === 0) {
+                        showMessage('No active sessions found. Ask the host to create a session first.', 'info');
+                        return;
+                    }
+                    
+                    let message = `📋 Available Sessions (${data.sessions.length}):\n\n`;
+                    data.sessions.forEach(session => {
+                        message += `🏠 Session: ${session.id}\n`;
+                        message += `   Host: ${session.host}\n`;
+                        message += `   Users: ${session.user_count}\n`;
+                        if (session.created_at) {
+                            message += `   Created: ${new Date(session.created_at).toLocaleString()}\n`;
+                        }
+                        message += `\n`;
+                    });
+                    
+                    alert(message);
+                })
+                .catch(error => {
+                    console.error('Failed to get sessions:', error);
+                    showMessage('Failed to get session list. Please check if the server is running.', 'error');
+                });
+        }
+        
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (!statusElement) return;
+            
+            const icon = statusElement.querySelector('i');
+            const text = statusElement.querySelector('span');
+            
+            switch(status) {
+                case 'connected':
+                    icon.className = 'fas fa-circle';
+                    icon.style.color = '#28a745';
+                    text.textContent = 'Connected';
+                    break;
+                case 'disconnected':
+                    icon.className = 'fas fa-circle';
+                    icon.style.color = '#dc3545';
+                    text.textContent = 'Disconnected';
+                    break;
+            }
+        }
+        
+        function showMessage(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('messageContainer');
+            if (!container) return;
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${type}`;
+            messageElement.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.2rem; margin-left: 10px;">&times;</button>
+                </div>
+            `;
+            
+            container.appendChild(messageElement);
+            
+            setTimeout(() => {
+                if (messageElement.parentElement) {
+                    messageElement.remove();
+                }
+            }, duration);
+        }
+    </script>
+</body>
+</html>

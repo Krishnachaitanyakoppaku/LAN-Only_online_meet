@@ -36,13 +36,20 @@
                     <p>Connect with your team over your local network. Share video, audio, files, and collaborate in real-time.</p>
                     
                     <div class="action-buttons">
-                        <button class="btn btn-primary" onclick="showHostModal()">
+                        <button class="btn btn-primary" onclick="window.location.href='/simple-host'">
                             <i class="fas fa-plus"></i>
-                            Host Session
+                            Host Meeting
                         </button>
-                        <button class="btn btn-secondary" onclick="showJoinModal()">
-                            <i class="fas fa-sign-in-alt"></i>
-                            Join Session
+                        <button class="btn btn-success" onclick="window.location.href='/simple-join'">
+                            <i class="fas fa-video"></i>
+                            Join Meeting
+                        </button>
+                    </div>
+                    
+                    <div class="action-buttons" style="margin-top: 15px;">
+                        <button class="btn btn-info" onclick="window.location.href='/quick-join'" style="font-size: 14px;">
+                            <i class="fas fa-bolt"></i>
+                            Advanced Options
                         </button>
                     </div>
                 </div>

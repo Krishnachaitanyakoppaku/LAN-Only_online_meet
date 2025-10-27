@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Meeting - LAN Communication Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .simple-join {
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .simple-join h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .simple-join p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .simple-join input {
+            width: 100%;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        .simple-join button {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .simple-join button:hover {
+            background: #218838;
+        }
+        .simple-join button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="simple-join">
+        <h1><i class="fas fa-video"></i> Join Meeting</h1>
+        <p>Enter your name to join the meeting. We'll automatically connect you!</p>
+        
+        <form id="joinForm">
+            <input type="text" id="username" placeholder="Your Name" required>
+            <button type="submit" id="joinBtn">
+                <i class="fas fa-sign-in-alt"></i> Join Meeting
+            </button>
+        </form>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        let socket;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Auto-connect using the same host the client used to access this page
+            socket = io();
+            
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                showStatus('Connected to server!', 'success');
+            });
+            
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                showStatus('Disconnected from server', 'error');
+            });
+            
+            socket.on('join_success', function(data) {
+                showStatus('Successfully joined the meeting!', 'success');
+                
+                // Store session data
+                localStorage.setItem('currentUser', document.getElementById('username').value);
+                localStorage.setItem('currentSession', data.session);
+                localStorage.setItem('isHost', data.is_host);
+                
+                // Redirect to session
+                setTimeout(() => {
+                    window.location.href = '/session';
+                }, 1000);
+            });
+            
+            socket.on('join_error', function(data) {
+                showStatus(data.message, 'error');
+                document.getElementById('joinBtn').disabled = false;
+                document.getElementById('joinBtn').innerHTML = '<i class="fas fa-sign-in-alt"></i> Join Meeting';
+            });
+            
+            // Handle form submission
+            document.getElementById('joinForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value.trim();
+                if (!username) {
+                    showStatus('Please enter your name', 'error');
+                    return;
+                }
+                
+                // Disable button and show loading
+                document.getElementById('joinBtn').disabled = true;
+                document.getElementById('joinBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Joining...';
+                
+                showStatus('Looking for available meetings...', 'info');
+                
+                // Try to join - no session ID needed, server will auto-assign
+                socket.emit('join_session', {
+                    username: username
+                    // No session_id - let server auto-assign
+                });
+            });
+        });
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
