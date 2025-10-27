@@ -109,7 +109,12 @@ function initializeSocket() {
     });
     
     socket.on('join_error', function(data) {
-        showMessage(data.message, 'error');
+        showMessage(data.message, 'error', 10000); // Show error for 10 seconds
+        
+        // Also show troubleshooting tips
+        setTimeout(() => {
+            showMessage('💡 Tip: Make sure the host has created the session first, and you\'re using the correct session ID (server IP address)', 'info', 8000);
+        }, 2000);
     });
 }
 
@@ -242,6 +247,10 @@ function showSessionInfo(sessionId, users, isHost) {
                         <button class="btn btn-secondary btn-full" onclick="closeSessionInfoModal()">
                             <i class="fas fa-times"></i>
                             Stay Here
+                        </button>
+                        <button class="btn btn-info btn-full" onclick="checkServerStatus()" style="margin-top: 10px;">
+                            <i class="fas fa-info-circle"></i>
+                            Check Server Status
                         </button>
                     </div>
                 </div>
@@ -513,3 +522,31 @@ function hideTooltip() {
 document.addEventListener('DOMContentLoaded', function() {
     initializeHelp();
 });
+
+// Check server status and debug information
+function checkServerStatus() {
+    fetch('/api/debug/sessions')
+        .then(response => response.json())
+        .then(data => {
+            let message = `🖥️ Server Status:\n`;
+            message += `Server IP: ${data.server_ip}\n`;
+            message += `Active Sessions: ${data.total_sessions}\n`;
+            message += `Connected Users: ${data.total_users}\n\n`;
+            
+            if (data.total_sessions > 0) {
+                message += `📋 Available Sessions:\n`;
+                Object.keys(data.active_sessions).forEach(sessionId => {
+                    const session = data.active_sessions[sessionId];
+                    message += `• ${sessionId} (Host: ${session.host}, Users: ${session.user_count})\n`;
+                });
+            } else {
+                message += `⚠️ No active sessions found. Host needs to create a session first.`;
+            }
+            
+            alert(message);
+        })
+        .catch(error => {
+            console.error('Failed to get server status:', error);
+            showMessage('Failed to get server status. Please check if the server is running.', 'error');
+        });
+}

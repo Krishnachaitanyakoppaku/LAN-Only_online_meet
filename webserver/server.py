@@ -53,18 +53,42 @@ def get_host_ip():
             # If it's not a private IP, try to get the actual network interface IP
             import subprocess
             try:
-                # Try to get IP from ifconfig (macOS/Linux)
-                result = subprocess.run(['ifconfig'], capture_output=True, text=True)
+                # Try Windows ipconfig first
+                result = subprocess.run(['ipconfig'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'IPv4 Address' in line and ':' in line:
+                            ip = line.split(':')[1].strip()
+                            if ip.startswith(('192.168.', '10.', '172.')):
+                                print(f"Detected network IP from ipconfig: {ip}")
+                                return ip
+                
+                # Try Linux/Mac ifconfig
+                result = subprocess.run(['ifconfig'], capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     lines = result.stdout.split('\n')
                     for line in lines:
                         if 'inet ' in line and '127.0.0.1' not in line:
-                            ip = line.split()[1]
-                            if ip.startswith(('192.168.', '10.', '172.')):
-                                print(f"Detected network IP from ifconfig: {ip}")
-                                return ip
-            except:
-                pass
+                            parts = line.split()
+                            for i, part in enumerate(parts):
+                                if part == 'inet' and i + 1 < len(parts):
+                                    ip = parts[i + 1]
+                                    if ip.startswith(('192.168.', '10.', '172.')):
+                                        print(f"Detected network IP from ifconfig: {ip}")
+                                        return ip
+                
+                # Try hostname -I (Linux)
+                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    ips = result.stdout.strip().split()
+                    for ip in ips:
+                        if ip.startswith(('192.168.', '10.', '172.')):
+                            print(f"Detected network IP from hostname: {ip}")
+                            return ip
+                            
+            except Exception as e:
+                print(f"Error running network commands: {e}")
             
             print(f"Using detected IP: {local_ip}")
             return local_ip
@@ -127,15 +151,49 @@ class SessionManager:
         
         # Try to find session with different IP format (localhost vs actual IP)
         for existing_session_id in self.sessions.keys():
-            if existing_session_id == "localhost" and session_id != "localhost":
-                print(f"Found localhost session, allowing join with IP {session_id}")
+            # Handle localhost variations
+            if (existing_session_id == "localhost" or existing_session_id == "127.0.0.1") and session_id not in ["localhost", "127.0.0.1"]:
+                print(f"Found localhost session {existing_session_id}, allowing join with IP {session_id}")
                 return self.join_session(existing_session_id, user)
-            elif existing_session_id != "localhost" and session_id == "localhost":
+            elif existing_session_id not in ["localhost", "127.0.0.1"] and (session_id == "localhost" or session_id == "127.0.0.1"):
                 print(f"Found IP session {existing_session_id}, allowing join with localhost")
+                return self.join_session(existing_session_id, user)
+            
+            # Handle IP address variations (e.g., different network interfaces)
+            if self.is_same_host(existing_session_id, session_id):
+                print(f"Found matching host session {existing_session_id} for {session_id}")
                 return self.join_session(existing_session_id, user)
         
         print(f"Session {session_id} not found")
         return False
+    
+    def is_same_host(self, ip1, ip2):
+        """Check if two IP addresses refer to the same host"""
+        try:
+            import socket
+            # Get all possible IPs for this host
+            hostname = socket.gethostname()
+            host_ips = set()
+            
+            # Add localhost variations
+            host_ips.update(['localhost', '127.0.0.1', '0.0.0.0'])
+            
+            # Add actual host IPs
+            try:
+                host_ips.add(socket.gethostbyname(hostname))
+                # Get all network interfaces
+                import subprocess
+                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    ips = result.stdout.strip().split()
+                    host_ips.update(ips)
+            except:
+                pass
+            
+            # Check if both IPs belong to this host
+            return ip1 in host_ips and ip2 in host_ips
+        except:
+            return False
     
     def leave_session(self, user):
         """Leave current session"""
@@ -260,6 +318,25 @@ def server_info():
         'udp_port': 5001
     })
 
+@app.route('/api/debug/sessions')
+def debug_sessions():
+    """Debug endpoint to view active sessions"""
+    return jsonify({
+        'active_sessions': {
+            session_id: {
+                'host': session_data['host'],
+                'users': session_data['users'],
+                'created_at': session_data['created_at'].isoformat() if session_data.get('created_at') else None,
+                'user_count': len(session_data['users'])
+            }
+            for session_id, session_data in session_manager.sessions.items()
+        },
+        'connected_users': list(connected_users.keys()),
+        'server_ip': get_host_ip(),
+        'total_sessions': len(session_manager.sessions),
+        'total_users': len(connected_users)
+    })
+
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection"""
@@ -334,7 +411,15 @@ def handle_join_session(data):
     else:
         print(f"Join session error: Session {session_id} not found")
         print(f"Available sessions: {list(session_manager.sessions.keys())}")
-        emit('join_error', {'message': f'Session "{session_id}" not found. Please check the session ID or ask the host to create the session first.'})
+        
+        # Provide helpful error message
+        available_sessions = list(session_manager.sessions.keys())
+        if available_sessions:
+            error_msg = f'Session "{session_id}" not found. Available sessions: {", ".join(available_sessions)}. Please check the session ID or ask the host to share the correct session ID.'
+        else:
+            error_msg = f'Session "{session_id}" not found. No active sessions available. Please ask the host to create a session first.'
+        
+        emit('join_error', {'message': error_msg})
 
 @socketio.on('create_session')
 def handle_create_session(data):
@@ -342,14 +427,42 @@ def handle_create_session(data):
     username = data.get('username')
     custom_session_id = data.get('session_id')
     
-    # Use IP address as session ID
-    session_id = get_host_ip()
+    # Use custom session ID if provided, otherwise use IP address
+    if custom_session_id and custom_session_id.strip():
+        session_id = custom_session_id.strip()
+    else:
+        session_id = get_host_ip()
     
     print(f"Create session request: username={username}, session_id={session_id}")
     
     if not username:
         print("Create session error: Missing username")
         emit('create_error', {'message': 'Username required'})
+        return
+    
+    # Check if session already exists
+    if session_id in session_manager.sessions:
+        print(f"Session {session_id} already exists, trying to join instead")
+        # Try to join existing session
+        if session_manager.join_session(session_id, username):
+            connected_users[username] = request.sid
+            join_room(session_id)
+            
+            emit('join_success', {
+                'session': session_id,
+                'users': session_manager.get_session_users(session_id),
+                'host': session_manager.get_session_host(session_id),
+                'is_host': session_manager.is_host(username, session_id)
+            })
+            
+            # Notify other users
+            socketio.emit('user_joined', {
+                'user': username,
+                'session': session_id,
+                'users': session_manager.get_session_users(session_id)
+            }, room=session_id)
+        else:
+            emit('create_error', {'message': 'Session exists but cannot join'})
         return
     
     # Store user connection
