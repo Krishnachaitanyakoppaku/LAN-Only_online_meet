@@ -1,0 +1,2 @@
+This is a test file manually placed in uploads directory.
+It should be detected by the server and made available for download.

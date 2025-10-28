@@ -21,6 +21,7 @@ import time
 import struct
 import os
 import base64
+import traceback
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, scrolledtext
@@ -1299,9 +1300,10 @@ class LANCommunicationClient:
 
     
     def upload_file_to_server(self, port):
-        """Upload file to server on specified port"""
+        """Upload file to server on specified port - using CN_PROJECT optimized approach"""
         try:
             if not hasattr(self, 'pending_upload'):
+                print("❌ No pending upload found")
                 return
                 
             upload_info = self.pending_upload
@@ -1309,34 +1311,38 @@ class LANCommunicationClient:
             filename = upload_info['filename']
             file_size = upload_info['size']
             
-            # Connect to upload port
+            # Create and configure socket BEFORE connecting (like CN_PROJECT)
             upload_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             upload_socket.settimeout(30)
+            
+            # Set socket buffer BEFORE connecting for better performance
+            upload_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)  # 1MB buffer
+            
+            # Now connect
             upload_socket.connect((self.server_host, port))
             
             print(f"📤 Starting upload: {filename} ({file_size} bytes) to port {port}")
             
-            # CN_project optimized file upload
+            # CN_PROJECT style optimized file upload with zero-copy
             bytes_sent = 0
             chunk_size = 65536  # 64KB chunks for optimal performance
-            
-            # Set socket buffer for better performance
-            upload_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)  # 1MB buffer
+            buffer = bytearray(chunk_size)
             
             with open(file_path, 'rb') as f:
                 while bytes_sent < file_size:
                     remaining = file_size - bytes_sent
                     read_size = min(chunk_size, remaining)
-                    data = f.read(read_size)
                     
-                    if not data:
+                    # Read into buffer for zero-copy operation (like CN_PROJECT)
+                    bytes_read = f.readinto(buffer)
+                    if bytes_read == 0:
                         break
                     
                     # Use sendall to ensure complete transmission
-                    upload_socket.sendall(data)
-                    bytes_sent += len(data)
+                    upload_socket.sendall(buffer[:bytes_read])
+                    bytes_sent += bytes_read
                     
-                    # Update progress less frequently for better performance
+                    # Update progress
                     progress = (bytes_sent / file_size) * 100
                     
                     # Update GUI every 512KB for better performance
@@ -1366,6 +1372,7 @@ class LANCommunicationClient:
             if hasattr(self, 'upload_status_label'):
                 self.root.after(0, lambda: self.upload_status_label.config(text=f"❌ Upload failed: {str(e)}"))
             print(f"❌ Upload error: {e}")
+            traceback.print_exc()
     
     def download_file_from_server(self, port):
         """Download file from server on specified port"""

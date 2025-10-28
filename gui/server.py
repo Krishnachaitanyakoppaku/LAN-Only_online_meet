@@ -187,6 +187,9 @@ class LANCommunicationServer:
         os.makedirs(self.file_transfer['upload_dir'], exist_ok=True)
         os.makedirs(self.file_transfer['download_dir'], exist_ok=True)
         
+        # Scan for existing files in uploads directory
+        self.scan_existing_files()
+        
         # Server state
         self.running = False
         self.clients = {}  # {client_id: client_info}
@@ -1024,6 +1027,14 @@ class LANCommunicationServer:
         tk.Button(file_controls_frame, text="🗑️ Remove Selected", 
                  command=self.remove_selected_file,
                  bg='#d13438', fg='white', 
+                 font=('Segoe UI', 10, 'bold'),
+                 relief='flat', borderwidth=0,
+                 padx=15, pady=8,
+                 cursor='hand2').pack(side=tk.LEFT, padx=(0, 10))
+        
+        tk.Button(file_controls_frame, text="🔄 Refresh Files", 
+                 command=self.refresh_files_from_directory,
+                 bg='#17a2b8', fg='white', 
                  font=('Segoe UI', 10, 'bold'),
                  relief='flat', borderwidth=0,
                  padx=15, pady=8,
@@ -2396,6 +2407,129 @@ class LANCommunicationServer:
             except Exception as e:
                 self.log_message(f"Error clearing files: {str(e)}")
                 
+    def scan_existing_files(self):
+        """Scan uploads directory for existing files and register them"""
+        try:
+            upload_dir = self.file_transfer['upload_dir']
+            if not os.path.exists(upload_dir):
+                return
+            
+            files_found = 0
+            for filename in os.listdir(upload_dir):
+                file_path = os.path.join(upload_dir, filename)
+                
+                # Skip directories and hidden files
+                if os.path.isfile(file_path) and not filename.startswith('.'):
+                    # Generate unique file ID
+                    fid = f"manual_{int(time.time() * 1000)}_{filename}"
+                    
+                    # Get file info
+                    file_size = os.path.getsize(file_path)
+                    file_mtime = os.path.getmtime(file_path)
+                    
+                    # Create file metadata
+                    file_metadata = {
+                        'fid': fid,
+                        'filename': filename,
+                        'size': file_size,
+                        'uploader': 'Manual Upload',
+                        'uploader_uid': 'manual',
+                        'path': file_path,
+                        'uploaded_at': datetime.fromtimestamp(file_mtime).isoformat()
+                    }
+                    
+                    # Register file
+                    self.shared_files[fid] = file_metadata
+                    files_found += 1
+                    
+                    print(f"📁 Registered existing file: {filename} ({file_size} bytes)")
+            
+            if files_found > 0:
+                print(f"✅ Found and registered {files_found} existing files in uploads/")
+                # Broadcast all files to clients when they connect
+                self.broadcast_existing_files()
+            else:
+                print("📂 No existing files found in uploads/ directory")
+                
+        except Exception as e:
+            print(f"❌ Error scanning existing files: {e}")
+    
+    def broadcast_existing_files(self):
+        """Broadcast all existing files to connected clients"""
+        try:
+            for fid, file_info in self.shared_files.items():
+                file_available_msg = {
+                    'type': MessageTypes.FILE_AVAILABLE,
+                    'fid': fid,
+                    'filename': file_info['filename'],
+                    'size': file_info['size'],
+                    'uploader': file_info['uploader'],
+                    'timestamp': file_info['uploaded_at']
+                }
+                self.broadcast_message(file_available_msg)
+                
+        except Exception as e:
+            print(f"❌ Error broadcasting existing files: {e}")
+    
+    def refresh_files_from_directory(self):
+        """Manually refresh files from uploads directory"""
+        try:
+            print("🔄 Manually refreshing files from uploads directory...")
+            
+            # Clear existing files first
+            old_count = len(self.shared_files)
+            self.shared_files.clear()
+            
+            # Rescan directory
+            self.scan_existing_files()
+            
+            # Update GUI
+            self.update_files_display()
+            
+            # Broadcast to all clients
+            self.broadcast_existing_files()
+            
+            new_count = len(self.shared_files)
+            print(f"✅ File refresh complete: {old_count} → {new_count} files")
+            
+            # Show message to user
+            if hasattr(self, 'root'):
+                from tkinter import messagebox
+                messagebox.showinfo("Files Refreshed", 
+                                  f"Found {new_count} files in uploads directory.\nAll files have been broadcasted to clients.")
+            
+        except Exception as e:
+            print(f"❌ Error refreshing files: {e}")
+            if hasattr(self, 'root'):
+                from tkinter import messagebox
+                messagebox.showerror("Refresh Error", f"Failed to refresh files: {e}")
+    
+    def send_existing_files_to_client(self, client_id):
+        """Send all existing files to a specific client"""
+        try:
+            if not self.shared_files:
+                return
+                
+            files_sent = 0
+            for fid, file_info in self.shared_files.items():
+                file_available_msg = {
+                    'type': MessageTypes.FILE_AVAILABLE,
+                    'fid': fid,
+                    'filename': file_info['filename'],
+                    'size': file_info['size'],
+                    'uploader': file_info['uploader'],
+                    'timestamp': file_info['uploaded_at']
+                }
+                self.send_to_client(client_id, file_available_msg)
+                files_sent += 1
+            
+            if files_sent > 0:
+                client_name = self.clients.get(client_id, {}).get('name', 'Unknown')
+                print(f"📁 Sent {files_sent} existing files to {client_name}")
+                
+        except Exception as e:
+            print(f"❌ Error sending existing files to client: {e}")
+
     def update_files_display(self):
         """Update files display"""
         if hasattr(self, 'files_tree'):
@@ -2645,6 +2779,9 @@ class LANCommunicationServer:
                 'timestamp': datetime.now().isoformat()
             }
             self.send_to_client(client_id, welcome_msg)
+            
+            # Send existing files to new client
+            self.send_existing_files_to_client(client_id)
             
             # Notify other clients
             join_notification = create_user_joined_message(client_id, client_name)
