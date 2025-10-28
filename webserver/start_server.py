@@ -132,20 +132,8 @@ def check_dependencies():
         print(f"❌ Missing Flask packages: {e}")
         essential_missing.append("Flask Flask-SocketIO")
     
-    # Check SSL support for HTTPS
-    try:
-        import ssl
-        print("✅ SSL support: OK")
-    except ImportError:
-        print("⚠️  SSL support not available - will use HTTP only")
-    
-    # Check for pyOpenSSL (needed for adhoc SSL)
-    try:
-        import OpenSSL
-        print("✅ pyOpenSSL: OK (HTTPS will work)")
-    except ImportError:
-        print("❌ pyOpenSSL not found (required for HTTPS)")
-        essential_missing.append("pyOpenSSL")
+    # Note: No SSL/HTTPS required for HTTP-only server
+    print("ℹ️  Running in HTTP-only mode")
     
     # Check optional packages
     try:
@@ -313,43 +301,45 @@ def show_connection_info(server_ip):
     print("=" * 70)
     
     print(f"🖥️  SERVER (Host) - This Machine:")
-    print(f"   HTTPS URL: https://localhost:5000 (recommended)")
-    print(f"   HTTPS URL: https://{server_ip}:5000")
-    print(f"   HTTP URL: http://localhost:5000 (fallback)")
+    print(f"   URL: http://localhost:5000")
     print(f"   Action: Create session")
     print()
     
     print(f"💻 CLIENTS (Participants) - Other Machines:")
-    print(f"   🎯 RECOMMENDED: HTTPS Direct Connection")
-    print(f"     URL: https://{server_ip}:5000")
-    print(f"     Note: Browser will show security warning for self-signed certificate")
-    print(f"     Action: Click 'Advanced' → 'Proceed to {server_ip} (unsafe)'")
-    print(f"     Result: Camera/microphone will work!")
+    print(f"   ⚠️  IMPORTANT: Browser Security Restriction")
+    print(f"   Browsers DO NOT allow camera/microphone over HTTP on remote IPs")
+    print(f"   This is a browser security feature and cannot be bypassed")
     print()
     
-    print(f"   📋 ALTERNATIVE: SSH Tunnel (if HTTPS doesn't work)")
-    print(f"     1. Run: python3 connect_client.py")
+    print(f"   ✅ SOLUTION: SSH Tunnel (Recommended for Media)")
+    print(f"     1. Run: python3 client_connect.py")
     print(f"     2. Access: http://localhost:5000")
     print(f"     3. Join with session ID: {server_ip}")
+    print(f"     4. Camera/microphone will work via localhost!")
+    print()
+    
+    print(f"   🌐 ALTERNATIVE: Direct HTTP (Without Media)")
+    print(f"     URL: http://{server_ip}:5000")
+    print(f"     Note: Camera/microphone permissions will be blocked by browser")
+    print(f"     Use only for text chat/other features")
     print()
     
     print("🎯 SESSION INFORMATION:")
     print(f"   Server IP: {server_ip}")
     print(f"   Session ID: {server_ip}")
-    print(f"   HTTPS Port: 5000")
+    print(f"   HTTP Port: 5000")
     print()
     
-    print("🔒 HTTPS CERTIFICATE INFO:")
-    print("   • Server uses self-signed certificate")
-    print("   • Browser will show security warning")
-    print("   • This is normal and safe for local network")
-    print("   • Click 'Advanced' and 'Proceed' to continue")
+    print("⚠️  BROWSER SECURITY NOTICE:")
+    print("   • Modern browsers require HTTPS (or localhost) for media access")
+    print("   • HTTP on remote IPs cannot access camera/microphone")
+    print("   • This is a browser security feature, not a bug")
+    print("   • Solution: Use SSH tunnel to access via localhost")
     print()
     
     print("🔧 TROUBLESHOOTING URLS:")
-    print(f"   Media test (HTTPS): https://{server_ip}:5000/media-test")
-    print(f"   Media test (HTTP): http://{server_ip}:5000/media-test")
-    print(f"   Server debug: https://{server_ip}:5000/api/debug/sessions")
+    print(f"   Test page: http://localhost:5000/media-test")
+    print(f"   Server debug: http://localhost:5000/api/debug/sessions")
     print()
 
 def handle_shutdown(signum, frame):

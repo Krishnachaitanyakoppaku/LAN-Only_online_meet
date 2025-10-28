@@ -56,7 +56,7 @@ function checkForSessionParameter() {
 function initializeSocket() {
     // Auto-connect using the same host/port the client used to access the page
     // This ensures clients connect to the actual server IP, not localhost
-    const serverUrl = `http://${window.location.host}`;
+    const serverUrl = `${window.location.protocol}//${window.location.host}`;
     console.log(`Connecting to server at: ${serverUrl}`);
     socket = io(serverUrl);
     

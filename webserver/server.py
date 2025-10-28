@@ -15,9 +15,6 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
 
-# Import SSL helper for HTTPS certificate generation
-from ssl_helper import get_ssl_context, get_local_ip as ssl_get_local_ip
-
 # Try to import flask-cors, if not available, use manual CORS
 try:
     from flask_cors import CORS
@@ -65,70 +62,58 @@ download_logs = []
 # UDP socket for video/audio streaming
 UDP_SOCKET = None
 UDP_PORT = 5001
+# HTTP port (will be determined at startup; default preferred 5000)
+HTTP_PORT = 5000
 
 # Cache server IP at startup to avoid detection issues during request handling
 SERVER_IP = None
 
 def get_host_ip():
-    """Get the host machine's IP address that other computers can access"""
+    """Get the host machine's IP address that other computers can access - FAST VERSION"""
+    global SERVER_IP
+    
+    # Return cached IP if available
+    if SERVER_IP and SERVER_IP != "localhost":
+        return SERVER_IP
+    
     try:
-        # First try to get the IP that other computers can access
+        # Fast method: Connect to external server with short timeout
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1)  # Short timeout
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
         
-        # Check if this is a local/private IP that other computers can access
+        # Check if this is a local/private IP
         if local_ip.startswith(('192.168.', '10.', '172.')):
-            print(f"Detected network IP: {local_ip}")
+            SERVER_IP = local_ip
+            print(f"✅ Fast IP detection: {local_ip}")
             return local_ip
-        else:
-            # If it's not a private IP, try to get the actual network interface IP
-            import subprocess
-            try:
-                # Try Windows ipconfig first
-                result = subprocess.run(['ipconfig'], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    lines = result.stdout.split('\n')
-                    for line in lines:
-                        if 'IPv4 Address' in line and ':' in line:
-                            ip = line.split(':')[1].strip()
-                            if ip.startswith(('192.168.', '10.', '172.')):
-                                print(f"Detected network IP from ipconfig: {ip}")
-                                return ip
-                
-                # Try Linux/Mac ifconfig
-                result = subprocess.run(['ifconfig'], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    lines = result.stdout.split('\n')
-                    for line in lines:
-                        if 'inet ' in line and '127.0.0.1' not in line:
-                            parts = line.split()
-                            for i, part in enumerate(parts):
-                                if part == 'inet' and i + 1 < len(parts):
-                                    ip = parts[i + 1]
-                                    if ip.startswith(('192.168.', '10.', '172.')):
-                                        print(f"Detected network IP from ifconfig: {ip}")
-                                        return ip
-                
-                # Try hostname -I (Linux)
-                result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    ips = result.stdout.strip().split()
-                    for ip in ips:
-                        if ip.startswith(('192.168.', '10.', '172.')):
-                            print(f"Detected network IP from hostname: {ip}")
-                            return ip
-                            
-            except Exception as e:
-                print(f"Error running network commands: {e}")
-            
-            print(f"Using detected IP: {local_ip}")
-            return local_ip
-            
+        
     except Exception as e:
-        print(f"Failed to detect IP, using localhost: {e}")
-        return "localhost"
+        pass  # Ignore errors in fast path
+    
+    # If fast method failed, try quick system commands
+    try:
+        import subprocess
+        
+        # Try hostname -I first (Linux) - very fast
+        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=1)
+        if result.returncode == 0:
+            ips = result.stdout.strip().split()
+            for ip in ips:
+                if ip.startswith(('192.168.', '10.', '172.')):
+                    SERVER_IP = ip
+                    print(f"✅ Detected network IP from hostname: {ip}")
+                    return ip
+    except:
+        pass
+    
+    # Return localhost as final fallback
+    if not SERVER_IP:
+        SERVER_IP = "localhost"
+    print(f"⚠️ Using localhost (IP detection failed or not connected)")
+    return SERVER_IP
 
 class SessionManager:
     """Manages user sessions and room operations"""
@@ -290,6 +275,14 @@ def setup_udp_socket():
         UDP_SOCKET.bind(('0.0.0.0', UDP_PORT))
         print(f"UDP socket listening on port {UDP_PORT}")
         return True
+    except OSError as e:
+        if e.errno == 48:  # Address already in use
+            print(f"⚠️  UDP port {UDP_PORT} already in use (probably from previous run)")
+            print("   Continuing anyway - audio/video will use WebSocket instead")
+            return False
+        else:
+            print(f"Failed to setup UDP socket: {e}")
+            return False
     except Exception as e:
         print(f"Failed to setup UDP socket: {e}")
         return False
@@ -398,7 +391,7 @@ def server_info():
     """Get server information including IP address"""
     return jsonify({
         'server_ip': SERVER_IP or get_host_ip(),
-        'server_port': 5000,
+        'server_port': HTTP_PORT,
         'udp_port': 5001
     })
 
@@ -618,6 +611,7 @@ def handle_leave_session(data):
 @socketio.on('create_session')
 def handle_create_session(data):
     """Handle creating a new session"""
+    global SERVER_IP
     username = data.get('username')
     custom_session_id = data.get('session_id')
     
@@ -625,7 +619,11 @@ def handle_create_session(data):
     if custom_session_id and custom_session_id.strip():
         session_id = custom_session_id.strip()
     else:
-        session_id = SERVER_IP or get_host_ip()  # Use server IP as default session ID
+        # Use cached SERVER_IP - don't re-detect during request handling
+        if not SERVER_IP or SERVER_IP == "localhost":
+            # Only detect if not already cached
+            SERVER_IP = get_host_ip()  # Now uses fast detection
+        session_id = SERVER_IP
     
     print(f"Create session request: username={username}, session_id={session_id}")
     
@@ -1028,42 +1026,30 @@ if __name__ == '__main__':
     print("Starting LAN Communication Server...")
     print("UDP streaming port: 5001")
     
-    # Generate SSL certificate for HTTPS (required for camera/microphone access)
-    print("🔒 Setting up HTTPS for camera/microphone access...")
-    ssl_context = get_ssl_context(SERVER_IP)
+    # Choose HTTP port: prefer 5000, fallback to a free port
+    preferred_ports = [5000, 5050, 5080, 5500]
+    selected_port = None
+    for p in preferred_ports:
+        try:
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            test_sock.bind(('0.0.0.0', p))
+            test_sock.close()
+            selected_port = p
+            break
+        except OSError:
+            continue
+    if not selected_port:
+        # Let OS assign a free port
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_sock.bind(('0.0.0.0', 0))
+        selected_port = test_sock.getsockname()[1]
+        test_sock.close()
     
-    if ssl_context:
-        print(f"✅ SSL certificate generated successfully!")
-        print(f"🌐 Server will be available at: https://{SERVER_IP}:5000")
-        print("⚠️  You may see browser security warnings for self-signed certificate")
-        print(f"   Click 'Advanced' → 'Proceed to {SERVER_IP} (unsafe)' to continue")
-        print("   This is normal for self-signed certificates and safe for local network use")
-        
-        try:
-            # For Flask-SocketIO with eventlet, we need to create an SSL context object
-            import ssl
-            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            ssl_ctx.load_cert_chain(ssl_context[0], ssl_context[1])  # cert_file, key_file
-            
-            socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context=ssl_ctx)
-        except Exception as e:
-            print(f"❌ HTTPS with custom certificate failed: {e}")
-            print("🔄 Trying with Flask's adhoc SSL...")
-            try:
-                socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
-            except Exception as e2:
-                print(f"❌ Adhoc SSL also failed: {e2}")
-                print("🔄 Falling back to HTTP (camera/microphone may not work)...")
-                print(f"🌐 Server available at: http://{SERVER_IP}:5000")
-                socketio.run(app, host='0.0.0.0', port=5000, debug=True)
-    else:
-        print("⚠️  Could not generate SSL certificate")
-        print("🔄 Trying Flask's built-in adhoc SSL...")
-        try:
-            socketio.run(app, host='0.0.0.0', port=5000, debug=True, ssl_context='adhoc')
-            print(f"🌐 Server available at: https://{SERVER_IP}:5000")
-        except Exception as e:
-            print(f"❌ Adhoc SSL failed: {e}")
-            print("🔄 Falling back to HTTP (camera/microphone may not work)...")
-            print(f"🌐 Server available at: http://{SERVER_IP}:5000")
-            socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    HTTP_PORT = selected_port
+    print(f"HTTP port selected: {HTTP_PORT}")
+    print(f"🌐 Server available at: http://{SERVER_IP}:{HTTP_PORT}")
+    print(f"💡 For camera/microphone access, clients should use SSH tunnel to access via localhost")
+    
+    # Run server with HTTP only (simplified)
+    socketio.run(app, host='0.0.0.0', port=HTTP_PORT, debug=True, allow_unsafe_werkzeug=True)
