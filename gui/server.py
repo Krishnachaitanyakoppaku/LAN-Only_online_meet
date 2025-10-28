@@ -90,7 +90,7 @@ DEFAULT_UDP_VIDEO_PORT = 8889
 DEFAULT_UDP_AUDIO_PORT = 8890
 CHUNK_SIZE = 8192
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
-HEARTBEAT_INTERVAL = 10  # seconds
+HEARTBEAT_INTERVAL = 30  # seconds - reduced frequency
 MAX_RETRY_ATTEMPTS = 3
 
 # Protocol helper functions (inspired by CN_project)

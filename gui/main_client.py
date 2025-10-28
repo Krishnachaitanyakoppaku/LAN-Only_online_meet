@@ -71,7 +71,7 @@ class MessageTypes:
 DEFAULT_TCP_PORT = 8888
 DEFAULT_UDP_VIDEO_PORT = 8889
 DEFAULT_UDP_AUDIO_PORT = 8890
-HEARTBEAT_INTERVAL = 10
+HEARTBEAT_INTERVAL = 30  # Increased to 30 seconds to reduce traffic
 
 # Protocol helper functions
 def create_login_message(username: str) -> dict:
@@ -108,6 +108,7 @@ class LANCommunicationClient:
         self.connected = False
         self.running = True
         self.client_id = None
+        self.heartbeat_running = False
         self.client_name = ""
         
         # Sockets
@@ -255,7 +256,13 @@ class LANCommunicationClient:
             threading.Thread(target=self.tcp_receiver, daemon=True).start()
             threading.Thread(target=self.udp_video_receiver, daemon=True).start()
             threading.Thread(target=self.udp_audio_receiver, daemon=True).start()
-            threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+            
+            # Start heartbeat only if not already running
+            if not self.heartbeat_running:
+                self.heartbeat_running = True
+                threading.Thread(target=self.heartbeat_loop, daemon=True).start()
+                print("💓 Heartbeat thread started")
+            
             print("✅ All network threads started")
             
             # Send login message
@@ -456,7 +463,10 @@ class LANCommunicationClient:
             # Use sendall to ensure complete transmission
             self.tcp_socket.sendall(full_message)
             
-            print(f"📤 Sent message: type={message.get('type')}, size={len(message_data)} bytes")
+            # Only log non-heartbeat messages to reduce spam
+            msg_type = message.get('type')
+            if msg_type != MessageTypes.HEARTBEAT:
+                print(f"📤 Sent message: type={msg_type}, size={len(message_data)} bytes")
             return True
             
         except BrokenPipeError:
@@ -507,7 +517,10 @@ class LANCommunicationClient:
                 if len(message_data) == message_length:
                     try:
                         message = json.loads(message_data.decode('utf-8'))
-                        print(f"📥 Received message: type={message.get('type')}, size={len(message_data)} bytes")
+                        # Only log non-heartbeat messages to reduce spam
+                        msg_type = message.get('type')
+                        if msg_type != MessageTypes.HEARTBEAT_ACK:
+                            print(f"📥 Received message: type={msg_type}, size={len(message_data)} bytes")
                         self.root.after_idle(lambda msg=message: self.process_message(msg))
                         consecutive_errors = 0  # Reset error count on success
                     except json.JSONDecodeError as e:
@@ -700,20 +713,30 @@ class LANCommunicationClient:
     
     def heartbeat_loop(self):
         """Send periodic heartbeat messages"""
-        while self.running and self.connected:
-            try:
-                heartbeat_msg = create_heartbeat_message()
-                self.send_tcp_message(heartbeat_msg)
-                
-                # Sleep in small intervals for responsiveness
-                for _ in range(HEARTBEAT_INTERVAL * 10):
-                    if not self.running or not self.connected:
+        print(f"🔄 Starting heartbeat loop (interval: {HEARTBEAT_INTERVAL}s)")
+        
+        try:
+            while self.running and self.connected and self.heartbeat_running:
+                try:
+                    # Send heartbeat (silent to reduce console spam)
+                    heartbeat_msg = create_heartbeat_message()
+                    if not self.send_tcp_message(heartbeat_msg):
+                        print("❌ Failed to send heartbeat - connection lost")
                         break
-                    time.sleep(0.1)
                     
-            except Exception as e:
-                print(f"❌ Heartbeat error: {e}")
-                break
+                    # Sleep in small intervals for responsiveness
+                    for i in range(HEARTBEAT_INTERVAL * 10):
+                        if not self.running or not self.connected or not self.heartbeat_running:
+                            print("🛑 Heartbeat loop stopping - client disconnecting")
+                            return
+                        time.sleep(0.1)
+                        
+                except Exception as e:
+                    print(f"❌ Heartbeat error: {e}")
+                    break
+        finally:
+            self.heartbeat_running = False
+            print("🛑 Heartbeat loop ended")
     
     def toggle_video(self):
         """Toggle video capture"""
@@ -1452,6 +1475,7 @@ class LANCommunicationClient:
     def handle_disconnection(self):
         """Handle disconnection"""
         self.connected = False
+        self.heartbeat_running = False
         messagebox.showwarning("Connection Lost", "Connection to server lost")
         self.disconnect()
     
@@ -1479,6 +1503,7 @@ class LANCommunicationClient:
         # Close sockets
         self.connected = False
         self.running = False
+        self.heartbeat_running = False
         
         try:
             if self.tcp_socket:
@@ -1523,6 +1548,7 @@ class LANCommunicationClient:
         """Clean up resources"""
         self.running = False
         self.connected = False
+        self.heartbeat_running = False
         
         # Stop media
         if self.video_enabled:
