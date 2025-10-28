@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-LAN Communication Server
+LAN Communication Server - Enhanced Version
 A comprehensive multi-user communication system for LAN environments
 
 Features:
@@ -10,6 +10,9 @@ Features:
 - Group text chat (TCP)
 - File sharing (TCP)
 - Session management
+- Enhanced protocol handling
+- Improved error recovery
+- Better resource management
 """
 
 import socket
@@ -20,6 +23,7 @@ import struct
 import os
 import io
 import base64
+import asyncio
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -28,6 +32,8 @@ import cv2
 import pyaudio
 from PIL import Image, ImageTk
 import numpy as np
+import hashlib
+import uuid
 
 # Optional imports
 try:
@@ -37,6 +43,117 @@ except ImportError:
     MSS_AVAILABLE = False
     print("Warning: mss module not available. Screen sharing will be disabled.")
 
+# Protocol constants (inspired by CN_project)
+class MessageTypes:
+    # Client to Server
+    LOGIN = 'login'
+    HEARTBEAT = 'heartbeat'
+    CHAT = 'chat'
+    BROADCAST = 'broadcast'
+    UNICAST = 'unicast'
+    GET_HISTORY = 'get_history'
+    FILE_OFFER = 'file_offer'
+    FILE_REQUEST = 'file_request'
+    PRESENT_START = 'present_start'
+    PRESENT_STOP = 'present_stop'
+    LOGOUT = 'logout'
+    MEDIA_STATUS_UPDATE = 'media_status_update'
+    PERMISSION_REQUEST = 'permission_request'
+    
+    # Server to Client
+    LOGIN_SUCCESS = 'login_success'
+    PARTICIPANT_LIST = 'participant_list'
+    HISTORY = 'history'
+    USER_JOINED = 'user_joined'
+    USER_LEFT = 'user_left'
+    HEARTBEAT_ACK = 'heartbeat_ack'
+    FILE_UPLOAD_PORT = 'file_upload_port'
+    FILE_DOWNLOAD_PORT = 'file_download_port'
+    FILE_AVAILABLE = 'file_available'
+    SCREEN_SHARE_PORTS = 'screen_share_ports'
+    PRESENT_START_BROADCAST = 'present_start_broadcast'
+    PRESENT_STOP_BROADCAST = 'present_stop_broadcast'
+    UNICAST_SENT = 'unicast_sent'
+    ERROR = 'error'
+    HOST_STATUS_UPDATE = 'host_status_update'
+    FORCE_MUTE = 'force_mute'
+    FORCE_DISABLE_VIDEO = 'force_disable_video'
+    FORCE_STOP_PRESENTING = 'force_stop_presenting'
+    HOST_REQUEST = 'host_request'
+    PERMISSION_GRANTED = 'permission_granted'
+    PERMISSION_DENIED = 'permission_denied'
+
+# Network Configuration
+DEFAULT_HOST = '0.0.0.0'
+DEFAULT_TCP_PORT = 8888
+DEFAULT_UDP_VIDEO_PORT = 8889
+DEFAULT_UDP_AUDIO_PORT = 8890
+CHUNK_SIZE = 8192
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+HEARTBEAT_INTERVAL = 10  # seconds
+MAX_RETRY_ATTEMPTS = 3
+
+# Protocol helper functions (inspired by CN_project)
+def create_login_success_message(uid: int, username: str) -> dict:
+    """Create a login success message."""
+    return {
+        "type": MessageTypes.LOGIN_SUCCESS,
+        "uid": uid,
+        "username": username,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_participant_list_message(participants: list) -> dict:
+    """Create a participant list message."""
+    return {
+        "type": MessageTypes.PARTICIPANT_LIST,
+        "participants": participants,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_user_joined_message(uid: int, username: str) -> dict:
+    """Create a user joined message."""
+    return {
+        "type": MessageTypes.USER_JOINED,
+        "uid": uid,
+        "username": username,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_user_left_message(uid: int, username: str) -> dict:
+    """Create a user left message."""
+    return {
+        "type": MessageTypes.USER_LEFT,
+        "uid": uid,
+        "username": username,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_chat_message(uid: int, username: str, text: str) -> dict:
+    """Create a chat message."""
+    return {
+        "type": MessageTypes.CHAT,
+        "uid": uid,
+        "username": username,
+        "text": text,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_error_message(message: str) -> dict:
+    """Create an error message."""
+    return {
+        "type": MessageTypes.ERROR,
+        "message": message,
+        "timestamp": datetime.now().isoformat()
+    }
+
+def create_heartbeat_ack_message() -> dict:
+    """Create a heartbeat acknowledgment message."""
+    return {
+        "type": MessageTypes.HEARTBEAT_ACK,
+        "timestamp": datetime.now().isoformat()
+    }
+
 class LANCommunicationServer:
     def __init__(self):
         # Network configuration
@@ -44,6 +161,31 @@ class LANCommunicationServer:
         self.tcp_port = 8888  # Main TCP port for control, chat, files
         self.udp_video_port = 8889  # UDP port for video streams
         self.udp_audio_port = 8890  # UDP port for audio streams
+        
+        # Video settings (adaptive sizing like CN_project)
+        self.video_settings = {
+            'default_width': 640,
+            'default_height': 360,
+            'max_width': 1280,
+            'max_height': 720,
+            'min_width': 320,
+            'min_height': 240,
+            'quality': 80,  # JPEG quality
+            'fps': 15
+        }
+        
+        # File transfer settings
+        self.file_transfer = {
+            'upload_dir': 'uploads',
+            'download_dir': 'downloads',
+            'max_file_size': MAX_FILE_SIZE,
+            'chunk_size': CHUNK_SIZE,
+            'next_ephemeral_port': 9001
+        }
+        
+        # Create directories
+        os.makedirs(self.file_transfer['upload_dir'], exist_ok=True)
+        os.makedirs(self.file_transfer['download_dir'], exist_ok=True)
         
         # Server state
         self.running = False
@@ -59,6 +201,32 @@ class LANCommunicationServer:
         self.host_speaker_enabled = True  # Speaker on by default
         self.host_screen_share_enabled = False
         
+        # CN_project style advanced screen sharing system
+        self.presentation_active = False
+        self.presenter_id = None
+        self.presenter_username = None
+        self.presenter_port = None  # Dedicated TCP port for presenter frames
+        self.viewer_port = None     # Dedicated TCP port for viewer connections
+        self.presenter_server = None
+        self.viewer_server = None
+        self.presenter_writer = None
+        self.frame_viewers = {}     # client_id -> writer mapping for frame relay
+        self.frame_relay_task = None
+        self.next_screen_port = 9000  # Starting port for screen sharing
+        
+        # Optimized screen settings (CN_project inspired)
+        self.screen_settings = {
+            'fps': 5,  # Stable 5 FPS for reliability
+            'quality': 70,  # Higher quality like CN_project
+            'scale_factor': 0.5,  # 50% scaling like CN_project
+            'frame_header_size': 4,  # 4-byte frame length header
+            'buffer_size': 8192,     # Network buffer size
+            'connection_timeout': 30,  # Connection timeout
+            'adaptive_quality': True,
+            'min_quality': 40,
+            'max_quality': 85
+        }
+        
         # Sockets
         self.tcp_socket = None
         self.udp_video_socket = None
@@ -67,7 +235,12 @@ class LANCommunicationServer:
         # Session management
         self.presenter_id = None
         self.chat_history = []
-        self.shared_files = {}  # {filename: file_info}
+        self.shared_files = {}  # {fid: file_info}
+        self.file_sessions = {}  # {port: session_info} for file transfers
+        
+        # Enhanced messaging system
+        self.message_history = []  # All messages (chat, broadcast, unicast)
+        self.private_messages = {}  # {client_id: [messages]} for unicast history
         
         # Meeting logs and analytics
         self.activity_logs = []
@@ -1064,7 +1237,7 @@ class LANCommunicationServer:
                 try:
                     # Open file dialog to choose download location
                     download_path = filedialog.asksaveasfilename(
-                        initialname=file_name,
+                        initialfile=file_name,
                         title="Save File As"
                     )
                     
@@ -1485,18 +1658,6 @@ class LANCommunicationServer:
             self.stop_server_btn.bind("<Enter>", lambda e: on_enter(e, '#b71c1c'))
             self.stop_server_btn.bind("<Leave>", lambda e: on_leave(e, '#d13438'))
         
-    def log_message(self, message):
-        """Add message to activity log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
-        
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, log_entry)
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
-        
-        print(log_entry.strip())  # Also print to console
-        
     def get_local_ip(self):
         """Get the local IP address"""
         try:
@@ -1508,8 +1669,22 @@ class LANCommunicationServer:
         except:
             return "127.0.0.1"
             
-    def log_message(self, message):
-        """Add message to activity log"""
+    def safe_button_update(self, button_name, **kwargs):
+        """Safely update button configuration with error handling"""
+        try:
+            if hasattr(self, button_name):
+                button = getattr(self, button_name)
+                if button and hasattr(button, 'winfo_exists') and button.winfo_exists():
+                    button.config(**kwargs)
+                    return True
+        except (tk.TclError, AttributeError) as e:
+            print(f"Warning: Could not update {button_name}: {e}")
+        except Exception as e:
+            print(f"Error updating {button_name}: {e}")
+        return False
+            
+    def log_message(self, message, log_type='info'):
+        """Enhanced logging with different log types"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] {message}"
         
@@ -1517,10 +1692,27 @@ class LANCommunicationServer:
         self.activity_logs.append({
             'timestamp': timestamp,
             'message': message,
-            'type': 'info'
+            'type': log_type
         })
         
-        # Update activity log display if it exists
+        # Update GUI log display if it exists
+        if hasattr(self, 'log_text') and self.log_text:
+            try:
+                display_entry = f"[{datetime.now().strftime('%H:%M:%S')}] {message}\n"
+                self.log_text.config(state=tk.NORMAL)
+                self.log_text.insert(tk.END, display_entry)
+                self.log_text.see(tk.END)
+                self.log_text.config(state=tk.DISABLED)
+            except:
+                pass
+        
+        # Console output with color coding
+        if log_type == 'error':
+            print(f"ERROR: {log_entry}")
+        elif log_type == 'warning':
+            print(f"WARNING: {log_entry}")
+        else:
+            print(log_entry)
         if hasattr(self, 'activity_log_text'):
             self.activity_log_text.config(state=tk.NORMAL)
             self.activity_log_text.insert(tk.END, log_entry + "\n")
@@ -1808,6 +2000,286 @@ class LANCommunicationServer:
                 self.requests_text.insert(tk.END, "No pending requests")
             
             self.requests_text.config(state=tk.DISABLED)
+            
+    def get_ephemeral_port(self):
+        """Get next available ephemeral port for file transfers"""
+        port = self.file_transfer['next_ephemeral_port']
+        self.file_transfer['next_ephemeral_port'] += 1
+        return port
+        
+    def handle_file_offer(self, client_id, message):
+        """Handle file upload offer from client"""
+        try:
+            filename = message.get('filename', '')
+            size = message.get('size', 0)
+            fid = message.get('fid', '')
+            
+            if not fid or not filename or size <= 0:
+                error_msg = create_error_message("Invalid file offer: missing fid, filename, or size")
+                self.send_to_client(client_id, error_msg)
+                return
+                
+            if size > self.file_transfer['max_file_size']:
+                error_msg = create_error_message(f"File too large: {size} bytes (max: {self.file_transfer['max_file_size']} bytes)")
+                self.send_to_client(client_id, error_msg)
+                return
+                
+            client_name = self.clients[client_id]['name']
+            self.log_message(f"File offer from {client_name}: {filename} ({size} bytes)")
+            
+            # Allocate ephemeral port for upload
+            upload_port = self.get_ephemeral_port()
+            
+            # Store session info
+            session_info = {
+                'fid': fid,
+                'filename': filename,
+                'size': size,
+                'uploader': client_name,
+                'uploader_uid': client_id,
+                'port': upload_port,
+                'type': 'upload'
+            }
+            
+            self.file_sessions[upload_port] = session_info
+            
+            # Start upload server thread
+            upload_thread = threading.Thread(
+                target=self.handle_file_upload_server,
+                args=(upload_port, session_info),
+                daemon=True
+            )
+            upload_thread.start()
+            
+            # Send upload port to client
+            response_msg = {
+                'type': MessageTypes.FILE_UPLOAD_PORT,
+                'fid': fid,
+                'port': upload_port
+            }
+            self.send_to_client(client_id, response_msg)
+            
+        except Exception as e:
+            self.log_message(f"Error handling file offer: {str(e)}", 'error')
+            error_msg = create_error_message(f"File offer failed: {str(e)}")
+            self.send_to_client(client_id, error_msg)
+            
+    def handle_file_request(self, client_id, message):
+        """Handle file download request from client"""
+        try:
+            fid = message.get('fid', '')
+            
+            if not fid:
+                error_msg = create_error_message("Invalid file request: missing fid")
+                self.send_to_client(client_id, error_msg)
+                return
+                
+            # Check if file exists
+            if fid not in self.shared_files:
+                error_msg = create_error_message(f"File not found: fid={fid}")
+                self.send_to_client(client_id, error_msg)
+                return
+                
+            file_info = self.shared_files[fid]
+            client_name = self.clients[client_id]['name']
+            
+            self.log_message(f"File request from {client_name}: {file_info['filename']}")
+            
+            # Allocate ephemeral port for download
+            download_port = self.get_ephemeral_port()
+            
+            # Store session info
+            session_info = {
+                'fid': fid,
+                'filename': file_info['filename'],
+                'size': file_info['size'],
+                'file_path': file_info['path'],
+                'requester': client_name,
+                'requester_uid': client_id,
+                'port': download_port,
+                'type': 'download'
+            }
+            
+            self.file_sessions[download_port] = session_info
+            
+            # Start download server thread
+            download_thread = threading.Thread(
+                target=self.handle_file_download_server,
+                args=(download_port, session_info),
+                daemon=True
+            )
+            download_thread.start()
+            
+            # Send download port to client
+            response_msg = {
+                'type': MessageTypes.FILE_DOWNLOAD_PORT,
+                'fid': fid,
+                'filename': file_info['filename'],
+                'size': file_info['size'],
+                'port': download_port
+            }
+            self.send_to_client(client_id, response_msg)
+            
+        except Exception as e:
+            self.log_message(f"Error handling file request: {str(e)}", 'error')
+            error_msg = create_error_message(f"File request failed: {str(e)}")
+            self.send_to_client(client_id, error_msg)
+            
+    def handle_file_upload_server(self, port, session_info):
+        """Handle file upload on ephemeral port"""
+        try:
+            # Create TCP server for file upload
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind((self.host, port))
+            server_socket.listen(1)
+            server_socket.settimeout(300)  # 5 minute timeout
+            
+            self.log_message(f"Upload server listening on port {port}")
+            
+            # Accept connection
+            client_socket, addr = server_socket.accept()
+            self.log_message(f"Upload connection from {addr}")
+            
+            # Receive file
+            fid = session_info['fid']
+            filename = session_info['filename']
+            expected_size = session_info['size']
+            uploader = session_info['uploader']
+            
+            file_path = os.path.join(self.file_transfer['upload_dir'], filename)
+            bytes_received = 0
+            
+            with open(file_path, 'wb') as f:
+                while bytes_received < expected_size:
+                    chunk_size = min(self.file_transfer['chunk_size'], expected_size - bytes_received)
+                    data = client_socket.recv(chunk_size)
+                    
+                    if not data:
+                        break
+                        
+                    f.write(data)
+                    bytes_received += len(data)
+                    
+                    # Log progress
+                    if bytes_received % (1024 * 1024) < self.file_transfer['chunk_size']:  # Every 1MB
+                        progress = (bytes_received / expected_size) * 100
+                        self.log_message(f"Upload progress [{filename}]: {bytes_received}/{expected_size} bytes ({progress:.1f}%)")
+            
+            client_socket.close()
+            server_socket.close()
+            
+            if bytes_received == expected_size:
+                # Store file metadata
+                file_metadata = {
+                    'fid': fid,
+                    'filename': filename,
+                    'size': bytes_received,
+                    'uploader': uploader,
+                    'uploader_uid': session_info['uploader_uid'],
+                    'path': file_path,
+                    'uploaded_at': datetime.now().isoformat()
+                }
+                
+                self.shared_files[fid] = file_metadata
+                
+                # Broadcast file availability
+                file_available_msg = {
+                    'type': MessageTypes.FILE_AVAILABLE,
+                    'fid': fid,
+                    'filename': filename,
+                    'size': bytes_received,
+                    'uploader': uploader,
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.broadcast_message(file_available_msg)
+                
+                self.log_message(f"File upload completed: {filename} ({bytes_received} bytes)")
+                self.update_files_display()
+            else:
+                self.log_message(f"Upload incomplete: {bytes_received}/{expected_size} bytes", 'error')
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    
+        except Exception as e:
+            self.log_message(f"Error in upload server: {str(e)}", 'error')
+        finally:
+            # Clean up session
+            if port in self.file_sessions:
+                del self.file_sessions[port]
+                
+    def handle_file_download_server(self, port, session_info):
+        """Handle file download on ephemeral port"""
+        try:
+            # Create TCP server for file download
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_socket.bind((self.host, port))
+            server_socket.listen(1)
+            server_socket.settimeout(300)  # 5 minute timeout
+            
+            self.log_message(f"Download server listening on port {port}")
+            
+            # Accept connection
+            client_socket, addr = server_socket.accept()
+            self.log_message(f"Download connection from {addr}")
+            
+            # Send file
+            filename = session_info['filename']
+            file_path = session_info['file_path']
+            file_size = session_info['size']
+            requester = session_info['requester']
+            
+            if not os.path.exists(file_path):
+                self.log_message(f"File not found: {file_path}", 'error')
+                client_socket.close()
+                server_socket.close()
+                return
+                
+            bytes_sent = 0
+            
+            with open(file_path, 'rb') as f:
+                while bytes_sent < file_size:
+                    data = f.read(self.file_transfer['chunk_size'])
+                    if not data:
+                        break
+                        
+                    client_socket.send(data)
+                    bytes_sent += len(data)
+                    
+                    # Log progress
+                    if bytes_sent % (1024 * 1024) < self.file_transfer['chunk_size']:  # Every 1MB
+                        progress = (bytes_sent / file_size) * 100
+                        self.log_message(f"Download progress [{filename}]: {bytes_sent}/{file_size} bytes ({progress:.1f}%)")
+            
+            client_socket.close()
+            server_socket.close()
+            
+            self.log_message(f"File download completed: {filename} to {requester}")
+            
+        except Exception as e:
+            self.log_message(f"Error in download server: {str(e)}", 'error')
+        finally:
+            # Clean up session
+            if port in self.file_sessions:
+                del self.file_sessions[port]
+                
+    def add_private_message_to_gui(self, message):
+        """Add private message to server GUI"""
+        if hasattr(self, 'chat_display'):
+            try:
+                timestamp = datetime.now().strftime("%H:%M")
+                sender = message.get('from_username', 'Unknown')
+                text = message.get('text', '')
+                
+                chat_line = f"[PRIVATE] {sender} • {timestamp}\n{text}\n\n"
+                
+                self.chat_display.config(state=tk.NORMAL)
+                self.chat_display.insert(tk.END, chat_line)
+                self.chat_display.see(tk.END)
+                self.chat_display.config(state=tk.DISABLED)
+            except Exception as e:
+                print(f"Error adding private message to GUI: {e}")
     
     def handle_permission_request(self, client_id, request_type):
         """Handle incoming permission request from client"""
@@ -1963,13 +2435,42 @@ class LANCommunicationServer:
             self.stop_server_btn.config(state=tk.NORMAL)
             self.server_status_label.config(text="● Server Running")
             
-            # Enable host controls
-            self.host_video_btn.config(state=tk.NORMAL)
-            self.host_mic_btn.config(state=tk.NORMAL)
-            self.host_speaker_btn.config(state=tk.NORMAL)
-            self.host_present_btn.config(state=tk.NORMAL)
-            self.chat_entry.config(state=tk.NORMAL)
-            self.chat_send_btn.config(state=tk.NORMAL)
+            # Enable host controls with error handling
+            try:
+                if hasattr(self, 'host_video_btn') and self.host_video_btn and self.host_video_btn.winfo_exists():
+                    self.host_video_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
+                
+            try:
+                if hasattr(self, 'host_mic_btn') and self.host_mic_btn and self.host_mic_btn.winfo_exists():
+                    self.host_mic_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
+                
+            try:
+                if hasattr(self, 'host_speaker_btn') and self.host_speaker_btn and self.host_speaker_btn.winfo_exists():
+                    self.host_speaker_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
+                
+            try:
+                if hasattr(self, 'host_present_btn') and self.host_present_btn and self.host_present_btn.winfo_exists():
+                    self.host_present_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
+                
+            try:
+                if hasattr(self, 'chat_entry') and self.chat_entry and self.chat_entry.winfo_exists():
+                    self.chat_entry.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
+                
+            try:
+                if hasattr(self, 'chat_send_btn') and self.chat_send_btn and self.chat_send_btn.winfo_exists():
+                    self.chat_send_btn.config(state=tk.NORMAL)
+            except (tk.TclError, AttributeError):
+                pass
             
             self.log_message("Server started successfully")
             self.log_message(f"Listening on {self.get_local_ip()}:{self.tcp_port}")
@@ -2084,10 +2585,20 @@ class LANCommunicationServer:
             self.disconnect_client(client_id)
             
     def process_client_message(self, client_id, message):
-        """Process incoming message from client"""
+        """Process incoming message from client with enhanced protocol handling"""
         msg_type = message.get('type')
         
-        if msg_type == 'join':
+        # Validate message type
+        if not msg_type or not isinstance(msg_type, str):
+            self.send_to_client(client_id, create_error_message("Invalid message type"))
+            return
+        
+        # Update client's last activity
+        if client_id in self.clients:
+            self.clients[client_id]['last_seen'] = time.time()
+        
+        # Handle different message types
+        if msg_type == MessageTypes.LOGIN or msg_type == 'join':
             # Client joining with name
             client_name = message.get('name', f'Client_{client_id}')
             self.clients[client_id]['name'] = client_name
@@ -2113,39 +2624,112 @@ class LANCommunicationServer:
                 }
             
             welcome_msg = {
-                'type': 'welcome',
+                'type': MessageTypes.LOGIN_SUCCESS,
                 'client_id': client_id,
                 'clients': all_participants,
                 'chat_history': self.chat_history,
                 'presenter_id': self.presenter_id,
-                'host_id': self.host_id
+                'host_id': self.host_id,
+                'timestamp': datetime.now().isoformat()
             }
             self.send_to_client(client_id, welcome_msg)
             
             # Notify other clients
-            join_notification = {
-                'type': 'user_joined',
-                'client_id': client_id,
-                'name': client_name
-            }
+            join_notification = create_user_joined_message(client_id, client_name)
             self.broadcast_message(join_notification, exclude=client_id)
             
             self.log_message(f"Client {client_id} ({client_name}) joined the session")
             self.update_clients_display()
             
-        elif msg_type == 'chat':
-            # Chat message
-            chat_msg = {
-                'type': 'chat',
-                'client_id': client_id,
-                'name': self.clients[client_id]['name'],
-                'message': message.get('message', ''),
+        elif msg_type == MessageTypes.CHAT or msg_type == 'chat':
+            # Regular chat message (public)
+            chat_text = message.get('message', '').strip()
+            if not chat_text:
+                return
+                
+            chat_msg = create_chat_message(
+                client_id, 
+                self.clients[client_id]['name'], 
+                chat_text
+            )
+            
+            self.chat_history.append(chat_msg)
+            self.message_history.append(chat_msg)
+            self.broadcast_message(chat_msg)
+            self.log_message(f"Chat from {self.clients[client_id]['name']}: {chat_text}")
+            
+        elif msg_type == MessageTypes.BROADCAST or msg_type == 'broadcast':
+            # Broadcast message (public announcement)
+            broadcast_text = message.get('text', '').strip()
+            if not broadcast_text:
+                return
+                
+            broadcast_msg = {
+                'type': MessageTypes.BROADCAST,
+                'uid': client_id,
+                'username': self.clients[client_id]['name'],
+                'text': broadcast_text,
                 'timestamp': datetime.now().isoformat()
             }
             
-            self.chat_history.append(chat_msg)
-            self.broadcast_message(chat_msg)
-            self.log_message(f"Chat from {self.clients[client_id]['name']}: {message.get('message', '')}")
+            self.message_history.append(broadcast_msg)
+            self.broadcast_message(broadcast_msg)
+            self.log_message(f"Broadcast from {self.clients[client_id]['name']}: {broadcast_text}")
+            
+        elif msg_type == MessageTypes.UNICAST or msg_type == 'unicast':
+            # Private message (unicast)
+            target_uid = message.get('target_uid')
+            unicast_text = message.get('text', '').strip()
+            
+            if not target_uid or not unicast_text:
+                self.send_to_client(client_id, create_error_message("Invalid unicast: missing target_uid or text"))
+                return
+                
+            if target_uid not in self.clients and target_uid != self.host_id:
+                self.send_to_client(client_id, create_error_message(f"Target user not found: {target_uid}"))
+                return
+                
+            unicast_msg = {
+                'type': MessageTypes.UNICAST,
+                'from_uid': client_id,
+                'from_username': self.clients[client_id]['name'],
+                'to_uid': target_uid,
+                'to_username': self.clients.get(target_uid, {}).get('name', 'Host'),
+                'text': unicast_text,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Store in private message history
+            if client_id not in self.private_messages:
+                self.private_messages[client_id] = []
+            if target_uid not in self.private_messages:
+                self.private_messages[target_uid] = []
+                
+            self.private_messages[client_id].append(unicast_msg)
+            self.private_messages[target_uid].append(unicast_msg)
+            
+            # Send to target
+            if target_uid == self.host_id:
+                # Message to host - display in server GUI
+                self.add_private_message_to_gui(unicast_msg)
+            else:
+                self.send_to_client(target_uid, unicast_msg)
+            
+            # Send confirmation to sender
+            confirmation_msg = {
+                'type': MessageTypes.UNICAST_SENT,
+                'to_uid': target_uid,
+                'to_username': self.clients.get(target_uid, {}).get('name', 'Host'),
+                'message': 'Private message sent successfully'
+            }
+            self.send_to_client(client_id, confirmation_msg)
+            
+            self.log_message(f"Private message from {self.clients[client_id]['name']} to {self.clients.get(target_uid, {}).get('name', 'Host')}")
+            
+        elif msg_type == MessageTypes.HEARTBEAT or msg_type == 'heartbeat':
+            # Heartbeat message
+            heartbeat_ack = create_heartbeat_ack_message()
+            self.send_to_client(client_id, heartbeat_ack)
             
         elif msg_type == 'request_presenter':
             # Request to become presenter
@@ -2179,6 +2763,14 @@ class LANCommunicationServer:
             request_type = message.get('request_type')  # 'audio', 'video', or 'screen'
             if request_type in ['audio', 'video', 'screen']:
                 self.handle_permission_request(client_id, request_type)
+                
+        elif msg_type == MessageTypes.FILE_OFFER or msg_type == 'file_offer':
+            # Client offering to upload a file
+            self.handle_file_offer(client_id, message)
+            
+        elif msg_type == MessageTypes.FILE_REQUEST or msg_type == 'file_request':
+            # Client requesting to download a file
+            self.handle_file_request(client_id, message)
             
         elif msg_type == 'force_action_response':
             # Client responding to host's force action (like force mute/disable video)
@@ -2685,7 +3277,13 @@ class LANCommunicationServer:
                 return
                 
             self.host_video_enabled = True
-            self.host_video_btn.config(text="📹 Video On", bg='#51cf66')
+            
+            # Update button with error handling
+            try:
+                if hasattr(self, 'host_video_btn') and self.host_video_btn and self.host_video_btn.winfo_exists():
+                    self.host_video_btn.config(text="📹 Video On", bg='#51cf66')
+            except (tk.TclError, AttributeError):
+                pass
             
             # Start video streaming thread
             threading.Thread(target=self.host_video_loop, daemon=True).start()
@@ -2700,7 +3298,13 @@ class LANCommunicationServer:
     def stop_host_video(self):
         """Stop Host video"""
         self.host_video_enabled = False
-        self.host_video_btn.config(text="📹 Start Video", bg='#404040')
+        
+        # Update button with error handling
+        try:
+            if hasattr(self, 'host_video_btn') and self.host_video_btn and self.host_video_btn.winfo_exists():
+                self.host_video_btn.config(text="📹 Start Video", bg='#404040')
+        except (tk.TclError, AttributeError):
+            pass
         
         if self.video_cap:
             self.video_cap.release()
@@ -2742,9 +3346,29 @@ class LANCommunicationServer:
                     except:
                         pass
                     
-                # Resize and convert for display with error handling
+                # Adaptive resize and convert for display with error handling
                 try:
-                    display_frame = cv2.resize(frame, (400, 300))
+                    # Calculate adaptive size based on original frame and settings
+                    original_height, original_width = frame.shape[:2]
+                    target_width = self.video_settings['default_width']
+                    target_height = self.video_settings['default_height']
+                    
+                    # Maintain aspect ratio
+                    aspect_ratio = original_width / original_height
+                    if aspect_ratio > (target_width / target_height):
+                        # Width is the limiting factor
+                        new_width = min(target_width, self.video_settings['max_width'])
+                        new_height = int(new_width / aspect_ratio)
+                    else:
+                        # Height is the limiting factor
+                        new_height = min(target_height, self.video_settings['max_height'])
+                        new_width = int(new_height * aspect_ratio)
+                    
+                    # Ensure minimum size
+                    new_width = max(new_width, self.video_settings['min_width'])
+                    new_height = max(new_height, self.video_settings['min_height'])
+                    
+                    display_frame = cv2.resize(frame, (new_width, new_height))
                     display_frame_rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                     
                     # Put frame in queue for display (non-blocking)
@@ -2876,11 +3500,27 @@ class LANCommunicationServer:
             pass
         
     def broadcast_host_video_frame(self, frame):
-        """Broadcast Host video frame to all clients"""
+        """Broadcast Host video frame to all clients with adaptive sizing"""
         try:
-            # Compress frame
-            frame_resized = cv2.resize(frame, (640, 480))
-            _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            # Adaptive resize based on settings
+            original_height, original_width = frame.shape[:2]
+            target_width = self.video_settings['default_width']
+            target_height = self.video_settings['default_height']
+            
+            # Maintain aspect ratio for broadcast
+            aspect_ratio = original_width / original_height
+            if aspect_ratio > (target_width / target_height):
+                new_width = target_width
+                new_height = int(target_width / aspect_ratio)
+            else:
+                new_height = target_height
+                new_width = int(target_height * aspect_ratio)
+            
+            frame_resized = cv2.resize(frame, (new_width, new_height))
+            
+            # Compress with adaptive quality
+            quality = self.video_settings['quality']
+            _, encoded = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, quality])
             
             # Create packet
             sequence = int(time.time() * 1000) % (2**32)  # Use timestamp as sequence
@@ -2938,7 +3578,9 @@ class LANCommunicationServer:
             
             self.host_microphone_enabled = True
             self.host_audio_enabled = True  # For compatibility
-            self.host_mic_btn.config(text="🎤\nMic On", bg='#28a745')
+            
+            # Update button safely
+            self.safe_button_update('host_mic_btn', text="🎤\nMic On", bg='#28a745')
             
             # Start audio streaming thread
             threading.Thread(target=self.host_audio_loop, daemon=True).start()
@@ -2972,7 +3614,13 @@ class LANCommunicationServer:
             )
             
             self.host_speaker_enabled = True
-            self.host_speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
+            
+            # Update button with error handling
+            try:
+                if hasattr(self, 'host_speaker_btn') and self.host_speaker_btn and self.host_speaker_btn.winfo_exists():
+                    self.host_speaker_btn.config(text="🔊\nSpeaker On", bg='#28a745')
+            except (tk.TclError, AttributeError):
+                pass
             
         except Exception as e:
             messagebox.showerror("Speaker Error", f"Failed to start Host speaker: {str(e)}")
@@ -2986,7 +3634,9 @@ class LANCommunicationServer:
     def stop_host_microphone(self):
         """Stop Host microphone with proper error handling"""
         self.host_microphone_enabled = False
-        self.host_mic_btn.config(text="🎤\nMic", bg='#404040')
+        
+        # Update button safely
+        self.safe_button_update('host_mic_btn', text="🎤\nMic", bg='#404040')
         
         if hasattr(self, 'audio_stream') and self.audio_stream:
             try:
@@ -3008,7 +3658,13 @@ class LANCommunicationServer:
     def stop_host_speaker(self):
         """Stop Host speaker with proper error handling"""
         self.host_speaker_enabled = False
-        self.host_speaker_btn.config(text="🔊\nSpeaker", bg='#404040')
+        
+        # Update button with error handling
+        try:
+            if hasattr(self, 'host_speaker_btn') and self.host_speaker_btn and self.host_speaker_btn.winfo_exists():
+                self.host_speaker_btn.config(text="🔊\nSpeaker", bg='#404040')
+        except (tk.TclError, AttributeError):
+            pass
         
         if hasattr(self, 'audio_output_stream') and self.audio_output_stream:
             try:
@@ -3326,15 +3982,48 @@ class LANCommunicationServer:
         self.stop_server_btn.config(state=tk.DISABLED)
         self.server_status_label.config(text="● Server Stopped")
         
-        # Disable host controls
-        self.host_video_btn.config(state=tk.DISABLED, text="📹 Start Video")
-        self.host_mic_btn.config(state=tk.DISABLED, text="🎤 Mic")
-        self.host_speaker_btn.config(state=tk.DISABLED, text="🔊 Speaker")
-        self.host_present_btn.config(state=tk.DISABLED, text="🖥️ Present")
-        if hasattr(self, 'host_stop_screen_btn'):
-            self.host_stop_screen_btn.config(state=tk.DISABLED)
-        self.chat_entry.config(state=tk.DISABLED)
-        self.chat_send_btn.config(state=tk.DISABLED)
+        # Disable host controls with error handling
+        try:
+            if hasattr(self, 'host_video_btn') and self.host_video_btn and self.host_video_btn.winfo_exists():
+                self.host_video_btn.config(state=tk.DISABLED, text="📹 Start Video")
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'host_mic_btn') and self.host_mic_btn and self.host_mic_btn.winfo_exists():
+                self.host_mic_btn.config(state=tk.DISABLED, text="🎤 Mic")
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'host_speaker_btn') and self.host_speaker_btn and self.host_speaker_btn.winfo_exists():
+                self.host_speaker_btn.config(state=tk.DISABLED, text="🔊 Speaker")
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'host_present_btn') and self.host_present_btn and self.host_present_btn.winfo_exists():
+                self.host_present_btn.config(state=tk.DISABLED, text="🖥️ Present")
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'host_stop_screen_btn') and self.host_stop_screen_btn and self.host_stop_screen_btn.winfo_exists():
+                self.host_stop_screen_btn.config(state=tk.DISABLED)
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'chat_entry') and self.chat_entry and self.chat_entry.winfo_exists():
+                self.chat_entry.config(state=tk.DISABLED)
+        except (tk.TclError, AttributeError):
+            pass
+            
+        try:
+            if hasattr(self, 'chat_send_btn') and self.chat_send_btn and self.chat_send_btn.winfo_exists():
+                self.chat_send_btn.config(state=tk.DISABLED)
+        except (tk.TclError, AttributeError):
+            pass
         
         # Clear displays
         self.chat_display.config(state=tk.NORMAL)
@@ -3367,60 +4056,113 @@ class LANCommunicationServer:
         self.root.destroy()
         
     def start_host_screen_share(self):
-        """Start Host screen sharing"""
+        """Start CN_project style advanced screen sharing"""
         try:
-            print("Initializing screen sharing...")
+            if not MSS_AVAILABLE:
+                messagebox.showerror("Screen Sharing Error", "Screen sharing not available. Please install mss: pip install mss")
+                return
+                
+            if self.presentation_active:
+                messagebox.showwarning("Screen Sharing", "Presentation already active")
+                return
+                
+            print("Starting CN_project style screen sharing...")
+            
+            # Allocate dedicated ports for screen sharing
+            self.presenter_port = self.get_ephemeral_port()
+            self.viewer_port = self.get_ephemeral_port()
+            
+            print(f"Allocated ports - Presenter: {self.presenter_port}, Viewer: {self.viewer_port}")
+            
+            # Set presentation state
+            self.presentation_active = True
+            self.presenter_id = self.host_id
+            self.presenter_username = "Host"
             self.host_screen_share_enabled = True
             
-            # Note: Video and audio can continue during screen sharing
-            
-            # Update host video label to show screen sharing status
+            # Update UI
             self.host_video_label.config(text="🖥️ Screen Sharing\n\nCapturing your screen...", 
                                        font=('Segoe UI', 14),
                                        fg='#888888', bg='#000000')
             
-            # Enable stop screen sharing button and make it visible
-            if hasattr(self, 'host_stop_screen_btn'):
-                self.host_stop_screen_btn.config(state=tk.NORMAL, bg='#dc3545')
-                
-            # Update present button to show active state
             if hasattr(self, 'host_present_btn'):
                 self.host_present_btn.config(text="🖥️ Stop Presenting", bg='#28a745')
             
-            # Ensure all buttons remain visible and responsive
-            self.ensure_buttons_visible()
+            # Start presenter server (receives frames from host)
+            threading.Thread(target=self.start_presenter_server_sync, daemon=True).start()
             
-            print("Starting screen sharing thread...")
-            # Start screen sharing thread
-            screen_thread = threading.Thread(target=self.host_screen_loop, daemon=True)
-            screen_thread.start()
+            # Start viewer server (sends frames to clients)
+            threading.Thread(target=self.start_viewer_server_sync, daemon=True).start()
             
-            # Start GUI responsiveness monitor
-            self.start_gui_monitor()
+            # Start local screen capture
+            threading.Thread(target=self.cn_style_screen_capture, daemon=True).start()
             
-            self.log_message("Host screen sharing started")
-            self.update_clients_display()
-            print("Screen sharing initialization complete")
+            # Notify all clients about presentation start
+            present_msg = {
+                'type': 'cn_present_start',
+                'presenter_id': self.host_id,
+                'presenter_name': 'Host',
+                'viewer_port': self.viewer_port,
+                'topic': 'Screen Share'
+            }
+            self.broadcast_message(present_msg)
+            
+            self.log_message("CN_project style screen sharing started")
+            print("Advanced screen sharing started successfully")
             
         except Exception as e:
             print(f"Screen sharing error: {e}")
             messagebox.showerror("Screen Share Error", f"Failed to start screen sharing: {str(e)}")
+            self.presentation_active = False
+            self.host_screen_share_enabled = False
             
     def stop_host_screen_share(self):
-        """Stop Host screen sharing"""
-        print("Stopping screen sharing...")
+        """Stop CN_project style screen sharing"""
+        print("Stopping CN_project style screen sharing...")
+        
+        if not self.presentation_active:
+            print("No active presentation to stop")
+            return
+            
+        # Close presenter connection
+        if self.presenter_writer:
+            try:
+                self.presenter_writer.close()
+            except:
+                pass
+                
+        # Close all viewer connections
+        for viewer_conn in list(self.frame_viewers.values()):
+            try:
+                viewer_conn.close()
+            except:
+                pass
+        self.frame_viewers.clear()
+        
+        # Close servers
+        if self.presenter_server:
+            try:
+                self.presenter_server.close()
+            except:
+                pass
+        if self.viewer_server:
+            try:
+                self.viewer_server.close()
+            except:
+                pass
+            
+        # Reset state
+        self.presentation_active = False
+        self.presenter_id = None
+        self.presenter_username = None
+        self.presenter_port = None
+        self.viewer_port = None
         self.host_screen_share_enabled = False
         
-        # Reset presenter state
-        if self.presenter_id == self.host_id:
-            self.presenter_id = None
+        # Update UI
+        if hasattr(self, 'host_present_btn'):
             self.host_present_btn.config(text="🖥️ Present", bg='#fd7e14')
-        
-        # Disable stop screen sharing button and reset color
-        if hasattr(self, 'host_stop_screen_btn'):
-            self.host_stop_screen_btn.config(state=tk.DISABLED, bg='#6c757d')
-        
-        # Clear screen display only if video is not running
+            
         if not self.host_video_enabled:
             self.host_video_label.config(image="", 
                                         text="📹 Host Video\n\nClick 'Start Video' to begin",
@@ -3429,19 +4171,266 @@ class LANCommunicationServer:
         
         # Notify clients that presentation stopped
         stop_msg = {
-            'type': 'presentation_stopped',
-            'former_presenter': self.host_id
+            'type': 'cn_present_stop',
+            'presenter_id': self.host_id,
+            'presenter_name': 'Host'
         }
         self.broadcast_message(stop_msg)
         
-        # Optionally restart video if it was running before
-        # (This is commented out to avoid automatic video restart)
-        # if self.host_video_enabled:
-        #     self.start_host_video()
+        self.log_message("CN_project style screen sharing stopped")
+        print("Advanced screen sharing stopped successfully")
+    
+    def get_ephemeral_port(self):
+        """Allocate an ephemeral port for screen sharing"""
+        port = self.next_screen_port
+        self.next_screen_port += 1
+        return port
+    
+    def start_presenter_server_sync(self):
+        """Start server to receive frames from presenter (host) - Threading version"""
+        try:
+            import socket
+            import threading
+            
+            # Create server socket
+            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_sock.bind(('localhost', self.presenter_port))
+            server_sock.listen(1)
+            self.presenter_server = server_sock
+            
+            print(f"[SCREEN] Presenter server started on port {self.presenter_port}")
+            
+            # Accept presenter connection
+            conn, addr = server_sock.accept()
+            self.presenter_writer = conn
+            print(f"[SCREEN] Presenter connected from {addr}")
+            
+            # Start frame relay
+            threading.Thread(target=self.relay_frames_sync, args=(conn,), daemon=True).start()
+            
+        except Exception as e:
+            print(f"Failed to start presenter server: {e}")
+    
+    def start_viewer_server_sync(self):
+        """Start server to send frames to viewers (clients) - Threading version"""
+        try:
+            import socket
+            import threading
+            
+            # Create server socket
+            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server_sock.bind(('localhost', self.viewer_port))
+            server_sock.listen(10)  # Allow multiple viewers
+            self.viewer_server = server_sock
+            
+            print(f"[SCREEN] Viewer server started on port {self.viewer_port}")
+            
+            # Accept viewer connections
+            while self.presentation_active:
+                try:
+                    conn, addr = server_sock.accept()
+                    print(f"[SCREEN] Viewer connected from {addr}")
+                    
+                    # Store viewer connection
+                    viewer_id = id(conn)
+                    self.frame_viewers[viewer_id] = conn
+                    
+                    # Handle viewer in separate thread
+                    threading.Thread(target=self.handle_viewer_connection, args=(conn, viewer_id, addr), daemon=True).start()
+                    
+                except Exception as e:
+                    if self.presentation_active:
+                        print(f"Error accepting viewer: {e}")
+                    break
+            
+        except Exception as e:
+            print(f"Failed to start viewer server: {e}")
+    
+    def handle_viewer_connection(self, conn, viewer_id, addr):
+        """Handle individual viewer connection"""
+        try:
+            # Keep connection alive until presentation ends or client disconnects
+            while self.presentation_active and viewer_id in self.frame_viewers:
+                try:
+                    # Send a small keepalive or wait for client to disconnect
+                    conn.settimeout(1.0)
+                    data = conn.recv(1)
+                    if not data:
+                        break
+                except socket.timeout:
+                    continue
+                except:
+                    break
+        except:
+            pass
+        finally:
+            # Clean up viewer connection
+            if viewer_id in self.frame_viewers:
+                del self.frame_viewers[viewer_id]
+            try:
+                conn.close()
+            except:
+                pass
+            print(f"[SCREEN] Viewer {addr} disconnected")
+    
+    def relay_frames_sync(self, presenter_conn):
+        """Relay frames from presenter to all viewers (Threading version)"""
+        print("[SCREEN] Starting frame relay")
+        frame_count = 0
         
-        self.log_message("Host screen sharing stopped")
-        self.update_clients_display()
-        print("Screen sharing stopped successfully")
+        try:
+            while self.presentation_active:
+                try:
+                    # Read 4-byte frame length header
+                    length_data = b''
+                    while len(length_data) < 4:
+                        chunk = presenter_conn.recv(4 - len(length_data))
+                        if not chunk:
+                            raise ConnectionError("Presenter disconnected")
+                        length_data += chunk
+                    
+                    frame_length = struct.unpack('!I', length_data)[0]
+                    
+                    # Read frame data
+                    frame_data = b''
+                    while len(frame_data) < frame_length:
+                        chunk = presenter_conn.recv(min(8192, frame_length - len(frame_data)))
+                        if not chunk:
+                            raise ConnectionError("Presenter disconnected")
+                        frame_data += chunk
+                    
+                    frame_count += 1
+                    
+                    # Relay to all viewers
+                    disconnected_viewers = []
+                    for viewer_id, viewer_conn in list(self.frame_viewers.items()):
+                        try:
+                            viewer_conn.sendall(length_data + frame_data)
+                        except Exception as e:
+                            print(f"Failed to relay to viewer {viewer_id}: {e}")
+                            disconnected_viewers.append(viewer_id)
+                    
+                    # Clean up disconnected viewers
+                    for viewer_id in disconnected_viewers:
+                        if viewer_id in self.frame_viewers:
+                            del self.frame_viewers[viewer_id]
+                    
+                    # Log every 50 frames
+                    if frame_count % 50 == 0:
+                        print(f"[SCREEN] Relayed {frame_count} frames to {len(self.frame_viewers)} viewers")
+                
+                except ConnectionError as e:
+                    print(f"[SCREEN] {e}")
+                    break
+                except Exception as e:
+                    print(f"[SCREEN] Frame relay error: {e}")
+                    break
+        
+        finally:
+            print(f"[SCREEN] Frame relay stopped. Total frames: {frame_count}")
+            try:
+                presenter_conn.close()
+            except:
+                pass
+    
+    def cn_style_screen_capture(self):
+        """CN_project style screen capture and streaming"""
+        print("Starting CN_project style screen capture...")
+        frame_interval = 1.0 / self.screen_settings['fps']
+        frame_count = 0
+        start_time = time.time()
+        
+        try:
+            # Connect to our own presenter server
+            import socket
+            import struct
+            from PIL import Image as PILImage
+            from io import BytesIO
+            
+            # Wait for presenter server to be ready
+            time.sleep(1)
+            
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect(('localhost', self.presenter_port))
+            print(f"[SCREEN] Connected to presenter port {self.presenter_port}")
+            
+            with mss.mss() as sct:
+                while self.presentation_active and self.host_screen_share_enabled:
+                    loop_start = time.time()
+                    
+                    try:
+                        # Capture primary monitor
+                        monitor = sct.monitors[1]
+                        screenshot = sct.grab(monitor)
+                        
+                        # Convert to PIL Image
+                        img = PILImage.frombytes('RGB', screenshot.size, screenshot.rgb)
+                        
+                        # Scale down for performance (CN_project style)
+                        if self.screen_settings['scale_factor'] != 1.0:
+                            new_width = int(img.width * self.screen_settings['scale_factor'])
+                            new_height = int(img.height * self.screen_settings['scale_factor'])
+                            img = img.resize((new_width, new_height), PILImage.Resampling.LANCZOS)
+                        
+                        # Compress to JPEG
+                        buffer = BytesIO()
+                        img.save(buffer, format='JPEG', quality=self.screen_settings['quality'], optimize=True)
+                        frame_data = buffer.getvalue()
+                        
+                        # Send frame with CN_project protocol: [4 bytes length][frame data]
+                        frame_length = len(frame_data)
+                        header = struct.pack('!I', frame_length)
+                        
+                        sock.sendall(header + frame_data)
+                        
+                        frame_count += 1
+                        
+                        # Update GUI display occasionally
+                        if frame_count % 10 == 0:  # Every 10 frames
+                            try:
+                                # Create smaller version for GUI display
+                                display_img = img.resize((400, 300), PILImage.Resampling.LANCZOS)
+                                display_photo = ImageTk.PhotoImage(display_img)
+                                # Update in main thread
+                                self.root.after_idle(lambda photo=display_photo: self.update_screen_display_gui(photo))
+                            except:
+                                pass
+                        
+                        # Log performance every 50 frames
+                        if frame_count % 50 == 0:
+                            elapsed = time.time() - start_time
+                            actual_fps = frame_count / elapsed if elapsed > 0 else 0
+                            frame_size_kb = len(frame_data) / 1024
+                            print(f"[SCREEN] Frames: {frame_count}, FPS: {actual_fps:.1f}, "
+                                  f"Size: {frame_size_kb:.1f} KB, Viewers: {len(self.frame_viewers)}")
+                    
+                    except Exception as e:
+                        print(f"[SCREEN] Frame capture error: {e}")
+                    
+                    # Sleep to maintain target FPS
+                    elapsed = time.time() - loop_start
+                    sleep_time = max(0, frame_interval - elapsed)
+                    time.sleep(sleep_time)
+        
+        except Exception as e:
+            print(f"[SCREEN] Screen capture error: {e}")
+        finally:
+            try:
+                sock.close()
+            except:
+                pass
+            print(f"[SCREEN] Screen capture stopped. Total frames: {frame_count}")
+    
+    def update_screen_display_gui(self, photo):
+        """Update GUI screen display"""
+        try:
+            if hasattr(self, 'host_video_label') and self.host_video_label:
+                self.host_video_label.config(image=photo)
+                self.host_video_label.image = photo  # Keep a reference
+        except Exception as e:
+            print(f"Error updating screen display: {e}")
         
     def ensure_buttons_visible(self):
         """Ensure all buttons remain visible and responsive"""

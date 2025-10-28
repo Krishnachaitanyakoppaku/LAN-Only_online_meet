@@ -1,9 +1,11 @@
 #!/bin/bash
-echo "🔗 LAN Communication Hub - Client Connection"
+echo "🔗 Setting up SSH tunnel for LAN Communication Hub"
+echo "Server IP: 172.17.253.127"
 echo ""
-python3 connect_client.py || python connect_client.py
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "❌ Python connection failed"
-    echo "💡 Make sure Python is installed and try again"
-fi
+read -p "Enter username for 172.17.253.127 (default: chaitu): " username
+username=${username:-chaitu}
+echo ""
+echo "This will create a tunnel so you can access the server via localhost"
+echo "Keep this terminal open while using the application"
+echo ""
+ssh -L 5000:172.17.253.127:5000 $username@172.17.253.127
