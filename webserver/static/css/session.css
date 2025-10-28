@@ -127,6 +127,28 @@
     background: #dc3545;
 }
 
+.video-control-btn.active {
+    background: #28a745;
+}
+
+.video-container video.disabled {
+    opacity: 0.3;
+    filter: grayscale(100%);
+}
+
+.video-container.video-disabled::after {
+    content: "Video Off";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
 /* Screen Share */
 .screen-share-container {
     position: absolute;

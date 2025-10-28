@@ -306,26 +306,74 @@ async function initializeMedia() {
         
         // Request camera and microphone access
         localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true
+            video: {
+                width: { ideal: 640 },
+                height: { ideal: 480 },
+                frameRate: { ideal: 15 }
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
         });
         
         console.log('🎥 Media access granted');
         console.log('🎥 Video tracks:', localStream.getVideoTracks().length);
         console.log('🎥 Audio tracks:', localStream.getAudioTracks().length);
         
+        // Set initial track states
+        const videoTrack = localStream.getVideoTracks()[0];
+        const audioTrack = localStream.getAudioTracks()[0];
+        
+        if (videoTrack) {
+            videoTrack.enabled = isVideoEnabled;
+            console.log('🎥 Video track enabled:', videoTrack.enabled);
+        }
+        
+        if (audioTrack) {
+            audioTrack.enabled = isAudioEnabled;
+            console.log('🎤 Audio track enabled:', audioTrack.enabled);
+        }
+        
         // Display local video
         displayLocalVideo();
         
         // Start sending video data
-        startVideoStreaming();
+        if (isVideoEnabled) {
+            startVideoStreaming();
+        }
         
         // Start sending audio data
-        startAudioStreaming();
+        if (isAudioEnabled) {
+            startAudioStreaming();
+        }
+        
+        console.log('🎥 Media initialization complete');
         
     } catch (error) {
         console.error('Error accessing media devices:', error);
-        showMessage('Could not access camera/microphone. Please check permissions.', 'error');
+        
+        let errorMessage = 'Could not access camera/microphone. ';
+        switch (error.name) {
+            case 'NotAllowedError':
+                errorMessage += 'Permission denied. Please allow camera/microphone access.';
+                break;
+            case 'NotFoundError':
+                errorMessage += 'No camera or microphone found.';
+                break;
+            case 'NotReadableError':
+                errorMessage += 'Camera/microphone is busy or unavailable.';
+                break;
+            case 'SecurityError':
+                errorMessage += 'Security error. Try using HTTPS or localhost.';
+                break;
+            default:
+                errorMessage += error.message;
+        }
+        
+        showMessage(errorMessage, 'error');
+        showPermissionInstructions();
     }
 }
 
@@ -436,6 +484,13 @@ async function testMediaAccess() {
 // Display local video
 function displayLocalVideo() {
     const videoGrid = document.getElementById('videoGrid');
+    
+    // Remove existing local video container if it exists
+    const existingContainer = document.getElementById('localVideoContainer');
+    if (existingContainer) {
+        existingContainer.remove();
+    }
+    
     const localVideoContainer = document.createElement('div');
     localVideoContainer.className = 'video-container';
     localVideoContainer.id = 'localVideoContainer';
@@ -444,6 +499,7 @@ function displayLocalVideo() {
     video.srcObject = localStream;
     video.autoplay = true;
     video.muted = true; // Mute local video to prevent feedback
+    video.playsInline = true; // Important for mobile devices
     
     const overlay = document.createElement('div');
     overlay.className = 'video-overlay';
@@ -455,11 +511,11 @@ function displayLocalVideo() {
     const controls = document.createElement('div');
     controls.className = 'video-controls';
     controls.innerHTML = `
-        <button class="video-control-btn" id="localVideoToggle">
-            <i class="fas fa-video"></i>
+        <button class="video-control-btn ${isVideoEnabled ? 'active' : 'muted'}" id="localVideoToggle">
+            <i class="fas ${isVideoEnabled ? 'fa-video' : 'fa-video-slash'}"></i>
         </button>
-        <button class="video-control-btn" id="localAudioToggle">
-            <i class="fas fa-microphone"></i>
+        <button class="video-control-btn ${isAudioEnabled ? 'active' : 'muted'}" id="localAudioToggle">
+            <i class="fas ${isAudioEnabled ? 'fa-microphone' : 'fa-microphone-slash'}"></i>
         </button>
     `;
     
@@ -471,14 +527,36 @@ function displayLocalVideo() {
     // Add event listeners for local controls
     document.getElementById('localVideoToggle').addEventListener('click', toggleVideo);
     document.getElementById('localAudioToggle').addEventListener('click', toggleAudio);
+    
+    // Set initial video opacity based on state
+    video.style.opacity = isVideoEnabled ? '1' : '0.3';
+    
+    console.log('🎥 Local video display updated');
 }
 
 // Start video streaming
 function startVideoStreaming() {
-    if (!localStream) return;
+    if (!localStream) {
+        console.log('🎥 No localStream available for video streaming');
+        return;
+    }
     
     const videoTrack = localStream.getVideoTracks()[0];
-    if (!videoTrack) return;
+    if (!videoTrack) {
+        console.log('🎥 No video track available');
+        return;
+    }
+    
+    if (!isVideoEnabled) {
+        console.log('🎥 Video is disabled, not starting streaming');
+        return;
+    }
+    
+    // Stop any existing video streaming
+    if (window.videoStreamingActive) {
+        console.log('🎥 Stopping existing video streaming');
+        window.videoStreamingActive = false;
+    }
     
     // Create canvas to capture video frames
     const canvas = document.createElement('canvas');
@@ -487,30 +565,49 @@ function startVideoStreaming() {
     video.srcObject = localStream;
     video.play();
     
+    // Mark streaming as active
+    window.videoStreamingActive = true;
+    
+    console.log('🎥 Starting video streaming...');
+    
     function captureFrame() {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        // Check if streaming should continue
+        if (!window.videoStreamingActive || !isVideoEnabled) {
+            console.log('🎥 Video streaming stopped');
+            return;
+        }
+        
+        if (video.readyState === video.HAVE_ENOUGH_DATA && videoTrack.enabled) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0);
             
             // Convert canvas to base64 and send
             const dataURL = canvas.toDataURL('image/jpeg', 0.8);
-            console.log(`📹 [DEBUG] Sending video data (${dataURL.length} chars) from ${currentUser} to session ${currentSession}`);
             
             socket.emit('video_data', {
                 username: currentUser,
                 session_id: currentSession,
                 data: dataURL
             });
-            console.log(`📹 Sent video frame from ${currentUser} to session ${currentSession}`);
         }
         
-        if (isVideoEnabled) {
+        // Continue capturing if video is enabled
+        if (isVideoEnabled && window.videoStreamingActive) {
             requestAnimationFrame(captureFrame);
         }
     }
     
-    captureFrame();
+    // Wait for video to be ready before starting capture
+    video.addEventListener('loadedmetadata', () => {
+        console.log('🎥 Video metadata loaded, starting capture');
+        captureFrame();
+    });
+    
+    // Start immediately if video is already ready
+    if (video.readyState >= video.HAVE_METADATA) {
+        captureFrame();
+    }
 }
 
 // Start audio streaming
@@ -715,9 +812,14 @@ function toggleVideo() {
     if (isVideoEnabled) {
         icon.className = 'fas fa-video';
         btn.classList.add('active');
+        
+        // Restart video streaming when enabled
+        console.log('🎥 Video enabled - restarting video streaming');
+        startVideoStreaming();
     } else {
         icon.className = 'fas fa-video-slash';
         btn.classList.remove('active');
+        console.log('🎥 Video disabled - stopping video streaming');
     }
     
     // Update local video controls
@@ -725,6 +827,18 @@ function toggleVideo() {
     if (localBtn) {
         const localIcon = localBtn.querySelector('i');
         localIcon.className = isVideoEnabled ? 'fas fa-video' : 'fas fa-video-slash';
+        
+        if (isVideoEnabled) {
+            localBtn.classList.remove('muted');
+        } else {
+            localBtn.classList.add('muted');
+        }
+    }
+    
+    // Update local video display
+    const localVideo = document.querySelector('#localVideoContainer video');
+    if (localVideo) {
+        localVideo.style.opacity = isVideoEnabled ? '1' : '0.3';
     }
 }
 
