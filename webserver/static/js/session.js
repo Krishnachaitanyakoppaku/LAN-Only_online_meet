@@ -276,8 +276,12 @@ function setupEventListeners() {
         }
     });
     
+    // Quick access buttons
+    document.getElementById('showParticipantsBtn').addEventListener('click', showParticipantsModal);
+    document.getElementById('showFilesBtn').addEventListener('click', showFilesModal);
+    
     // File upload
-    document.getElementById('uploadBtn').addEventListener('click', showFileUploadModal);
+    document.getElementById('uploadBtnModal').addEventListener('click', showFileUploadModal);
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
     
     // File upload area click handler
@@ -1159,33 +1163,53 @@ function uploadFiles(files) {
     // Reset input
     document.getElementById('fileInput').value = '';
     closeFileUploadModal();
+    
+    // Show success message and reopen files modal
+    setTimeout(() => {
+        showFilesModal();
+        showMessage('File uploaded successfully!', 'success');
+    }, 100);
 }
 
 // Add file to list
 function addFileToList(data) {
     files.set(data.file_id, data);
+    updateFilesList();
+}
+
+function updateFilesList() {
+    const filesListModal = document.getElementById('filesListModal');
+    if (!filesListModal) return;
     
-    const filesList = document.getElementById('filesList');
-    const fileElement = document.createElement('div');
-    fileElement.className = 'file-item';
-    fileElement.id = `file-${data.file_id}`;
+    filesListModal.innerHTML = '';
     
-    fileElement.innerHTML = `
-        <div class="file-icon">
-            <i class="fas fa-file"></i>
-        </div>
-        <div class="file-info">
-            <div class="file-name">${escapeHtml(data.filename)}</div>
-            <div class="file-meta">${data.uploader} • ${formatFileSize(data.size)}</div>
-        </div>
-        <div class="file-actions">
-            <button class="file-action-btn" onclick="downloadFileById('${data.file_id}')" title="Download">
-                <i class="fas fa-download"></i>
-            </button>
-        </div>
-    `;
+    if (files.size === 0) {
+        filesListModal.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No files shared yet</p>';
+        return;
+    }
     
-    filesList.appendChild(fileElement);
+    files.forEach((fileData, fileId) => {
+        const fileElement = document.createElement('div');
+        fileElement.className = 'file-item';
+        fileElement.id = `file-${fileId}`;
+        
+        fileElement.innerHTML = `
+            <div class="file-icon">
+                <i class="fas fa-file"></i>
+            </div>
+            <div class="file-info">
+                <div class="file-name">${escapeHtml(fileData.filename)}</div>
+                <div class="file-meta">${fileData.uploader} • ${formatFileSize(fileData.size)}</div>
+            </div>
+            <div class="file-actions">
+                <button class="file-action-btn" onclick="downloadFileById('${fileId}')" title="Download">
+                    <i class="fas fa-download"></i>
+                </button>
+            </div>
+        `;
+        
+        filesListModal.appendChild(fileElement);
+    });
 }
 
 // Download file by ID
@@ -1211,8 +1235,21 @@ function downloadFile(data) {
 
 // Update participants list
 function updateParticipantsList() {
-    const participantsList = document.getElementById('participantsList');
+    // Update both sidebar list and modal list
+    updateParticipantsListInElement('participantsList');
+    updateParticipantsListInElement('participantsListModal');
+}
+
+function updateParticipantsListInElement(elementId) {
+    const participantsList = document.getElementById(elementId);
+    if (!participantsList) return;
+    
     participantsList.innerHTML = '';
+    
+    if (participants.size === 0) {
+        participantsList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No participants yet</p>';
+        return;
+    }
     
     participants.forEach((participant, username) => {
         const participantElement = document.createElement('div');
@@ -1297,12 +1334,30 @@ function updateConnectionStatus(status) {
 }
 
 // Modal functions
+function showParticipantsModal() {
+    document.getElementById('participantsModal').style.display = 'block';
+}
+
+function closeParticipantsModal() {
+    document.getElementById('participantsModal').style.display = 'none';
+}
+
+function showFilesModal() {
+    document.getElementById('filesModal').style.display = 'block';
+}
+
+function closeFilesModal() {
+    document.getElementById('filesModal').style.display = 'none';
+}
+
 function showFileUploadModal() {
+    closeFilesModal(); // Close files modal first
     document.getElementById('fileUploadModal').style.display = 'block';
 }
 
 function closeFileUploadModal() {
     document.getElementById('fileUploadModal').style.display = 'none';
+    showFilesModal(); // Re-open files modal after upload
 }
 
 function showSettingsModal() {

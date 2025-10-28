@@ -54,6 +54,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 connected_users = {}
 active_sessions = {}
 file_transfers = {}
+session_files = {}  # Track files by session: {session_id: [file_ids]}
 presenter_id = None
 screen_share_active = False
 upload_logs = []
@@ -526,6 +527,19 @@ def handle_join_session(data):
             'host': session_manager.get_session_host(session_id),
             'is_host': session_manager.is_host(username, session_id)
         })
+        
+        # Send existing files to newly joined user
+        if session_id in session_files:
+            for file_id in session_files[session_id]:
+                if file_id in file_transfers:
+                    file_info = file_transfers[file_id]
+                    emit('file_available', {
+                        'file_id': file_id,
+                        'filename': file_info['filename'],
+                        'uploader': file_info['uploader'],
+                        'size': file_info['size']
+                    })
+                    print(f"📁 Sent existing file {file_info['filename']} to {username}")
     else:
         print(f"Join session error: Session {session_id} not found")
         print(f"Available sessions: {list(session_manager.sessions.keys())}")
@@ -755,6 +769,14 @@ def handle_file_upload(data):
             'upload_time': datetime.now().isoformat(),
             'size': len(file_data)
         }
+        
+        # Track file in session
+        if session_id not in session_files:
+            session_files[session_id] = []
+        session_files[session_id].append(file_id)
+        
+        print(f"📁 [DEBUG] File uploaded: {filename} by {username} in session {session_id}")
+        print(f"📁 [DEBUG] Session now has {len(session_files[session_id])} files")
         
         # Log upload
         upload_logs.append({

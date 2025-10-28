@@ -65,15 +65,16 @@
 
             <!-- Sidebar -->
             <div class="sidebar">
-                <!-- Participants List -->
-                <div class="participants-section">
-                    <h3>
+                <!-- Quick Access Buttons -->
+                <div class="quick-access-buttons">
+                    <button class="quick-btn" id="showParticipantsBtn">
                         <i class="fas fa-users"></i>
-                        Participants
-                    </h3>
-                    <div class="participants-list" id="participantsList">
-                        <!-- Participants will be added here -->
-                    </div>
+                        <span>Participants</span>
+                    </button>
+                    <button class="quick-btn" id="showFilesBtn">
+                        <i class="fas fa-file"></i>
+                        <span>Files</span>
+                    </button>
                 </div>
 
                 <!-- Chat Section -->
@@ -96,24 +97,6 @@
                             <button class="btn btn-primary" id="sendBtn">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- File Sharing Section -->
-                <div class="files-section">
-                    <div class="files-header">
-                        <h3>
-                            <i class="fas fa-file-upload"></i>
-                            Files
-                        </h3>
-                        <button class="btn btn-sm" id="uploadBtn">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                    <div class="files-content" id="filesContent">
-                        <div class="files-list" id="filesList">
-                            <!-- Files will be added here -->
                         </div>
                     </div>
                 </div>
@@ -202,6 +185,48 @@
                                 <option value="low">Low</option>
                             </select>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Participants Modal -->
+        <div id="participantsModal" class="modal">
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3>
+                        <i class="fas fa-users"></i>
+                        Participants
+                    </h3>
+                    <button class="close-btn" onclick="closeParticipantsModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="participants-list-modal" id="participantsListModal">
+                        <!-- Participants will be added here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Files Modal -->
+        <div id="filesModal" class="modal">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3>
+                        <i class="fas fa-file"></i>
+                        Shared Files
+                    </h3>
+                    <button class="close-btn" onclick="closeFilesModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" id="uploadBtnModal">
+                            <i class="fas fa-plus"></i>
+                            Upload New File
+                        </button>
+                    </div>
+                    <div class="files-list-modal" id="filesListModal">
+                        <!-- Files will be added here -->
                     </div>
                 </div>
             </div>
