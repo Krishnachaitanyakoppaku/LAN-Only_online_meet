@@ -1133,6 +1133,9 @@ class LANCommunicationClient:
             # Start heartbeat thread
             threading.Thread(target=self.heartbeat_loop, daemon=True).start()
             
+            # Start GUI responsiveness monitor
+            self.start_gui_responsiveness_monitor()
+            
             # Switch to meeting screen
             self.show_meeting_screen()
             
@@ -1162,42 +1165,57 @@ class LANCommunicationClient:
             messagebox.showerror("Connection Error", f"Failed to connect: {str(e)}")
             
     def send_tcp_message(self, message):
-        """Send TCP message to server with enhanced error handling"""
+        """Send TCP message to server with enhanced error handling and timeout"""
         try:
             if not self.connected or not self.tcp_socket:
                 return False
-                
+            
+            # Set a short timeout for sending to prevent blocking GUI
+            original_timeout = self.tcp_socket.gettimeout()
+            self.tcp_socket.settimeout(3.0)  # 3 second send timeout
+            
             message_data = json.dumps(message).encode('utf-8')
             message_length = struct.pack('!I', len(message_data))
             self.tcp_socket.send(message_length + message_data)
+            
+            # Restore original timeout
+            self.tcp_socket.settimeout(original_timeout)
             return True
         except Exception as e:
             print(f"Error sending TCP message: {e}")
-            self.handle_connection_lost()
+            # Don't immediately handle connection lost on send timeout
+            if "timeout" not in str(e).lower():
+                self.handle_connection_lost()
             return False
             
     def heartbeat_loop(self):
-        """Send periodic heartbeat messages to server"""
+        """Send periodic heartbeat messages to server with better responsiveness"""
         while self.running and self.connected:
             try:
                 heartbeat_msg = create_heartbeat_message()
                 if not self.send_tcp_message(heartbeat_msg):
                     break
-                time.sleep(HEARTBEAT_INTERVAL)
+                
+                # Sleep in smaller intervals to allow for quicker shutdown
+                sleep_time = HEARTBEAT_INTERVAL
+                while sleep_time > 0 and self.running and self.connected:
+                    time.sleep(min(1.0, sleep_time))  # Sleep max 1 second at a time
+                    sleep_time -= 1.0
+                    
             except Exception as e:
                 print(f"Heartbeat error: {e}")
                 break
             
     def tcp_receiver(self):
-        """Receive TCP messages from server with improved error handling"""
+        """Receive TCP messages from server with improved error handling and GUI responsiveness"""
         consecutive_errors = 0
         max_errors = 5
         last_activity = time.time()
         
         while self.running and self.connected:
             try:
-                # Set socket timeout to prevent hanging (shorter timeout for better responsiveness)
-                self.tcp_socket.settimeout(10.0)  # 10 second timeout
+                # Use shorter timeout for better GUI responsiveness
+                self.tcp_socket.settimeout(2.0)  # 2 second timeout instead of 10
                 
                 # Receive message length
                 length_data = self.tcp_socket.recv(4)
@@ -1212,24 +1230,30 @@ class LANCommunicationClient:
                     print(f"Message too large: {message_length} bytes")
                     break
                 
-                # Receive message data
+                # Receive message data with smaller chunks for better responsiveness
                 message_data = b''
                 while len(message_data) < message_length:
                     remaining = message_length - len(message_data)
-                    chunk = self.tcp_socket.recv(min(remaining, 8192))  # 8KB chunks
+                    chunk_size = min(remaining, 4096)  # Smaller 4KB chunks
+                    chunk = self.tcp_socket.recv(chunk_size)
                     if not chunk:
                         print("Connection lost while receiving message")
                         break
                     message_data += chunk
                     
+                    # Yield control to GUI thread periodically
+                    if len(message_data) % 16384 == 0:  # Every 16KB
+                        time.sleep(0.001)  # 1ms yield
+                    
                 if len(message_data) != message_length:
                     print(f"Incomplete message received: {len(message_data)}/{message_length}")
                     break
                     
-                # Parse message
+                # Parse message in a non-blocking way
                 try:
                     message = json.loads(message_data.decode('utf-8'))
-                    self.process_server_message(message)
+                    # Process message asynchronously to avoid blocking
+                    self.root.after_idle(lambda msg=message: self.process_server_message(msg))
                     consecutive_errors = 0  # Reset error counter on success
                     last_activity = time.time()  # Update activity timestamp
                 except json.JSONDecodeError as e:
@@ -1242,6 +1266,8 @@ class LANCommunicationClient:
                     print("TCP connection inactive for too long, disconnecting")
                     break
                 # Timeout is normal during periods of no activity, just continue
+                # Add small sleep to prevent busy waiting
+                time.sleep(0.01)
                 continue
             except ConnectionResetError:
                 print("TCP connection reset by server")
@@ -1256,7 +1282,7 @@ class LANCommunicationClient:
                     print("Too many TCP errors, disconnecting")
                     break
                     
-                time.sleep(1)  # Brief pause before retrying
+                time.sleep(0.5)  # Shorter pause for better responsiveness
         
         # Connection lost - handle cleanup
         if self.running and self.connected:
@@ -1771,9 +1797,9 @@ class LANCommunicationClient:
         consecutive_errors = 0
         max_errors = 5
         
-        # Set socket timeout to prevent hanging
+        # Set socket timeout to prevent hanging (shorter for better GUI responsiveness)
         if hasattr(self, 'udp_video_socket') and self.udp_video_socket:
-            self.udp_video_socket.settimeout(5.0)  # 5 second timeout
+            self.udp_video_socket.settimeout(1.0)  # 1 second timeout for better responsiveness
         
         while self.running and self.connected:
             try:
@@ -1931,9 +1957,9 @@ class LANCommunicationClient:
         consecutive_errors = 0
         max_errors = 5
         
-        # Set socket timeout to prevent hanging
+        # Set socket timeout to prevent hanging (shorter for better GUI responsiveness)
         if hasattr(self, 'udp_audio_socket') and self.udp_audio_socket:
-            self.udp_audio_socket.settimeout(5.0)  # 5 second timeout
+            self.udp_audio_socket.settimeout(1.0)  # 1 second timeout for better responsiveness
         
         while self.running and self.connected:
             try:
@@ -2576,6 +2602,57 @@ class LANCommunicationClient:
                 self.video_display.image = photo
         except Exception as e:
             print(f"Error updating CN screen display: {e}")
+    
+    def start_gui_responsiveness_monitor(self):
+        """Start GUI responsiveness monitor to prevent freezing"""
+        def gui_monitor():
+            while self.running and self.connected:
+                try:
+                    # Force GUI update every 100ms
+                    self.root.after_idle(self.ensure_gui_responsiveness)
+                    time.sleep(0.1)  # 100ms interval
+                except Exception as e:
+                    print(f"GUI monitor error: {e}")
+                    break
+        
+        threading.Thread(target=gui_monitor, daemon=True).start()
+    
+    def ensure_gui_responsiveness(self):
+        """Ensure GUI remains responsive"""
+        try:
+            # Process any pending GUI events
+            self.root.update_idletasks()
+            
+            # Update connection status if needed
+            if hasattr(self, 'conn_status_label') and self.connected:
+                current_text = self.conn_status_label.cget('text')
+                if "Connecting" in current_text:
+                    self.conn_status_label.config(text="✅ Connected", fg='#28a745')
+            
+            # Ensure buttons remain responsive
+            self.ensure_buttons_responsive()
+            
+        except Exception as e:
+            print(f"Error ensuring GUI responsiveness: {e}")
+    
+    def ensure_buttons_responsive(self):
+        """Ensure all buttons remain responsive and clickable"""
+        try:
+            # Update button states to ensure they remain responsive
+            if hasattr(self, 'video_btn') and self.video_btn:
+                self.video_btn.update_idletasks()
+            if hasattr(self, 'mic_btn') and self.mic_btn:
+                self.mic_btn.update_idletasks()
+            if hasattr(self, 'speaker_btn') and self.speaker_btn:
+                self.speaker_btn.update_idletasks()
+            if hasattr(self, 'present_btn') and self.present_btn:
+                self.present_btn.update_idletasks()
+            if hasattr(self, 'leave_btn') and self.leave_btn:
+                self.leave_btn.update_idletasks()
+            if hasattr(self, 'chat_entry') and self.chat_entry:
+                self.chat_entry.update_idletasks()
+        except Exception as e:
+            print(f"Error ensuring button responsiveness: {e}")
             
     def start_gui_monitor(self):
         """Start GUI responsiveness monitor during screen sharing"""

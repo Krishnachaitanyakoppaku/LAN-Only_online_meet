@@ -2630,6 +2630,7 @@ class LANCommunicationServer:
                 'chat_history': self.chat_history,
                 'presenter_id': self.presenter_id,
                 'host_id': self.host_id,
+                'shared_files': self.shared_files,  # Include shared files list
                 'timestamp': datetime.now().isoformat()
             }
             self.send_to_client(client_id, welcome_msg)
@@ -2880,6 +2881,16 @@ class LANCommunicationServer:
                 self.shared_files[file_name]['downloads'] += 1
                 self.update_files_display()
                 self.log_message(f"File '{file_name}' downloaded by {self.clients[client_id]['name']}")
+                
+        elif msg_type == 'get_files_list':
+            # Client requesting current files list
+            files_list_msg = {
+                'type': 'files_list_update',
+                'shared_files': self.shared_files,
+                'timestamp': datetime.now().isoformat()
+            }
+            self.send_to_client(client_id, files_list_msg)
+            self.log_message(f"Sent files list to client {client_id} ({len(self.shared_files)} files)")
             
         # Update last seen time
         self.clients[client_id]['last_seen'] = time.time()
