@@ -375,9 +375,7 @@ async function initializeMedia() {
         displayLocalVideo();
         
         // Start sending video data
-        if (isVideoEnabled) {
-            startVideoStreaming();
-        }
+        startVideoStreaming();
         
         // Start sending audio data
         if (isAudioEnabled) {
@@ -582,11 +580,6 @@ function startVideoStreaming() {
         return;
     }
     
-    if (!isVideoEnabled) {
-        console.log('🎥 Video is disabled, not starting streaming');
-        return;
-    }
-    
     // Stop any existing video streaming
     if (window.videoStreamingActive) {
         console.log('🎥 Stopping existing video streaming');
@@ -594,8 +587,11 @@ function startVideoStreaming() {
     }
     
     // Create canvas to capture video frames
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    if (!window.videoCanvas) {
+        window.videoCanvas = document.createElement('canvas');
+        window.videoCanvasContext = window.videoCanvas.getContext('2d');
+    }
+    
     const video = document.createElement('video');
     video.srcObject = localStream;
     video.play();
@@ -607,17 +603,43 @@ function startVideoStreaming() {
     
     function captureFrame() {
         // Check if streaming should continue
-        if (!window.videoStreamingActive || !isVideoEnabled) {
+        if (!window.videoStreamingActive) {
             console.log('🎥 Video streaming stopped');
             return;
         }
         
-        if (video.readyState === video.HAVE_ENOUGH_DATA && videoTrack.enabled) {
+        // Check if video is enabled
+        if (!isVideoEnabled || !videoTrack.enabled) {
+            // Send a "video off" placeholder instead of freezing
+            const canvas = window.videoCanvas;
+            const ctx = window.videoCanvasContext;
+            
+            canvas.width = 640;
+            canvas.height = 480;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#666';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Video Off', canvas.width / 2, canvas.height / 2);
+            
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+            
+            socket.emit('video_data', {
+                username: currentUser,
+                session_id: currentSession,
+                data: dataURL
+            });
+        } else if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            // Send actual video frame
+            const canvas = window.videoCanvas;
+            const ctx = window.videoCanvasContext;
+            
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0);
             
-            // Convert canvas to base64 and send
             const dataURL = canvas.toDataURL('image/jpeg', 0.8);
             
             socket.emit('video_data', {
@@ -627,10 +649,8 @@ function startVideoStreaming() {
             });
         }
         
-        // Continue capturing if video is enabled
-        if (isVideoEnabled && window.videoStreamingActive) {
-            requestAnimationFrame(captureFrame);
-        }
+        // Continue capturing
+        requestAnimationFrame(captureFrame);
     }
     
     // Wait for video to be ready before starting capture
@@ -926,57 +946,38 @@ async function toggleScreenShare() {
 // Start screen share
 async function startScreenShare() {
     try {
-        // Show instructions before requesting screen share
-        const userConfirmed = confirm(
-            '📺 IMPORTANT: When the share dialog appears, select "Entire Screen" or "Window" (NOT "Browser Tab") to share your desktop.\n\n' +
-            'This will allow you to share any application or desktop, not just this webpage.'
-        );
+        console.log('📺 Starting screen share - browser will show all available options...');
         
-        if (!userConfirmed) {
-            return;
-        }
-        
-        // Request screen share with better options
+        // Request screen share - let browser show all available sharing options
         const displayMediaOptions = {
             video: {
                 width: { ideal: 1920 },
                 height: { ideal: 1080 },
                 frameRate: { ideal: 30 }
             },
-            audio: false
+            audio: false,
+            // Don't set displaySurface constraint - let user choose from browser dialog
+            // Don't set preferCurrentTab - let user choose what to share
         };
-        
-        // Add displaySurface constraint if supported (Chrome 106+)
-        try {
-            displayMediaOptions.video.displaySurface = 'monitor'; // Prefer full screen
-        } catch (e) {
-            console.log('displaySurface not supported:', e);
-        }
-        
-        // Add preferCurrentTab option if available (Chrome 94+)
-        try {
-            displayMediaOptions.preferCurrentTab = false;
-        } catch (e) {
-            console.log('preferCurrentTab not supported:', e);
-        }
         
         const screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
         
-        // Check if it's actually screen sharing or just tab sharing
+        // Check what was selected
         const videoTrack = screenStream.getVideoTracks()[0];
         let settings = {};
         
         try {
             settings = videoTrack.getSettings();
             console.log('Screen share settings:', settings);
+            console.log('Display surface:', settings.displaySurface);
             
-            // Warn if it seems like they're only sharing the tab
+            // Show confirmation based on what was selected
             if (settings.displaySurface === 'browser') {
-                showMessage(
-                    '⚠️ You are sharing only the browser tab. To share your entire desktop, stop sharing and try again, then select "Entire Screen" from the share dialog.',
-                    'warning',
-                    8000
-                );
+                showMessage('✅ Sharing browser tab', 'success');
+            } else if (settings.displaySurface === 'window') {
+                showMessage('✅ Sharing application window', 'success');
+            } else if (settings.displaySurface === 'monitor') {
+                showMessage('✅ Sharing entire screen', 'success');
             }
         } catch (e) {
             console.log('Could not check display surface:', e);
