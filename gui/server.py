@@ -2150,21 +2150,31 @@ class LANCommunicationServer:
             file_path = os.path.join(self.file_transfer['upload_dir'], filename)
             bytes_received = 0
             
+            # CN_project optimized file receiving
+            chunk_size = 65536  # 64KB chunks for optimal performance
+            buffer = bytearray(chunk_size)
+            
+            # Set socket buffer for better performance
+            client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)  # 1MB buffer
+            
             with open(file_path, 'wb') as f:
                 while bytes_received < expected_size:
-                    chunk_size = min(self.file_transfer['chunk_size'], expected_size - bytes_received)
-                    data = client_socket.recv(chunk_size)
+                    remaining = expected_size - bytes_received
+                    recv_size = min(chunk_size, remaining)
                     
-                    if not data:
+                    # Use recv_into for zero-copy operation
+                    bytes_read = client_socket.recv_into(buffer, recv_size)
+                    if bytes_read == 0:
                         break
-                        
-                    f.write(data)
-                    bytes_received += len(data)
                     
-                    # Log progress
-                    if bytes_received % (1024 * 1024) < self.file_transfer['chunk_size']:  # Every 1MB
+                    # Write buffer slice to file
+                    f.write(buffer[:bytes_read])
+                    bytes_received += bytes_read
+                    
+                    # Log progress less frequently (every 2MB)
+                    if bytes_received % (2 * 1024 * 1024) == 0 or bytes_received == expected_size:
                         progress = (bytes_received / expected_size) * 100
-                        self.log_message(f"Upload progress [{filename}]: {bytes_received}/{expected_size} bytes ({progress:.1f}%)")
+                        print(f"📤 Upload: {progress:.1f}% ({bytes_received}/{expected_size} bytes)")
             
             client_socket.close()
             server_socket.close()
@@ -2195,7 +2205,8 @@ class LANCommunicationServer:
                 self.broadcast_message(file_available_msg)
                 
                 self.log_message(f"File upload completed: {filename} ({bytes_received} bytes)")
-                self.update_files_display()
+                # Update GUI on main thread
+                self.root.after_idle(self.update_files_display)
             else:
                 self.log_message(f"Upload incomplete: {bytes_received}/{expected_size} bytes", 'error')
                 if os.path.exists(file_path):

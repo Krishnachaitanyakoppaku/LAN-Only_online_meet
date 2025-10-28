@@ -1208,7 +1208,7 @@ class LANCommunicationClient:
         if self.send_tcp_message(request_msg):
             if hasattr(self, 'download_status_label'):
                 self.download_status_label.config(text=f"📥 Downloading: {filename}")
-            self.add_chat_message("System", f"📥 Downloading: {filename}")
+            print(f"📥 Download request sent: {filename}")
         else:
             messagebox.showerror("Download Error", "Failed to send download request")
     
@@ -1261,9 +1261,10 @@ class LANCommunicationClient:
             }
             
             if self.send_tcp_message(offer_msg):
-                self.add_chat_message("System", f"📤 Sharing file: {filename}")
+                # Don't show chat message during upload - only update status
                 if hasattr(self, 'upload_status_label'):
-                    self.upload_status_label.config(text=f"📤 Uploading: {filename}")
+                    self.upload_status_label.config(text=f"📤 Preparing: {filename}")
+                print(f"📤 File offer sent: {filename}")
             else:
                 messagebox.showerror("Upload Error", "Failed to send file offer")
                 if hasattr(self, 'upload_status_label'):
@@ -1292,9 +1293,12 @@ class LANCommunicationClient:
             
             print(f"📤 Starting upload: {filename} ({file_size} bytes) to port {port}")
             
-            # Send file with progress tracking
+            # CN_project optimized file upload
             bytes_sent = 0
-            chunk_size = 32768  # 32KB chunks for better performance
+            chunk_size = 65536  # 64KB chunks for optimal performance
+            
+            # Set socket buffer for better performance
+            upload_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)  # 1MB buffer
             
             with open(file_path, 'rb') as f:
                 while bytes_sent < file_size:
@@ -1309,32 +1313,33 @@ class LANCommunicationClient:
                     upload_socket.sendall(data)
                     bytes_sent += len(data)
                     
-                    # Update progress
+                    # Update progress less frequently for better performance
                     progress = (bytes_sent / file_size) * 100
                     
-                    # Update progress bar in GUI
-                    if hasattr(self, 'upload_progress'):
-                        self.root.after_idle(lambda p=progress: self.upload_progress.config(value=p))
-                    
-                    # Log progress every 256KB
-                    if bytes_sent % (256 * 1024) == 0 or bytes_sent == file_size:
-                        print(f"📤 Upload progress: {progress:.1f}% ({bytes_sent}/{file_size} bytes)")
-                        if hasattr(self, 'upload_status_label'):
-                            self.root.after_idle(lambda p=progress: self.upload_status_label.config(
-                                text=f"📤 Uploading: {progress:.1f}% complete"))
+                    # Update GUI every 512KB for better performance
+                    if bytes_sent % (512 * 1024) == 0 or bytes_sent == file_size:
+                        if hasattr(self, 'upload_progress'):
+                            self.root.after_idle(lambda p=progress: self.upload_progress.config(value=p))
+                        
+                        # Only log major milestones (every 2MB)
+                        if bytes_sent % (2 * 1024 * 1024) == 0 or bytes_sent == file_size:
+                            print(f"📤 Upload: {progress:.1f}% ({bytes_sent}/{file_size} bytes)")
+                            if hasattr(self, 'upload_status_label'):
+                                self.root.after_idle(lambda p=progress: self.upload_status_label.config(
+                                    text=f"📤 Uploading: {progress:.1f}% complete"))
             
             upload_socket.close()
             
             # Clean up
             del self.pending_upload
             
-            self.root.after(0, lambda: self.add_chat_message("System", f"✅ Upload complete: {filename}"))
+            # Don't show chat message - only update status
             if hasattr(self, 'upload_status_label'):
                 self.root.after(0, lambda: self.upload_status_label.config(text="✅ Upload complete"))
             print(f"✅ File uploaded successfully: {filename}")
             
         except Exception as e:
-            self.root.after(0, lambda: self.add_chat_message("System", f"❌ Upload failed: {str(e)}"))
+            # Don't show chat message - only update status
             if hasattr(self, 'upload_status_label'):
                 self.root.after(0, lambda: self.upload_status_label.config(text=f"❌ Upload failed: {str(e)}"))
             print(f"❌ Upload error: {e}")
@@ -1393,7 +1398,7 @@ class LANCommunicationClient:
             # Clean up
             del self.pending_download
             
-            self.root.after(0, lambda: self.add_chat_message("System", f"✅ Download complete: {filename}"))
+            # Don't show chat message - only update status
             if hasattr(self, 'download_status_label'):
                 self.root.after(0, lambda: self.download_status_label.config(text="✅ Download complete"))
             print(f"✅ File downloaded successfully: {filename}")
