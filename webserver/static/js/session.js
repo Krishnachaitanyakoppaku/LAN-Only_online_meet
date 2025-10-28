@@ -214,6 +214,10 @@ function initializeSocket() {
         downloadFile(data);
     });
     
+    socket.on('file_error', function(data) {
+        showMessage(data.message, 'error');
+    });
+    
     // Host control events
     socket.on('video_permission_changed', function(data) {
         if (!data.enabled) {
@@ -275,6 +279,33 @@ function setupEventListeners() {
     // File upload
     document.getElementById('uploadBtn').addEventListener('click', showFileUploadModal);
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+    
+    // File upload area click handler
+    document.getElementById('fileUploadArea').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+    });
+    
+    // Drag and drop support for file upload
+    const fileUploadArea = document.getElementById('fileUploadArea');
+    fileUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileUploadArea.classList.add('drag-over');
+    });
+    
+    fileUploadArea.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        fileUploadArea.classList.remove('drag-over');
+    });
+    
+    fileUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        fileUploadArea.classList.remove('drag-over');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleDroppedFiles(files);
+        }
+    });
     
     // Settings
     document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
@@ -891,10 +922,61 @@ async function toggleScreenShare() {
 // Start screen share
 async function startScreenShare() {
     try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
+        // Show instructions before requesting screen share
+        const userConfirmed = confirm(
+            '📺 IMPORTANT: When the share dialog appears, select "Entire Screen" or "Window" (NOT "Browser Tab") to share your desktop.\n\n' +
+            'This will allow you to share any application or desktop, not just this webpage.'
+        );
+        
+        if (!userConfirmed) {
+            return;
+        }
+        
+        // Request screen share with better options
+        const displayMediaOptions = {
+            video: {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30 }
+            },
             audio: false
-        });
+        };
+        
+        // Add displaySurface constraint if supported (Chrome 106+)
+        try {
+            displayMediaOptions.video.displaySurface = 'monitor'; // Prefer full screen
+        } catch (e) {
+            console.log('displaySurface not supported:', e);
+        }
+        
+        // Add preferCurrentTab option if available (Chrome 94+)
+        try {
+            displayMediaOptions.preferCurrentTab = false;
+        } catch (e) {
+            console.log('preferCurrentTab not supported:', e);
+        }
+        
+        const screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions);
+        
+        // Check if it's actually screen sharing or just tab sharing
+        const videoTrack = screenStream.getVideoTracks()[0];
+        let settings = {};
+        
+        try {
+            settings = videoTrack.getSettings();
+            console.log('Screen share settings:', settings);
+            
+            // Warn if it seems like they're only sharing the tab
+            if (settings.displaySurface === 'browser') {
+                showMessage(
+                    '⚠️ You are sharing only the browser tab. To share your entire desktop, stop sharing and try again, then select "Entire Screen" from the share dialog.',
+                    'warning',
+                    8000
+                );
+            }
+        } catch (e) {
+            console.log('Could not check display surface:', e);
+        }
         
         isScreenSharing = true;
         
@@ -941,9 +1023,21 @@ async function startScreenShare() {
         btn.classList.add('active');
         btn.innerHTML = '<i class="fas fa-stop"></i><span>Stop Sharing</span>';
         
+        showMessage('✅ Screen sharing started successfully!', 'success');
+        
     } catch (error) {
         console.error('Error starting screen share:', error);
-        showMessage('Could not start screen sharing', 'error');
+        
+        let errorMessage = 'Could not start screen sharing. ';
+        if (error.name === 'NotAllowedError' || error.name === 'Permission denied') {
+            errorMessage += 'Please allow screen sharing permissions.';
+        } else if (error.name === 'NotAllowedError') {
+            errorMessage += 'Screen sharing was denied or cancelled.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        showMessage(errorMessage, 'error');
     }
 }
 
@@ -1023,8 +1117,23 @@ function addChatMessage(data) {
 // Handle file upload
 function handleFileUpload(event) {
     const files = event.target.files;
-    
+    uploadFiles(files);
+}
+
+// Handle dropped files
+function handleDroppedFiles(files) {
+    uploadFiles(files);
+}
+
+// Upload files
+function uploadFiles(files) {
     for (let file of files) {
+        // Check file size (limit to 50MB for base64 encoding)
+        if (file.size > 50 * 1024 * 1024) {
+            showMessage(`File ${file.name} is too large. Maximum size is 50MB.`, 'error');
+            continue;
+        }
+        
         const reader = new FileReader();
         
         reader.onload = function(e) {
@@ -1040,11 +1149,15 @@ function handleFileUpload(event) {
             showMessage(`Uploading ${file.name}...`, 'info');
         };
         
+        reader.onerror = function() {
+            showMessage(`Error reading file ${file.name}`, 'error');
+        };
+        
         reader.readAsDataURL(file);
     }
     
     // Reset input
-    event.target.value = '';
+    document.getElementById('fileInput').value = '';
     closeFileUploadModal();
 }
 
@@ -1079,7 +1192,8 @@ function addFileToList(data) {
 function downloadFileById(fileId) {
     socket.emit('download_file', {
         file_id: fileId,
-        username: currentUser
+        username: currentUser,
+        session_id: currentSession
     });
 }
 

@@ -236,6 +236,10 @@ class LANCommunicationClient:
             self.udp_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.udp_audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
+            # Set socket options for better performance
+            self.udp_video_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.udp_audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
             # Bind UDP sockets to receive data from server
             try:
                 self.udp_video_socket.bind(('', self.udp_video_port))
@@ -633,8 +637,16 @@ class LANCommunicationClient:
                 
         elif msg_type == MessageTypes.FILE_UPLOAD_PORT:
             port = message.get('port')
+            fid = message.get('fid')
+            print(f"📥 Received FILE_UPLOAD_PORT: port={port}, fid={fid}")
+            
             if port and hasattr(self, 'pending_upload'):
+                print(f"✅ Starting upload thread for port {port}")
                 threading.Thread(target=self.upload_file_to_server, args=(port,), daemon=True).start()
+            else:
+                print(f"❌ Cannot start upload: port={port}, has_pending_upload={hasattr(self, 'pending_upload')}")
+                if hasattr(self, 'upload_status_label'):
+                    self.upload_status_label.config(text="❌ Upload failed: No pending upload")
                 
         elif msg_type == MessageTypes.FILE_DOWNLOAD_PORT:
             port = message.get('port')

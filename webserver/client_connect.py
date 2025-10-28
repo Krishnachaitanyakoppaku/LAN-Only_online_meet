@@ -5,7 +5,7 @@ import os
 import getpass
 
 def setup_ssh_tunnel():
-    server_ip = "172.17.253.127"
+    server_ip = "172.17.213.107"
     default_username = getpass.getuser()
     username = input(f"Enter username for {server_ip} (default: {default_username}): ").strip() or default_username
     

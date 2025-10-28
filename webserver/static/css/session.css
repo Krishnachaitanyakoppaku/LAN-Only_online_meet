@@ -657,6 +657,12 @@
     background: rgba(102, 126, 234, 0.05);
 }
 
+.file-upload-area.drag-over {
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+    transform: scale(1.02);
+}
+
 .file-upload-area i {
     font-size: 3rem;
     color: #667eea;

@@ -780,6 +780,8 @@ def handle_file_download(data):
     username = data.get('username')
     session_id = data.get('session_id')
     
+    print(f"📁 [DEBUG] Download request: file_id={file_id}, user={username}, session={session_id}")
+    
     if file_id in file_transfers:
         file_info = file_transfers[file_id]
         
@@ -792,12 +794,17 @@ def handle_file_download(data):
             'session_id': session_id
         })
         
+        print(f"📁 [DEBUG] Sending file data to {username}: {file_info['filename']} ({file_info['size']} bytes)")
+        
         emit('file_data', {
             'file_id': file_id,
             'filename': file_info['filename'],
             'data': file_info['data'],
             'size': file_info['size']
         })
+    else:
+        print(f"📁 [DEBUG] File not found: {file_id}")
+        emit('file_error', {'message': 'File not found'})
 
 @socketio.on('video_data')
 def handle_video_data(data):
