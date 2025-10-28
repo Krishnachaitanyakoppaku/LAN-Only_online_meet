@@ -1,111 +1,135 @@
 # LAN Communication Hub
 
-A local network communication application for video/audio conferencing, screen sharing, and file transfers.
+A comprehensive web-based communication platform for local area networks with video, audio, and screen sharing capabilities.
 
-## Features
+## 🚀 Quick Start
 
-- **Video Conferencing**: Real-time webcam streaming
-- **Audio Conferencing**: Microphone audio broadcasting
-- **Screen Sharing**: Share your screen with participants
-- **Text Chat**: Real-time messaging
-- **File Sharing**: Upload and download files
-- **Host Controls**: Mute/unmute participants, manage permissions
+### Server Setup
+1. Install dependencies: `pip install -r requirements.txt`
+2. Start server: `python server.py`
+3. Server runs on `http://0.0.0.0:5000`
 
-## Quick Start
+### Client Connection
+**Windows:** Double-click `client_connect.bat`
+**Linux/Mac:** Run `./client_connect.sh`
+**Python:** Run `python connect_client.py`
 
-### For Server (Host)
+## 📱 Features
 
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- ✅ Real-time video and audio communication
+- ✅ Screen sharing capabilities
+- ✅ Text chat with file sharing
+- ✅ Session-based rooms
+- ✅ Cross-platform support
+- ✅ Multiple connection methods for camera/microphone access
 
-2. Start the server:
-   ```bash
-   python server.py
-   # Or use the convenience script:
-   python start_server.py
-   ```
+## 🔧 Connection Methods
 
-3. Note the server IP address displayed (e.g., `192.168.1.100`)
+### 1. Browser Override (Recommended)
+- Enables camera/microphone over HTTP
+- Uses Chrome with special flags
+- No additional setup required
 
-### For Clients (Participants)
+### 2. Direct Connection
+- Simple HTTP connection
+- Works for viewing only
+- Camera/microphone may not work
 
-**Important**: Browsers block camera/microphone access on HTTP remote IPs for security.
+### 3. SSH Tunnel
+- Secure connection via localhost
+- Enables camera/microphone access
+- Requires SSH client
 
-**Solution**: Use SSH tunnel to access via `localhost`:
+### 4. Auto-Discovery
+- Automatically finds servers on network
+- Scans local network range
+- Connects to first available server
 
-1. Run the client connection script:
-   ```bash
-   python client_connect.py
-   # Or use scripts:
-   # client_connect.sh (Linux/Mac)
-   # client_connect.bat (Windows)
-   ```
+## 📋 Requirements
 
-2. Enter the server IP when prompted
+- Python 3.7+
+- Modern web browser (Chrome recommended)
+- Local network connectivity
+- Optional: SSH client for tunnel method
 
-3. Open browser to: `http://localhost:5000`
+## 🛠️ Installation
 
-4. Join with session ID = server IP address
+```bash
+# Clone or download the project
+cd webserver
 
-## File Structure
+# Install required packages
+pip install -r requirements.txt
+
+# Optional packages for enhanced features
+pip install -r requirements-optional.txt
+
+# Start the server
+python server.py
+```
+
+## 🌐 Usage
+
+1. **Start Server:** Run `python server.py` on host machine
+2. **Connect Clients:** Use connection scripts or run `python connect_client.py`
+3. **Join Session:** Enter session ID to join existing room
+4. **Enable Media:** Allow camera/microphone permissions when prompted
+
+## 🔍 Troubleshooting
+
+### Camera/Microphone Issues
+- Use **Browser Override** method (option 1)
+- Try **SSH Tunnel** method (option 3)
+- Ensure HTTPS or localhost access
+
+### Connection Issues
+- Check if devices are on same network
+- Verify server IP address
+- Test with **Auto-Discovery** (option 4)
+- Check firewall settings
+
+### Common Solutions
+```bash
+# Test server connectivity
+ping [SERVER_IP]
+
+# Check if port is open
+telnet [SERVER_IP] 5000
+
+# Scan for servers
+python connect_client.py  # Choose option 4
+```
+
+## 📁 Project Structure
 
 ```
 webserver/
-├── server.py                 # Main Flask server
-├── start_server.py          # Convenience startup script
-├── client_connect.py        # SSH tunnel setup for clients
-├── requirements.txt         # Python dependencies
-├── templates/               # HTML templates
-│   ├── index.html
-│   ├── host.html
-│   ├── join.html
-│   └── session.html
-├── static/                  # CSS, JS files
-│   ├── css/
-│   └── js/
-└── README.md                # This file
+├── server.py              # Main server application
+├── connect_client.py      # Unified client connection manager
+├── client_connect.bat     # Windows connection script
+├── client_connect.sh      # Linux/Mac connection script
+├── requirements.txt       # Core dependencies
+├── requirements-optional.txt  # Optional features
+├── static/               # Web assets
+├── templates/            # HTML templates
+└── README.md            # This file
 ```
 
-## How It Works
+## 🚀 Deployment Ready
 
-1. **Server**: Runs on port 5000 (or auto-selected port if 5000 is busy)
-2. **Session ID**: Uses server IP address as default session identifier
-3. **SSH Tunnel**: Clients connect via SSH to tunnel port 5000 to their localhost
-4. **WebSocket**: Real-time communication via Socket.IO
-5. **Media Access**: Browsers allow camera/microphone via `localhost` but not remote IPs
+This project is optimized for easy deployment:
+- Consolidated connection methods
+- Cross-platform compatibility
+- Minimal dependencies
+- Clear error messages and troubleshooting
+- Automated server discovery
 
-## Browser Security
+## Browser Security Notes
 
 Modern browsers enforce security restrictions:
 - Camera/microphone access requires HTTPS or localhost
 - HTTP on remote IPs blocks media access
-- This is by design, not a bug
-
-**Workaround**: SSH tunnel maps remote server to localhost, enabling media access.
-
-## Troubleshooting
-
-### Port 5000 already in use
-The server will automatically try ports 5050, 5080, 5500, or allocate a free port.
-
-### Connection timeout
-- Check firewall settings
-- Ensure SSH is installed
-- Verify server IP address
-
-### Camera/microphone not working
-- Must access via `localhost` (use SSH tunnel)
-- Grant browser permissions when prompted
-- Check browser console for errors
-
-## Requirements
-
-- Python 3.8+
-- Flask, Flask-SocketIO
-- SSH client (for clients)
-- Modern browser with WebRTC support
+- **Solution**: Use Browser Override or SSH Tunnel methods
 
 ## License
 

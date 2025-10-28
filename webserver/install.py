@@ -89,29 +89,30 @@ def show_next_steps():
     print()
     
     print("1️⃣ Start the server:")
-    print("   python3 start_server.py")
+    print("   python server.py")
     print()
     
-    print("2️⃣ Host creates session:")
-    print("   • Go to: https://localhost:5000")
-    print("   • Click 'Host Session'")
-    print("   • Note the session ID (server IP)")
+    print("2️⃣ Connect clients:")
+    print("   • Windows: Double-click client_connect.bat")
+    print("   • Linux/Mac: Run ./client_connect.sh")
+    print("   • Python: python connect_client.py")
     print()
     
-    print("3️⃣ Clients join session:")
-    print("   • Go to: https://[server-ip]:5000")
-    print("   • Accept browser security warning")
-    print("   • Join with session ID")
-    print("   • Camera/microphone will work!")
+    print("3️⃣ Choose connection method:")
+    print("   1. Browser Override (Recommended)")
+    print("   2. Direct Connection")
+    print("   3. SSH Tunnel")
+    print("   4. Auto-Discovery")
     print()
     
     print("🔧 Troubleshooting:")
-    print("   • Media test: https://[server-ip]:5000/media-test")
-    print("   • Server info: https://[server-ip]:5000/api/server-info")
+    print("   • Use Auto-Discovery to find servers")
+    print("   • Try Browser Override for camera/microphone")
+    print("   • Check network connectivity")
     print()
     
-    print("💡 Alternative (SSH tunnel):")
-    print("   python3 connect_client.py")
+    print("💡 For camera/microphone access:")
+    print("   Use Browser Override or SSH Tunnel methods")
 
 def main():
     """Main installation function"""

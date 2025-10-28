@@ -1,7 +1,14 @@
-# Optional dependencies for advanced media processing
-# These are not required for basic HTTPS functionality
+# Optional dependencies for enhanced features
 
-# Media processing (optional, for advanced features)
+# HTTPS/SSL support for secure connections
+pyOpenSSL>=23.0.0
+cryptography>=3.4.8
+
+# Media processing (for advanced features)
 opencv-python>=4.5.0
 Pillow>=9.0.0
 numpy>=1.20.0
+
+# Network scanning enhancements
+netifaces>=0.11.0
+psutil>=5.8.0

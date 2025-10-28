@@ -1,6 +1,6 @@
-# LAN Communication Hub - Essential Dependencies
+# LAN Communication Hub - Core Dependencies
 
-# Core web framework
+# Web framework
 Flask>=2.0.0
 Flask-SocketIO>=5.0.0
 
@@ -8,9 +8,8 @@ Flask-SocketIO>=5.0.0
 python-socketio>=5.0.0
 python-engineio>=4.0.0
 
-# HTTPS/SSL support for camera/microphone access (REQUIRED)
-pyOpenSSL>=23.0.0
-cryptography>=3.4.8
-
-# Additional utilities
+# HTTP client for connection testing
 requests>=2.25.0
+
+# Network utilities
+ipaddress>=1.0.0
