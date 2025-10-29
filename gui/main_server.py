@@ -422,7 +422,7 @@ class ScreenShareServer:
 class FileTransferServer:
     """File transfer server for handling file uploads and downloads."""
     
-    def __init__(self, host: str = '0.0.0.0', upload_port: int = 13000, download_port: int = 14000):
+    def __init__(self, host: str = '0.0.0.0', upload_port: int = 13000, download_port: int = 14000, upload_callback=None):
         self.host = host
         self.upload_port = upload_port
         self.download_port = download_port
@@ -432,6 +432,7 @@ class FileTransferServer:
         self.files = {}  # file_id -> file_info
         self.upload_dir = Path("uploads")
         self.upload_dir.mkdir(exist_ok=True)
+        self.upload_callback = upload_callback  # Callback to notify main server of uploads
         
     async def start(self):
         """Start file transfer servers."""
@@ -509,6 +510,10 @@ class FileTransferServer:
             writer.write(struct.pack('!I', len(response)) + response)
             
             print(f"[INFO] File uploaded: {filename} ({file_size} bytes) from {addr}")
+            
+            # Notify main server about the upload
+            if self.upload_callback:
+                await self.upload_callback(filename, file_info.get('uploader', 'Unknown'))
             
         except Exception as e:
             print(f"[ERROR] Upload error: {e}")
@@ -636,7 +641,7 @@ class CollaborationServer:
         self.video_server = VideoServer(host, udp_video_port)
         self.audio_server = AudioServer(host, udp_audio_port)
         self.screen_share_server = ScreenShareServer(host, 12000)
-        self.file_server = FileTransferServer(host, 13000, 14000)
+        self.file_server = FileTransferServer(host, 13000, 14000, self.on_file_uploaded)
         
         # Statistics
         self.stats = {
@@ -1039,6 +1044,19 @@ class CollaborationServer:
             await self.server.wait_closed()
         
         print("[INFO] Server stopped")
+    
+    async def on_file_uploaded(self, filename: str, uploader: str):
+        """Handle file upload notification."""
+        # Broadcast file available notification to all participants
+        file_msg = {
+            'type': MessageTypes.FILE_AVAILABLE,
+            'filename': filename,
+            'uploader': uploader,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        await self.broadcast_message(file_msg)
+        print(f"[INFO] Broadcasted file available notification: {filename}")
     
     def show_connection_info(self):
         """Show connection information for clients."""

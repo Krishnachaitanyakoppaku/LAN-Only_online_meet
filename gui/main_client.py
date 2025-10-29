@@ -1152,43 +1152,8 @@ class ConnectionDialog(QDialog):
         self.setFixedSize(500, 400)
         self.setModal(True)
         
-        # Set dark theme
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2d2d2d;
-                color: white;
-            }
-            QLabel {
-                color: white;
-                font-size: 12px;
-            }
-            QLineEdit {
-                background-color: #3d3d3d;
-                color: white;
-                border: 1px solid #5d5d5d;
-                border-radius: 5px;
-                padding: 8px;
-                font-size: 12px;
-            }
-            QLineEdit:focus {
-                border-color: #0078d4;
-            }
-            QPushButton {
-                background-color: #0078d4;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                padding: 10px 20px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            QPushButton:pressed {
-                background-color: #005a9e;
-            }
-        """)
+        # Use system default styling for better compatibility
+        # No custom styling to avoid input field issues
         
         self.setup_ui()
         
@@ -1212,11 +1177,13 @@ class ConnectionDialog(QDialog):
         ip_layout = QVBoxLayout()
         self.server_ip_input = QLineEdit("localhost")
         self.server_ip_input.setPlaceholderText("localhost, 192.168.1.100, etc.")
+        self.server_ip_input.setEnabled(True)
+        self.server_ip_input.setReadOnly(False)
+        self.server_ip_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         ip_layout.addWidget(self.server_ip_input)
         
         # IP help text
         ip_help = QLabel("💡 Use 'localhost' for same machine, or server's IP address for remote connection")
-        ip_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
         ip_help.setWordWrap(True)
         ip_layout.addWidget(ip_help)
         
@@ -1224,10 +1191,16 @@ class ConnectionDialog(QDialog):
         
         # Server Port
         self.server_port_input = QLineEdit(str(DEFAULT_TCP_PORT))
+        self.server_port_input.setEnabled(True)
+        self.server_port_input.setReadOnly(False)
+        self.server_port_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         form_layout.addRow("Server Port:", self.server_port_input)
         
         # Username
         self.username_input = QLineEdit(f"User_{int(time.time()) % 1000}")
+        self.username_input.setEnabled(True)
+        self.username_input.setReadOnly(False)
+        self.username_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         form_layout.addRow("Your Name:", self.username_input)
         
         layout.addLayout(form_layout)
@@ -1238,33 +1211,13 @@ class ConnectionDialog(QDialog):
         localhost_btn = QPushButton("🏠 Localhost")
         localhost_btn.setToolTip("Connect to server on same machine")
         localhost_btn.clicked.connect(lambda: self.server_ip_input.setText("localhost"))
-        localhost_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 5px 10px;
-                font-size: 10px;
-            }
-            QPushButton:hover { background-color: #218838; }
-        """)
+
         ip_buttons_layout.addWidget(localhost_btn)
         
         local_ip_btn = QPushButton("🌐 Local IP")
         local_ip_btn.setToolTip("Use this machine's IP address")
         local_ip_btn.clicked.connect(self.set_local_ip)
-        local_ip_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #17a2b8;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                padding: 5px 10px;
-                font-size: 10px;
-            }
-            QPushButton:hover { background-color: #138496; }
-        """)
+
         ip_buttons_layout.addWidget(local_ip_btn)
         
         ip_buttons_layout.addStretch()
@@ -1272,29 +1225,13 @@ class ConnectionDialog(QDialog):
         
         # Pre-connection settings
         settings_group = QGroupBox("Join Settings")
-        settings_group.setStyleSheet("""
-            QGroupBox {
-                color: white;
-                font-weight: bold;
-                border: 1px solid #5d5d5d;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
-        """)
+
         settings_layout = QVBoxLayout(settings_group)
         
         self.join_with_video = QCheckBox("📹 Join with camera on")
-        self.join_with_video.setStyleSheet("color: white;")
         settings_layout.addWidget(self.join_with_video)
         
         self.join_with_audio = QCheckBox("🎤 Join with microphone on")
-        self.join_with_audio.setStyleSheet("color: white;")
         settings_layout.addWidget(self.join_with_audio)
         
         layout.addWidget(settings_group)
@@ -1500,6 +1437,86 @@ class FileListDialog(QDialog):
 
 
 # ============================================================================
+# FILE UPLOAD THREAD
+# ============================================================================
+
+class FileUploadThread(QThread):
+    """Thread for uploading files to server."""
+    
+    upload_progress = pyqtSignal(str, int)  # filename, progress percentage
+    upload_finished = pyqtSignal(str)  # filename
+    upload_error = pyqtSignal(str, str)  # filename, error_message
+    
+    def __init__(self, host: str, port: int, file_path: str, uploader: str, parent=None):
+        super().__init__(parent)
+        self.host = host
+        self.port = port
+        self.file_path = file_path
+        self.uploader = uploader
+        self.filename = Path(file_path).name
+        
+    def run(self):
+        """Run the upload process."""
+        try:
+            file_info = Path(self.file_path)
+            if not file_info.exists():
+                self.upload_error.emit(self.filename, "File not found")
+                return
+            
+            file_size = file_info.stat().st_size
+            
+            # Connect to upload server
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((self.host, self.port))
+            
+            # Send file info
+            upload_info = {
+                'filename': self.filename,
+                'size': file_size,
+                'uploader': self.uploader
+            }
+            
+            info_data = json.dumps(upload_info).encode('utf-8')
+            info_size = struct.pack('!I', len(info_data))
+            sock.send(info_size + info_data)
+            
+            # Wait for OK response
+            response = sock.recv(1024)
+            if not response.startswith(b'OK'):
+                error_msg = response.decode('utf-8', errors='ignore')
+                self.upload_error.emit(self.filename, error_msg)
+                return
+            
+            # Upload file data
+            sent = 0
+            with open(self.file_path, 'rb') as f:
+                while sent < file_size:
+                    chunk_size = min(8192, file_size - sent)
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    sock.send(chunk)
+                    sent += len(chunk)
+                    
+                    # Update progress
+                    progress = int((sent / file_size) * 100)
+                    self.upload_progress.emit(self.filename, progress)
+            
+            # Wait for final response
+            final_response = sock.recv(1024)
+            sock.close()
+            
+            if sent == file_size:
+                self.upload_finished.emit(self.filename)
+            else:
+                self.upload_error.emit(self.filename, "Incomplete upload")
+                
+        except Exception as e:
+            self.upload_error.emit(self.filename, str(e))
+
+
+# ============================================================================
 # FILE DOWNLOAD THREAD
 # ============================================================================
 
@@ -1607,8 +1624,9 @@ class ClientMainWindow(QMainWindow):
         self.setup_menu_bar()
         self.setup_status_bar()
         
-        # Apply dark theme
-        self.apply_dark_theme()
+        # NO CUSTOM STYLING AT ALL - use pure system default
+        print("[INFO] Using pure system default styling - no customization")
+        self.disable_all_styling()
         
         # Show connection dialog
         self.show_connection_dialog()
@@ -1718,43 +1736,445 @@ class ClientMainWindow(QMainWindow):
         self.connection_status.setStyleSheet("color: #dc3545; font-weight: bold;")
         self.status_bar.addPermanentWidget(self.connection_status)
     
+    def setup_application_style(self):
+        """Setup application-wide styling and compatibility."""
+        # Set application properties for better rendering
+        app = QApplication.instance()
+        if app:
+            # Enable high DPI scaling (Qt6 handles this automatically)
+            try:
+                # These attributes were deprecated in Qt6 but may still be available in some versions
+                if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
+                    app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+                if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
+                    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+            except AttributeError:
+                # Qt6 handles high DPI automatically, so this is not needed
+                pass
+            
+            # Set application style
+            available_styles = app.style().objectName()
+            print(f"[INFO] Available Qt style: {available_styles}")
+            
+            # Try to set a consistent style
+            try:
+                if sys.platform == "darwin":  # macOS
+                    app.setStyle("macOS")
+                elif sys.platform == "win32":  # Windows
+                    app.setStyle("windowsvista")
+                else:  # Linux
+                    app.setStyle("fusion")
+            except:
+                print("[INFO] Using default system style")
+        
+        # Set font for better consistency
+        font = QFont()
+        font.setFamily("Segoe UI" if sys.platform == "win32" else "Arial")
+        font.setPointSize(10)
+        try:
+            font.setWeight(QFont.Weight.Normal)
+        except AttributeError:
+            # Fallback for older PyQt6 versions
+            font.setWeight(50)  # Normal weight
+        self.setFont(font)
+    
+    def disable_all_styling(self):
+        """Completely disable all custom styling."""
+        # Override all setStyleSheet methods to do nothing
+        def no_style(style_string):
+            pass
+        
+        # Disable styling on this window
+        self.setStyleSheet("")
+        
+        # Find and disable styling on all child widgets
+        for widget in self.findChildren(QWidget):
+            widget.setStyleSheet("")
+    
+    def apply_minimal_theme(self):
+        """Apply minimal safe theme that definitely works."""
+        # Use the same approach as the working minimal_client
+        minimal_style = """
+        QMainWindow {
+            background-color: #2d2d2d;
+            color: white;
+        }
+        QPushButton {
+            background-color: #0078d4;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+        }
+        QPushButton:hover {
+            background-color: #106ebe;
+        }
+        QLineEdit {
+            background-color: white;
+            color: black;
+            border: 1px solid #ccc;
+            padding: 4px;
+        }
+        QTextBrowser, QTextEdit {
+            background-color: white;
+            color: black;
+            border: 1px solid #ccc;
+        }
+        QLabel {
+            color: white;
+        }
+        QTabWidget::pane {
+            border: 1px solid #ccc;
+        }
+        QTabBar::tab {
+            background-color: #f0f0f0;
+            padding: 8px;
+        }
+        QTabBar::tab:selected {
+            background-color: white;
+        }
+        """
+        self.setStyleSheet(minimal_style)
+    
     def apply_dark_theme(self):
-        """Apply dark theme to the application."""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e1e;
-                color: white;
-            }
-            QMenuBar {
-                background-color: #2d2d2d;
-                color: white;
-                border-bottom: 1px solid #3d3d3d;
-            }
-            QMenuBar::item {
-                background-color: transparent;
-                padding: 4px 8px;
-            }
-            QMenuBar::item:selected {
-                background-color: #3d3d3d;
-            }
-            QMenu {
-                background-color: #2d2d2d;
-                color: white;
-                border: 1px solid #3d3d3d;
-            }
-            QMenu::item:selected {
-                background-color: #0078d4;
-            }
-            QStatusBar {
-                background-color: #2d2d2d;
-                color: white;
-                border-top: 1px solid #3d3d3d;
-            }
-        """)
+        """Apply comprehensive dark theme to the application."""
+        try:
+            # Set application-wide style
+            app_style = """
+        /* Main Application */
+        QMainWindow {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            font-family: 'Segoe UI', 'Arial', sans-serif;
+            font-size: 12px;
+        }
+        
+        /* Menu Bar */
+        QMenuBar {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border-bottom: 1px solid #3d3d3d;
+            padding: 2px;
+        }
+        QMenuBar::item {
+            background-color: transparent;
+            padding: 6px 12px;
+            border-radius: 4px;
+            margin: 2px;
+        }
+        QMenuBar::item:selected {
+            background-color: #0078d4;
+        }
+        QMenuBar::item:pressed {
+            background-color: #106ebe;
+        }
+        
+        /* Menu */
+        QMenu {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 4px;
+        }
+        QMenu::item {
+            padding: 8px 16px;
+            border-radius: 4px;
+            margin: 1px;
+        }
+        QMenu::item:selected {
+            background-color: #0078d4;
+        }
+        QMenu::separator {
+            height: 1px;
+            background-color: #3d3d3d;
+            margin: 4px 8px;
+        }
+        
+        /* Status Bar */
+        QStatusBar {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border-top: 1px solid #3d3d3d;
+            padding: 4px;
+        }
+        
+        /* Buttons */
+        QPushButton {
+            background-color: #0078d4;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: 500;
+            min-height: 20px;
+        }
+        QPushButton:hover {
+            background-color: #106ebe;
+        }
+        QPushButton:pressed {
+            background-color: #005a9e;
+        }
+        QPushButton:disabled {
+            background-color: #3d3d3d;
+            color: #888888;
+        }
+        
+        /* Input Fields */
+        QLineEdit {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            selection-background-color: #0078d4;
+        }
+        QLineEdit:focus {
+            border-color: #0078d4;
+            background-color: #353535;
+        }
+        QLineEdit:disabled {
+            background-color: #1a1a1a;
+            color: #666666;
+        }
+        
+        /* Text Areas */
+        QTextEdit, QTextBrowser {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        QTextEdit:focus, QTextBrowser:focus {
+            border-color: #0078d4;
+        }
+        
+        /* Lists */
+        QListWidget {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 4px;
+            outline: none;
+        }
+        QListWidget::item {
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin: 1px;
+        }
+        QListWidget::item:selected {
+            background-color: #0078d4;
+        }
+        QListWidget::item:hover {
+            background-color: #3d3d3d;
+        }
+        
+        /* Tables */
+        QTableWidget {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            gridline-color: #3d3d3d;
+            outline: none;
+        }
+        QTableWidget::item {
+            padding: 8px;
+            border-bottom: 1px solid #3d3d3d;
+        }
+        QTableWidget::item:selected {
+            background-color: #0078d4;
+        }
+        QHeaderView::section {
+            background-color: #3d3d3d;
+            color: #ffffff;
+            padding: 8px 12px;
+            border: none;
+            font-weight: 600;
+        }
+        
+        /* Tabs */
+        QTabWidget::pane {
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            background-color: #2d2d2d;
+        }
+        QTabBar::tab {
+            background-color: #3d3d3d;
+            color: #ffffff;
+            padding: 8px 16px;
+            margin: 2px;
+            border-radius: 6px 6px 0px 0px;
+            min-width: 80px;
+        }
+        QTabBar::tab:selected {
+            background-color: #0078d4;
+        }
+        QTabBar::tab:hover {
+            background-color: #4d4d4d;
+        }
+        
+        /* Frames */
+        QFrame {
+            background-color: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            border-radius: 6px;
+        }
+        
+        /* Group Boxes */
+        QGroupBox {
+            color: #ffffff;
+            font-weight: 600;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            margin-top: 12px;
+            padding-top: 8px;
+        }
+        
+        /* Check Boxes */
+        QCheckBox {
+            color: #ffffff;
+            spacing: 8px;
+        }
+        QCheckBox::indicator {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #3d3d3d;
+            border-radius: 3px;
+            background-color: #2d2d2d;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #0078d4;
+            border-color: #0078d4;
+        }
+        
+        /* Combo Boxes */
+        QComboBox {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 2px solid #3d3d3d;
+            border-radius: 6px;
+            padding: 6px 12px;
+            min-width: 100px;
+        }
+        QComboBox:focus {
+            border-color: #0078d4;
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 20px;
+        }
+        
+        /* Progress Bars */
+        QProgressBar {
+            background-color: #3d3d3d;
+            border: none;
+            border-radius: 6px;
+            text-align: center;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        QProgressBar::chunk {
+            background-color: #0078d4;
+            border-radius: 6px;
+        }
+        
+        /* Sliders */
+        QSlider::groove:horizontal {
+            background-color: #3d3d3d;
+            height: 6px;
+            border-radius: 3px;
+        }
+        QSlider::handle:horizontal {
+            background-color: #0078d4;
+            width: 16px;
+            height: 16px;
+            border-radius: 8px;
+            margin: -5px 0;
+        }
+        QSlider::handle:horizontal:hover {
+            background-color: #106ebe;
+        }
+        
+        /* Scroll Bars */
+        QScrollBar:vertical {
+            background-color: #2d2d2d;
+            width: 12px;
+            border-radius: 6px;
+        }
+        QScrollBar::handle:vertical {
+            background-color: #5d5d5d;
+            border-radius: 6px;
+            min-height: 20px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background-color: #6d6d6d;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+        
+        /* Tool Tips */
+        QToolTip {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+        
+        /* Labels */
+        QLabel {
+            color: #ffffff;
+        }
+        
+        /* Dialogs */
+        QDialog {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        """
+        
+            self.setStyleSheet(app_style)
+            
+        except Exception as e:
+            print(f"[WARNING] Could not apply full theme: {e}")
+            print("[INFO] Falling back to minimal theme")
+            self.apply_minimal_theme()
+            return
+        
+        # Also set application-wide palette for better compatibility
+        try:
+            palette = QPalette()
+            palette.setColor(QPalette.ColorRole.Window, QColor(30, 30, 30))
+            palette.setColor(QPalette.ColorRole.WindowText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Base, QColor(45, 45, 45))
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(60, 60, 60))
+            palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(45, 45, 45))
+            palette.setColor(QPalette.ColorRole.ToolTipText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Text, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))
+            palette.setColor(QPalette.ColorRole.ButtonText, QColor(255, 255, 255))
+            palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+            palette.setColor(QPalette.ColorRole.Link, QColor(0, 120, 212))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(0, 120, 212))
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
+            
+            self.setPalette(palette)
+        except Exception as e:
+            print(f"[WARNING] Could not set custom palette: {e}")
+            # Fallback to basic styling only
     
     def show_connection_dialog(self):
-        """Show connection dialog."""
-        dialog = ConnectionDialog(self)
+        """Show ultra-simple connection dialog."""
+        from simple_connection import SimpleConnectionDialog
+        dialog = SimpleConnectionDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             conn_info = dialog.get_connection_info()
             self.connect_to_server(conn_info)
@@ -1812,11 +2232,13 @@ class ClientMainWindow(QMainWindow):
         self.network_thread.connection_status_changed.connect(self.on_connection_status_changed)
         self.network_thread.start()
         
-        # Initialize media clients
+        # Initialize and start media clients
         self.video_client = VideoClient(self.host, DEFAULT_UDP_VIDEO_PORT, self)
         self.video_client.frame_captured.connect(self.video_grid.update_local_video)
+        self.video_client.start()  # Start the video thread
         
         self.audio_client = AudioClient(self.host, DEFAULT_UDP_AUDIO_PORT, self)
+        self.audio_client.start()  # Start the audio thread
         
         # Set initial media states
         if conn_info['join_with_video']:
@@ -2072,22 +2494,31 @@ class ClientMainWindow(QMainWindow):
         """Start file upload to server."""
         try:
             file_info = Path(file_path)
-            
-            # Create progress dialog
-            progress = QProgressBar()
-            progress.setRange(0, 100)
-            progress.setValue(0)
-            
-            # Show upload status
             self.chat_widget.add_message("System", f"Uploading {file_info.name}...", is_system=True)
             
-            # TODO: Implement actual file upload using the upload port
-            # For now, just simulate success
-            self.chat_widget.add_message("System", f"✅ File uploaded successfully: {file_info.name}", is_system=True)
+            # Start upload in a separate thread
+            upload_thread = FileUploadThread(self.host, upload_port, file_path, self.username, self)
+            upload_thread.upload_progress.connect(self.on_upload_progress)
+            upload_thread.upload_finished.connect(self.on_upload_finished)
+            upload_thread.upload_error.connect(self.on_upload_error)
+            upload_thread.start()
             
         except Exception as e:
             QMessageBox.critical(self, "Upload Error", f"Failed to upload file: {e}")
             self.chat_widget.add_message("System", f"❌ Upload failed: {Path(file_path).name}", is_system=True)
+    
+    def on_upload_progress(self, filename: str, progress: int):
+        """Handle upload progress update."""
+        self.chat_widget.add_message("System", f"Uploading {filename}: {progress}%", is_system=True)
+    
+    def on_upload_finished(self, filename: str):
+        """Handle upload completion."""
+        self.chat_widget.add_message("System", f"✅ File uploaded successfully: {filename}", is_system=True)
+    
+    def on_upload_error(self, filename: str, error: str):
+        """Handle upload error."""
+        self.chat_widget.add_message("System", f"❌ Upload failed: {filename} - {error}", is_system=True)
+        QMessageBox.critical(self, "Upload Error", f"Failed to upload {filename}: {error}")
     
     def toggle_video(self, enabled: bool):
         """Toggle video on/off."""
@@ -2158,15 +2589,75 @@ Examples:
     args = parser.parse_args()
     
     try:
+        # Set up application with better compatibility
         app = QApplication(sys.argv)
         app.setApplicationName("LAN Collaboration Client")
+        app.setApplicationVersion("1.0.0")
         app.setOrganizationName("LAN Collab")
+        app.setOrganizationDomain("lancollab.local")
         
-        # Set application style
-        app.setStyle('Fusion')
+        # Enable high DPI support (Qt6 handles this automatically)
+        try:
+            # These attributes were deprecated in Qt6 but may still be available in some versions
+            if hasattr(Qt.ApplicationAttribute, 'AA_EnableHighDpiScaling'):
+                app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+            if hasattr(Qt.ApplicationAttribute, 'AA_UseHighDpiPixmaps'):
+                app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+        except AttributeError:
+            # Qt6 handles high DPI automatically, so this is not needed
+            print("[INFO] High DPI scaling handled automatically by Qt6")
+            pass
+        
+        # Set consistent style across platforms
+        try:
+            if sys.platform == "darwin":  # macOS
+                app.setStyle("macOS")
+            elif sys.platform == "win32":  # Windows
+                app.setStyle("windowsvista")
+            else:  # Linux and others
+                app.setStyle("Fusion")
+        except Exception as e:
+            print(f"[INFO] Could not set preferred style, using default: {e}")
+            app.setStyle("Fusion")  # Fallback to Fusion
+        
+        # Set application icon if available
+        try:
+            app.setWindowIcon(QIcon())  # You can add an icon file here later
+        except:
+            pass
+        
+        # Print system info for debugging
+        print(f"[INFO] Python version: {sys.version}")
+        print(f"[INFO] Platform: {sys.platform}")
+        print(f"[INFO] Qt style: {app.style().objectName()}")
+        
+        # Check PyQt6 version
+        try:
+            from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
+            print(f"[INFO] PyQt6 version: {PYQT_VERSION_STR}")
+            print(f"[INFO] Qt version: {QT_VERSION_STR}")
+            
+            # Version compatibility check
+            pyqt_version = tuple(map(int, PYQT_VERSION_STR.split('.')))
+            if pyqt_version < (6, 4, 0):
+                print("[WARNING] PyQt6 version is older than 6.4.0, some features may not work properly")
+                print("[INFO] Consider upgrading: pip install --upgrade PyQt6")
+                
+        except ImportError:
+            print("[WARNING] Could not determine PyQt6 version")
+        except Exception as e:
+            print(f"[WARNING] Version check failed: {e}")
         
         # Create main window
         main_window = ClientMainWindow()
+        
+        # Center window on screen
+        screen = app.primaryScreen().geometry()
+        window_geometry = main_window.geometry()
+        x = (screen.width() - window_geometry.width()) // 2
+        y = (screen.height() - window_geometry.height()) // 2
+        main_window.move(x, y)
+        
         main_window.show()
         
         print("[INFO] LAN Collaboration Client started")
