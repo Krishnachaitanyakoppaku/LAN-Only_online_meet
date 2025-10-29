@@ -960,6 +960,7 @@ class VideoClient(QThread):
     
     frame_captured = pyqtSignal(np.ndarray)  # Local frame captured
     frame_received = pyqtSignal(int, np.ndarray)  # Remote frame received (uid, frame)
+    video_disabled = pyqtSignal()  # Signal when video is disabled
     
     def __init__(self, server_host: str, server_port: int, parent=None):
         super().__init__(parent)
@@ -978,10 +979,16 @@ class VideoClient(QThread):
     
     def set_enabled(self, enabled: bool):
         """Enable/disable video capture."""
+        was_enabled = self.enabled
         self.enabled = enabled
-        if not enabled and self.cap:
-            self.cap.release()
-            self.cap = None
+        
+        if enabled:
+            print("[DEBUG] Video enabled")
+        else:
+            print("[DEBUG] Video disabled")
+            # Emit signal to clear local video display
+            if was_enabled:  # Only emit if it was previously enabled
+                self.video_disabled.emit()
     
     def run(self):
         """Run video capture loop."""
@@ -991,16 +998,27 @@ class VideoClient(QThread):
         try:
             self.running = True
             
-            # Initialize camera
-            self.cap = cv2.VideoCapture(0)
-            if not self.cap.isOpened():
-                print("[ERROR] Could not open camera")
+            # Initialize camera with retry logic
+            for attempt in range(3):
+                self.cap = cv2.VideoCapture(0)
+                if self.cap.isOpened():
+                    break
+                else:
+                    print(f"[WARNING] Camera open attempt {attempt + 1} failed")
+                    if self.cap:
+                        self.cap.release()
+                    self.msleep(500)  # Wait before retry
+            
+            if not self.cap or not self.cap.isOpened():
+                print("[ERROR] Could not open camera after 3 attempts")
                 return
             
             # Set camera properties for smaller frames
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Reduced from 640
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)  # Reduced from 480
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
             self.cap.set(cv2.CAP_PROP_FPS, DEFAULT_FPS)
+            
+            print("[DEBUG] Camera initialized successfully")
             
             # Initialize UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1009,16 +1027,24 @@ class VideoClient(QThread):
             print(f"[DEBUG] Video client started, waiting for UID to be set...")
             
             while self.running:
-                # Capture and send video if enabled
-                if self.enabled:
+                # Always capture frames to keep camera active (prevents segfault)
+                if self.cap is not None:
                     ret, frame = self.cap.read()
                     if ret:
-                        # Emit frame for local display
-                        self.frame_captured.emit(frame)
-                        
-                        # Send frame to server if connected
-                        if self.uid and self.socket:
-                            self.send_frame(frame)
+                        # Only emit and send frames if video is enabled
+                        if self.enabled:
+                            # Emit frame for local display
+                            self.frame_captured.emit(frame)
+                            
+                            # Send frame to server if connected
+                            if self.uid and self.socket:
+                                self.send_frame(frame)
+                        # If disabled, we still read frames but don't use them
+                        # This keeps the camera active and prevents segfaults
+                    else:
+                        # Camera read failed
+                        print("[WARNING] Camera read failed")
+                        self.msleep(100)  # Wait a bit before trying again
                 
                 # Check for incoming video from server
                 try:
@@ -1034,10 +1060,24 @@ class VideoClient(QThread):
         except Exception as e:
             print(f"[ERROR] Video client error: {e}")
         finally:
+            # Safe cleanup to prevent segfaults
             if self.cap:
-                self.cap.release()
+                try:
+                    self.cap.release()
+                    print("[DEBUG] Camera released safely")
+                except Exception as e:
+                    print(f"[WARNING] Camera release error: {e}")
+                finally:
+                    self.cap = None
+            
             if self.socket:
-                self.socket.close()
+                try:
+                    self.socket.close()
+                except Exception:
+                    pass
+                finally:
+                    self.socket = None
+            
             self.running = False
     
     def send_frame(self, frame: np.ndarray):
@@ -2337,6 +2377,7 @@ class ClientMainWindow(QMainWindow):
         self.video_client = VideoClient(self.host, DEFAULT_UDP_VIDEO_PORT, self)
         self.video_client.frame_captured.connect(self.video_grid.update_local_video)
         self.video_client.frame_received.connect(self.video_grid.update_participant_video)
+        self.video_client.video_disabled.connect(self.clear_local_video)
         
         self.audio_client = AudioClient(self.host, DEFAULT_UDP_AUDIO_PORT, self)
         
@@ -2633,9 +2674,20 @@ class ClientMainWindow(QMainWindow):
         """Toggle video on/off."""
         if self.video_client:
             self.video_client.set_enabled(enabled)
+        
+        # Clear local video display when disabled
+        if not enabled:
+            if self.video_grid.local_frame:
+                self.video_grid.local_frame.set_placeholder()
+        
         self.media_controls.video_enabled = enabled
         self.media_controls.video_btn.setChecked(enabled)
         self.media_controls.video_btn.setText("📹 Video On" if enabled else "📹 Video Off")
+    
+    def clear_local_video(self):
+        """Clear the local video display."""
+        if self.video_grid.local_frame:
+            self.video_grid.local_frame.set_placeholder()
     
     def toggle_audio(self, enabled: bool):
         """Toggle audio on/off."""
