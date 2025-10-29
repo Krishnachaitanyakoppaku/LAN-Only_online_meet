@@ -847,12 +847,42 @@ class NetworkThread(QThread):
     async def connect(self):
         """Connect to server."""
         try:
-            self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+            print(f"[INFO] Attempting to connect to {self.host}:{self.port}")
+            
+            # Test basic connectivity first
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(5)
+            
+            try:
+                result = test_sock.connect_ex((self.host, self.port))
+                test_sock.close()
+                
+                if result != 0:
+                    raise ConnectionError(f"Cannot reach server at {self.host}:{self.port}")
+            except Exception as e:
+                test_sock.close()
+                raise ConnectionError(f"Network error: {e}")
+            
+            # Now try async connection
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port), 
+                timeout=10
+            )
+            
             self.connected = True
+            print(f"[INFO] Successfully connected to {self.host}:{self.port}")
             self.connection_status_changed.emit(True, "Connected")
             return True
+            
+        except asyncio.TimeoutError:
+            error_msg = f"Connection timeout to {self.host}:{self.port}"
+            print(f"[ERROR] {error_msg}")
+            self.connection_status_changed.emit(False, error_msg)
+            return False
         except Exception as e:
-            self.connection_status_changed.emit(False, f"Connection failed: {e}")
+            error_msg = f"Connection failed: {e}"
+            print(f"[ERROR] {error_msg}")
+            self.connection_status_changed.emit(False, error_msg)
             return False
     
     async def send_login(self):
@@ -1734,6 +1764,44 @@ class ClientMainWindow(QMainWindow):
         self.host = conn_info['host']
         self.port = conn_info['port']
         self.username = conn_info['username']
+        
+        # Validate connection info
+        if not self.host or not self.port or not self.username:
+            QMessageBox.warning(self, "Invalid Input", "Please provide valid server details and username.")
+            return
+        
+        # Test basic connectivity first
+        try:
+            print(f"[INFO] Testing connection to {self.host}:{self.port}")
+            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_sock.settimeout(5)
+            result = test_sock.connect_ex((self.host, self.port))
+            test_sock.close()
+            
+            if result != 0:
+                QMessageBox.critical(
+                    self, 
+                    "Connection Failed", 
+                    f"Cannot reach server at {self.host}:{self.port}\n\n"
+                    f"Please check:\n"
+                    f"• Server is running (python main_server.py)\n"
+                    f"• IP address is correct\n"
+                    f"• Firewall allows ports 9000, 10000, 11000\n"
+                    f"• You're on the same network\n\n"
+                    f"💡 Try running: python connection_test.py {self.host}"
+                )
+                return
+                
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Network Error", 
+                f"Network error: {e}\n\n"
+                f"Please check your network connection."
+            )
+            return
+        
+        print(f"[INFO] Basic connectivity test passed")
         
         # Update window title
         self.setWindowTitle(f"LAN Collaboration Client - {self.username}")
