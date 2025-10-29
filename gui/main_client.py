@@ -777,12 +777,12 @@ class MediaControlsWidget(QWidget):
         self.screen_sharing = not self.screen_sharing
         self.screen_btn.setChecked(self.screen_sharing)
         self.screen_btn.setText("🖥️ Sharing" if self.screen_sharing else "🖥️ Share")
+        self.screen_share_requested.emit(self.screen_sharing)
     
     def connect_parent_signals(self):
         """Connect signals that require parent access."""
         if self.parent():
-            self.disconnect_btn.clicked.connect(self.parent().disconnect_from_server)
-        self.screen_share_requested.emit(self.screen_sharing)# =========
+            self.disconnect_btn.clicked.connect(self.parent().disconnect_from_server)# =========
 #===================================================================
 # NETWORKING COMPONENTS
 # ============================================================================
@@ -3018,6 +3018,7 @@ class ClientMainWindow(QMainWindow):
     
     def toggle_screen_share(self, enabled: bool):
         """Toggle screen sharing on/off."""
+        print(f"[DEBUG] Screen share toggle called: enabled={enabled}")
         if enabled:
             self.start_screen_sharing()
         else:
@@ -3026,22 +3027,29 @@ class ClientMainWindow(QMainWindow):
     def start_screen_sharing(self):
         """Start screen sharing."""
         if self.network_thread and self.connected:
+            print("[DEBUG] Sending PRESENT_START message to server")
             # Send present start request to server
             message = {
                 'type': MessageTypes.PRESENT_START,
                 'timestamp': datetime.now().isoformat()
             }
             self.network_thread.send_message_sync(message)
+            self.chat_widget.add_message("System", "🖥️ Requesting to start screen sharing...", is_system=True)
+        else:
+            print("[ERROR] Cannot start screen sharing - not connected to server")
+            QMessageBox.warning(self, "Not Connected", "Please connect to server first.")
     
     def stop_screen_sharing(self):
         """Stop screen sharing."""
         if self.network_thread and self.connected:
+            print("[DEBUG] Sending PRESENT_STOP message to server")
             # Send present stop request to server
             message = {
                 'type': MessageTypes.PRESENT_STOP,
                 'timestamp': datetime.now().isoformat()
             }
             self.network_thread.send_message_sync(message)
+            self.chat_widget.add_message("System", "🖥️ Stopping screen sharing...", is_system=True)
         
         # Stop local screen capture if running
         if hasattr(self, 'screen_capture_client') and self.screen_capture_client:

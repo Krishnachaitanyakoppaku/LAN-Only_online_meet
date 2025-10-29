@@ -919,12 +919,16 @@ class CollaborationServer:
     
     async def handle_present_start(self, participant: Participant) -> dict:
         """Handle presentation start."""
+        print(f"[DEBUG] Received PRESENT_START from {participant.username} (UID: {participant.uid})")
+        
         # Check if someone else is presenting
         for p in self.participants.values():
             if p.is_presenting and p != participant:
+                print(f"[DEBUG] Presentation rejected - {p.username} is already presenting")
                 return create_error_message("Someone else is already presenting")
         
         participant.is_presenting = True
+        print(f"[DEBUG] {participant.username} started presenting on port {self.screen_share_server.port}")
         
         # Notify all participants
         present_msg = {
