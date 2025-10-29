@@ -2827,6 +2827,8 @@ class ClientMainWindow(QMainWindow):
             text = message.get('content', '')
             timestamp = message.get('timestamp', '')
             
+            print(f"[DEBUG] Received private message from {sender}: {text}")
+            
             if timestamp:
                 try:
                     dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
@@ -2932,6 +2934,8 @@ class ClientMainWindow(QMainWindow):
         )
         
         if ok and text.strip():
+            print(f"[DEBUG] Sending private message to {username} (UID: {target_uid}): {text.strip()}")
+            
             message = {
                 'type': MessageTypes.UNICAST,
                 'target_uid': target_uid,

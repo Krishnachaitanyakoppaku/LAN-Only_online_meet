@@ -877,6 +877,8 @@ class CollaborationServer:
         target_participant = self.participants[target_uid]
         await self.send_message(target_participant.writer, unicast_msg)
         
+        print(f"[DEBUG] Private message sent from {participant.username} to {target_participant.username}")
+        
         self.stats['messages_sent'] += 1
         
         return {
