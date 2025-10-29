@@ -139,6 +139,7 @@ function initializeSocket() {
         participants.set(data.user, { name: data.user, video: false, audio: false });
         updateParticipantsList();
         updateUserCount();
+        updateVideoGridLayout(); // Update layout when new user joins
         showMessage(`${data.user} joined the session`, 'info');
     });
     
@@ -147,7 +148,18 @@ function initializeSocket() {
         removeVideoStream(data.user);
         updateParticipantsList();
         updateUserCount();
+        updateVideoGridLayout(); // Reorganize grid after user leaves
         showMessage(`${data.user} left the session`, 'info');
+    });
+    
+    socket.on('user_disconnected', function(data) {
+        console.log(`User ${data.user} disconnected`);
+        participants.delete(data.user);
+        removeVideoStream(data.user);
+        updateParticipantsList();
+        updateUserCount();
+        updateVideoGridLayout(); // Reorganize grid after user disconnects
+        showMessage(`${data.user} disconnected`, 'warning');
     });
     
     // Chat events
@@ -768,6 +780,7 @@ function displayVideoStream(username, data) {
         videoContainer.appendChild(overlay);
         
         document.getElementById('videoGrid').appendChild(videoContainer);
+        updateVideoGridLayout(); // Update layout when new video is added
     }
     
     // Update canvas with received image
@@ -788,8 +801,66 @@ function displayVideoStream(username, data) {
 function removeVideoStream(username) {
     const videoContainer = document.getElementById(`video-${username}`);
     if (videoContainer) {
+        console.log(`🗑️ Removing video container for ${username}`);
         videoContainer.remove();
+        updateVideoGridLayout(); // Update layout after removal
+    } else {
+        console.log(`⚠️ Video container for ${username} not found`);
     }
+}
+
+// Update video grid layout for optimal space usage
+function updateVideoGridLayout() {
+    const videoGrid = document.getElementById('videoGrid');
+    const videoContainers = videoGrid.querySelectorAll('.video-container');
+    const count = videoContainers.length;
+    
+    console.log(`📐 Updating video grid layout for ${count} participants`);
+    
+    // Dynamic grid layout based on participant count
+    let columns, rows;
+    
+    if (count <= 1) {
+        columns = 1;
+        rows = 1;
+    } else if (count <= 2) {
+        columns = 2;
+        rows = 1;
+    } else if (count <= 4) {
+        columns = 2;
+        rows = 2;
+    } else if (count <= 6) {
+        columns = 3;
+        rows = 2;
+    } else if (count <= 9) {
+        columns = 3;
+        rows = 3;
+    } else if (count <= 12) {
+        columns = 4;
+        rows = 3;
+    } else {
+        columns = 4;
+        rows = Math.ceil(count / 4);
+    }
+    
+    // Apply dynamic grid layout
+    videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+    videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    
+    // Adjust container sizes based on count
+    videoContainers.forEach(container => {
+        if (count === 1) {
+            container.style.minHeight = '400px';
+        } else if (count <= 4) {
+            container.style.minHeight = '250px';
+        } else if (count <= 9) {
+            container.style.minHeight = '200px';
+        } else {
+            container.style.minHeight = '150px';
+        }
+    });
+    
+    console.log(`📐 Grid layout: ${columns}x${rows} for ${count} participants`);
 }
 
 // Play audio stream

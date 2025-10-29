@@ -268,6 +268,84 @@ class SessionManager:
 
 session_manager = SessionManager()
 
+class MessageManager:
+    """Manages different types of messaging: broadcast, unicast, server messages"""
+    
+    def __init__(self):
+        self.message_history = {}  # {session_id: [messages]}
+        self.private_messages = {}  # {user_pair: [messages]}
+    
+    def store_message(self, session_id, message_data):
+        """Store message in history"""
+        if session_id not in self.message_history:
+            self.message_history[session_id] = []
+        
+        self.message_history[session_id].append(message_data)
+        
+        # Keep only last 100 messages per session
+        if len(self.message_history[session_id]) > 100:
+            self.message_history[session_id] = self.message_history[session_id][-100:]
+    
+    def store_private_message(self, sender, receiver, message_data):
+        """Store private message"""
+        # Create consistent key for user pair
+        user_pair = tuple(sorted([sender, receiver]))
+        
+        if user_pair not in self.private_messages:
+            self.private_messages[user_pair] = []
+        
+        self.private_messages[user_pair].append(message_data)
+        
+        # Keep only last 50 private messages per pair
+        if len(self.private_messages[user_pair]) > 50:
+            self.private_messages[user_pair] = self.private_messages[user_pair][-50:]
+    
+    def get_message_history(self, session_id, limit=50):
+        """Get recent message history for session"""
+        if session_id in self.message_history:
+            return self.message_history[session_id][-limit:]
+        return []
+    
+    def get_private_history(self, user1, user2, limit=20):
+        """Get private message history between two users"""
+        user_pair = tuple(sorted([user1, user2]))
+        if user_pair in self.private_messages:
+            return self.private_messages[user_pair][-limit:]
+        return []
+    
+    def broadcast_to_session(self, session_id, message_data, exclude_user=None):
+        """Broadcast message to all users in session"""
+        users_in_session = session_manager.get_session_users(session_id)
+        
+        for user in users_in_session:
+            if user != exclude_user and user in connected_users:
+                user_sid = connected_users[user]
+                socketio.emit('new_message', message_data, room=user_sid)
+    
+    def send_unicast(self, target_user, message_data):
+        """Send message to specific user"""
+        if target_user in connected_users:
+            target_sid = connected_users[target_user]
+            socketio.emit('new_message', message_data, room=target_sid)
+            return True
+        return False
+    
+    def send_server_announcement(self, session_id, message, from_admin=None):
+        """Send server announcement to all users in session"""
+        announcement_data = {
+            'username': 'SERVER',
+            'message': message,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'server_announcement',
+            'from_admin': from_admin,
+            'is_server_message': True
+        }
+        
+        self.store_message(session_id, announcement_data)
+        socketio.emit('new_message', announcement_data, room=session_id)
+
+message_manager = MessageManager()
+
 def setup_udp_socket():
     """Setup UDP socket for video/audio streaming"""
     global UDP_SOCKET
@@ -386,6 +464,11 @@ def debug_audio_page():
 def camera_test_page():
     """Camera and microphone test page for HTTPS"""
     return render_template('camera-test.html')
+
+@app.route('/chat-demo')
+def chat_demo_page():
+    """Chat demo page showing broadcast and unicast messaging"""
+    return render_template('chat-demo.html')
 
 @app.route('/api/server-info')
 def server_info():
@@ -520,6 +603,12 @@ def handle_join_session(data):
             'session': session_id,
             'users': session_manager.get_session_users(session_id)
         }, room=session_id)
+        
+        # Send server announcement about user joining
+        message_manager.send_server_announcement(
+            session_id, 
+            f"{username} joined the session"
+        )
         
         emit('join_success', {
             'session': session_id,
@@ -692,20 +781,124 @@ def handle_create_session(data):
 
 @socketio.on('send_message')
 def handle_message(data):
-    """Handle chat messages"""
+    """Handle chat messages - supports broadcast and unicast"""
     username = data.get('username')
     message = data.get('message')
     session_id = data.get('session_id')
+    target_user = data.get('target_user')  # Optional: for private messages
+    message_type = data.get('type', 'broadcast')  # 'broadcast', 'unicast', 'server'
     
     if username and message and session_id:
         message_data = {
             'username': username,
             'message': message,
+            'timestamp': datetime.now().isoformat(),
+            'type': message_type,
+            'target_user': target_user
+        }
+        
+        if message_type == 'unicast' and target_user:
+            # Send private message to specific user
+            if message_manager.send_unicast(target_user, {**message_data, 'is_private': True}):
+                # Store private message
+                message_manager.store_private_message(username, target_user, message_data)
+                # Send confirmation to sender
+                emit('message_sent', {
+                    'target_user': target_user,
+                    'message': message,
+                    'timestamp': message_data['timestamp']
+                })
+                print(f"📨 Private message from {username} to {target_user}: {message}")
+            else:
+                emit('message_error', {'error': f'User {target_user} not found or offline'})
+        else:
+            # Broadcast to all users in session
+            message_manager.store_message(session_id, message_data)
+            socketio.emit('new_message', message_data, room=session_id)
+            print(f"📢 Broadcast message from {username} in {session_id}: {message}")
+
+@socketio.on('send_server_message')
+def handle_server_message(data):
+    """Handle server-initiated messages (admin/system messages)"""
+    admin_user = data.get('admin_user')
+    message = data.get('message')
+    session_id = data.get('session_id')
+    target_user = data.get('target_user')  # Optional: for targeted server messages
+    
+    # Check if user has admin privileges (host)
+    if not session_manager.is_host(admin_user, session_id):
+        emit('permission_error', {'message': 'Only host can send server messages'})
+        return
+    
+    if message and session_id:
+        message_data = {
+            'username': 'SERVER',
+            'message': message,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'server',
+            'from_admin': admin_user,
+            'is_server_message': True
+        }
+        
+        if target_user:
+            # Send server message to specific user
+            target_sid = connected_users.get(target_user)
+            if target_sid:
+                socketio.emit('new_message', message_data, room=target_sid)
+                print(f"🔧 Server message from {admin_user} to {target_user}: {message}")
+            else:
+                emit('message_error', {'error': f'User {target_user} not found'})
+        else:
+            # Broadcast server message to all users in session
+            socketio.emit('new_message', message_data, room=session_id)
+            print(f"🔧 Server broadcast from {admin_user} in {session_id}: {message}")
+
+@socketio.on('get_online_users')
+def handle_get_online_users(data):
+    """Get list of online users in session for private messaging"""
+    session_id = data.get('session_id')
+    username = data.get('username')
+    
+    if session_id and username:
+        users_in_session = session_manager.get_session_users(session_id)
+        online_users = []
+        
+        for user in users_in_session:
+            if user in connected_users and user != username:  # Exclude self
+                online_users.append({
+                    'username': user,
+                    'is_host': session_manager.is_host(user, session_id),
+                    'status': 'online'
+                })
+        
+        emit('online_users_list', {
+            'users': online_users,
+            'total_count': len(online_users)
+        })
+
+@socketio.on('send_typing_indicator')
+def handle_typing_indicator(data):
+    """Handle typing indicators for chat"""
+    username = data.get('username')
+    session_id = data.get('session_id')
+    is_typing = data.get('is_typing', False)
+    target_user = data.get('target_user')  # Optional: for private chat typing
+    
+    if username and session_id:
+        typing_data = {
+            'username': username,
+            'is_typing': is_typing,
             'timestamp': datetime.now().isoformat()
         }
         
-        # Broadcast to all users in session
-        socketio.emit('new_message', message_data, room=session_id)
+        if target_user:
+            # Send typing indicator to specific user
+            target_sid = connected_users.get(target_user)
+            if target_sid:
+                socketio.emit('typing_indicator', typing_data, room=target_sid)
+        else:
+            # Broadcast typing indicator to session (exclude sender)
+            socketio.emit('typing_indicator', typing_data, room=session_id, include_self=False)
 
 @socketio.on('start_screen_share')
 def handle_start_screen_share(data):
@@ -1042,6 +1235,81 @@ def handle_get_user_permissions(data):
         'permissions': permissions,
         'host': session_data.get('host')
     })
+
+@socketio.on('get_message_history')
+def handle_get_message_history(data):
+    """Get message history for session"""
+    username = data.get('username')
+    session_id = data.get('session_id')
+    limit = data.get('limit', 50)
+    
+    if username and session_id:
+        # Check if user is in session
+        if username in session_manager.get_session_users(session_id):
+            history = message_manager.get_message_history(session_id, limit)
+            emit('message_history', {
+                'messages': history,
+                'session_id': session_id,
+                'count': len(history)
+            })
+        else:
+            emit('permission_error', {'message': 'Not authorized to view this session history'})
+
+@socketio.on('get_private_history')
+def handle_get_private_history(data):
+    """Get private message history between two users"""
+    username = data.get('username')
+    other_user = data.get('other_user')
+    limit = data.get('limit', 20)
+    
+    if username and other_user:
+        history = message_manager.get_private_history(username, other_user, limit)
+        emit('private_message_history', {
+            'messages': history,
+            'other_user': other_user,
+            'count': len(history)
+        })
+
+@socketio.on('send_bulk_message')
+def handle_bulk_message(data):
+    """Send message to multiple specific users (host only)"""
+    sender = data.get('sender')
+    session_id = data.get('session_id')
+    target_users = data.get('target_users', [])  # List of usernames
+    message = data.get('message')
+    
+    # Check if sender is host
+    if not session_manager.is_host(sender, session_id):
+        emit('permission_error', {'message': 'Only host can send bulk messages'})
+        return
+    
+    if sender and session_id and target_users and message:
+        message_data = {
+            'username': sender,
+            'message': message,
+            'timestamp': datetime.now().isoformat(),
+            'type': 'bulk',
+            'is_bulk_message': True,
+            'from_host': True
+        }
+        
+        sent_count = 0
+        failed_users = []
+        
+        for target_user in target_users:
+            if message_manager.send_unicast(target_user, message_data):
+                sent_count += 1
+                print(f"📨 Bulk message from {sender} to {target_user}: {message}")
+            else:
+                failed_users.append(target_user)
+        
+        # Send confirmation to sender
+        emit('bulk_message_sent', {
+            'sent_count': sent_count,
+            'total_targets': len(target_users),
+            'failed_users': failed_users,
+            'message': message
+        })
 
 if __name__ == '__main__':
     # Initialize server IP at startup
