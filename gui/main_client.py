@@ -2831,7 +2831,11 @@ class ClientMainWindow(QMainWindow):
             # Server provided screen share port for presenter
             port = message.get('port')
             if port:
+                print(f"[DEBUG] Received screen share port: {port}")
                 self.start_screen_capture(port)
+            else:
+                print("[ERROR] No screen share port provided by server")
+                self.chat_widget.add_message("System", "❌ Server did not provide screen share port", is_system=True)
         
         elif msg_type == MessageTypes.PRESENT_START_BROADCAST:
             # Someone started presenting
@@ -2855,6 +2859,12 @@ class ClientMainWindow(QMainWindow):
         elif msg_type == MessageTypes.ERROR:
             error_msg = message.get('message', 'Unknown error')
             self.chat_widget.add_message("System", f"Error: {error_msg}", is_system=True)
+            
+            # If it's a screen sharing error, reset the button state
+            if "presenting" in error_msg.lower():
+                self.media_controls.screen_sharing = False
+                self.media_controls.screen_btn.setChecked(False)
+                self.media_controls.screen_btn.setText("🖥️ Share")
     
     def send_chat_message(self, text: str):
         """Send chat message."""
@@ -3059,6 +3069,15 @@ class ClientMainWindow(QMainWindow):
     def start_screen_capture(self, port: int):
         """Start screen capture for presentation."""
         try:
+            print(f"[DEBUG] Starting screen capture client on port {port}")
+            
+            # Test screen capture capability first
+            test_client = ScreenCaptureClient(self.host, port, self)
+            test_screenshot = test_client.capture_screen()
+            
+            if test_screenshot is None:
+                raise Exception("Screen capture not available on this platform")
+            
             self.screen_capture_client = ScreenCaptureClient(self.host, port, self)
             self.screen_capture_client.start()
             
