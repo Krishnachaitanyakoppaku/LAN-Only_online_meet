@@ -544,6 +544,26 @@ class ChatWidget(QWidget):
         scrollbar = self.chat_display.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
     
+    def add_private_message(self, sender: str, text: str, timestamp: str = None):
+        """Add private message to chat display with special formatting."""
+        if timestamp is None:
+            timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Format private message with distinct styling
+        html = f"""
+        <div style="margin: 8px 0; background-color: #2a2a3a; border-left: 3px solid #9d4edd; padding: 8px; border-radius: 5px;">
+            <span style="color: #888;">[{timestamp}]</span>
+            <span style="color: #9d4edd; font-weight: bold;">🔒 {sender} (private):</span>
+            <span style="color: #e0e0e0;">{text}</span>
+        </div>
+        """
+        
+        self.chat_display.append(html)
+        
+        # Auto-scroll to bottom
+        scrollbar = self.chat_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
     def clear_chat(self):
         """Clear chat display."""
         self.chat_display.clear()
@@ -2800,6 +2820,24 @@ class ClientMainWindow(QMainWindow):
                 time_str = None
             
             self.chat_widget.add_message(sender, text, time_str)
+        
+        elif msg_type == MessageTypes.UNICAST:
+            # Private message received
+            sender = message.get('username', 'Unknown')
+            text = message.get('content', '')
+            timestamp = message.get('timestamp', '')
+            
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    time_str = dt.strftime("%H:%M:%S")
+                except:
+                    time_str = None
+            else:
+                time_str = None
+            
+            # Display private message with special formatting
+            self.chat_widget.add_private_message(sender, text, time_str)
             
         elif msg_type == MessageTypes.FILE_UPLOAD_PORT:
             # Server provided upload port
@@ -2823,6 +2861,13 @@ class ClientMainWindow(QMainWindow):
             uploader = message.get('uploader', 'Unknown')
             self.chat_widget.add_message("System", f"📁 New file available: {filename} (uploaded by {uploader})", is_system=True)
             
+        elif msg_type == MessageTypes.UNICAST_SENT:
+            # Private message sent confirmation
+            target_uid = message.get('target_uid')
+            timestamp = message.get('timestamp', '')
+            # Message already shown in sender's chat, just log success
+            print(f"[DEBUG] Private message sent to UID {target_uid}")
+        
         elif msg_type == MessageTypes.HEARTBEAT_ACK:
             # Heartbeat acknowledged - connection is alive
             pass
@@ -2872,16 +2917,31 @@ class ClientMainWindow(QMainWindow):
             message = create_chat_message(text)
             self.network_thread.send_message_sync(message)
     
-    def send_private_message(self, target_uid: int, text: str):
+    def send_private_message(self, target_uid: int, username: str):
         """Send private message."""
-        if self.network_thread and self.connected:
+        if not self.network_thread or not self.connected:
+            QMessageBox.warning(self, "Not Connected", "Please connect to server first.")
+            return
+        
+        # Get message text from user
+        text, ok = QInputDialog.getText(
+            self, 
+            "Private Message", 
+            f"Send private message to {username}:",
+            QLineEdit.EchoMode.Normal
+        )
+        
+        if ok and text.strip():
             message = {
                 'type': MessageTypes.UNICAST,
                 'target_uid': target_uid,
-                'content': text,
+                'content': text.strip(),
                 'timestamp': datetime.now().isoformat()
             }
             self.network_thread.send_message_sync(message)
+            
+            # Show the sent message in sender's chat
+            self.chat_widget.add_private_message(f"You → {username}", text.strip())
     
     def upload_file(self, file_path: str):
         """Upload file to server."""
