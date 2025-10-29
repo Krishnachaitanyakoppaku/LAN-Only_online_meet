@@ -958,7 +958,8 @@ class NetworkThread(QThread):
 class VideoClient(QThread):
     """Video capture and streaming client."""
     
-    frame_captured = pyqtSignal(np.ndarray)
+    frame_captured = pyqtSignal(np.ndarray)  # Local frame captured
+    frame_received = pyqtSignal(int, np.ndarray)  # Remote frame received (uid, frame)
     
     def __init__(self, server_host: str, server_port: int, parent=None):
         super().__init__(parent)
@@ -978,9 +979,7 @@ class VideoClient(QThread):
     def set_enabled(self, enabled: bool):
         """Enable/disable video capture."""
         self.enabled = enabled
-        if enabled and not self.running:
-            self.start()
-        elif not enabled and self.cap:
+        if not enabled and self.cap:
             self.cap.release()
             self.cap = None
     
@@ -1005,16 +1004,28 @@ class VideoClient(QThread):
             
             # Initialize UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.socket.settimeout(0.1)  # Non-blocking with short timeout
             
-            while self.running and self.enabled:
-                ret, frame = self.cap.read()
-                if ret:
-                    # Emit frame for local display
-                    self.frame_captured.emit(frame)
-                    
-                    # Send frame to server if connected
-                    if self.uid and self.socket:
-                        self.send_frame(frame)
+            while self.running:
+                # Capture and send video if enabled
+                if self.enabled:
+                    ret, frame = self.cap.read()
+                    if ret:
+                        # Emit frame for local display
+                        self.frame_captured.emit(frame)
+                        
+                        # Send frame to server if connected
+                        if self.uid and self.socket:
+                            self.send_frame(frame)
+                
+                # Check for incoming video from server
+                try:
+                    data, addr = self.socket.recvfrom(65536)
+                    self.handle_incoming_video(data)
+                except socket.timeout:
+                    pass  # No data received, continue
+                except Exception:
+                    pass  # Ignore other socket errors
                 
                 self.msleep(1000 // DEFAULT_FPS)  # Control FPS
                 
@@ -1034,16 +1045,47 @@ class VideoClient(QThread):
             _, encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, DEFAULT_QUALITY])
             frame_data = encoded.tobytes()
             
-            # Create packet header
-            header = struct.pack('!IIII', self.uid, self.sequence, len(frame_data), 0)
+            # Create packet header (uid, sequence, frame_id, data_size)
+            frame_id = self.sequence  # Use sequence as frame_id
+            header = struct.pack('!IIII', self.uid, self.sequence, frame_id, len(frame_data))
             packet = header + frame_data
             
             # Send packet
             self.socket.sendto(packet, (self.server_host, self.server_port))
             self.sequence += 1
             
+            if self.sequence % 30 == 0:  # Debug every 30 frames (2 seconds at 15fps)
+                print(f"[DEBUG] Sent video frame {self.sequence} to {self.server_host}:{self.server_port}")
+            
         except Exception as e:
             print(f"[ERROR] Send frame error: {e}")
+    
+    def handle_incoming_video(self, data: bytes):
+        """Handle incoming video from server."""
+        try:
+            if len(data) < 16:
+                return
+            
+            uid, sequence, frame_id, data_size = struct.unpack('!IIII', data[:16])
+            
+            # Don't process our own video
+            if uid == self.uid:
+                return
+            
+            video_data = data[16:]
+            if len(video_data) != data_size:
+                return
+            
+            # Decode video frame
+            frame_array = np.frombuffer(video_data, dtype=np.uint8)
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                self.frame_received.emit(uid, frame)
+                print(f"[DEBUG] Received video frame from UID {uid}")
+                
+        except Exception as e:
+            print(f"[ERROR] Video receive error: {e}")
     
     def stop(self):
         """Stop video capture."""
@@ -1073,8 +1115,6 @@ class AudioClient(QThread):
     def set_enabled(self, enabled: bool):
         """Enable/disable audio capture."""
         self.enabled = enabled
-        if enabled and not self.running:
-            self.start()
     
     def run(self):
         """Run audio capture loop."""
@@ -1098,14 +1138,35 @@ class AudioClient(QThread):
             
             # Initialize UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.socket.settimeout(0.01)  # Very short timeout for audio
             
-            while self.running and self.enabled:
-                # Read audio data
-                audio_data = self.input_stream.read(AUDIO_CHUNK_SIZE, exception_on_overflow=False)
+            # Initialize output stream for playing received audio
+            self.output_stream = self.audio.open(
+                format=pyaudio.paInt16,
+                channels=AUDIO_CHANNELS,
+                rate=AUDIO_SAMPLE_RATE,
+                output=True,
+                frames_per_buffer=AUDIO_CHUNK_SIZE
+            )
+            
+            while self.running:
+                # Capture and send audio if enabled
+                if self.enabled:
+                    # Read audio data
+                    audio_data = self.input_stream.read(AUDIO_CHUNK_SIZE, exception_on_overflow=False)
+                    
+                    # Send to server if connected
+                    if self.uid and self.socket:
+                        self.send_audio(audio_data)
                 
-                # Send to server if connected
-                if self.uid and self.socket:
-                    self.send_audio(audio_data)
+                # Check for incoming audio from server
+                try:
+                    data, addr = self.socket.recvfrom(4096)
+                    self.handle_incoming_audio(data)
+                except socket.timeout:
+                    pass  # No data received, continue
+                except Exception:
+                    pass  # Ignore other socket errors
                 
         except Exception as e:
             print(f"[ERROR] Audio client error: {e}")
@@ -1113,6 +1174,9 @@ class AudioClient(QThread):
             if self.input_stream:
                 self.input_stream.stop_stream()
                 self.input_stream.close()
+            if self.output_stream:
+                self.output_stream.stop_stream()
+                self.output_stream.close()
             if self.audio:
                 self.audio.terminate()
             if self.socket:
@@ -1133,10 +1197,34 @@ class AudioClient(QThread):
         except Exception as e:
             print(f"[ERROR] Send audio error: {e}")
     
+    def handle_incoming_audio(self, data: bytes):
+        """Handle incoming audio from server."""
+        try:
+            if len(data) < 12:
+                return
+            
+            uid, sequence, data_size = struct.unpack('!III', data[:12])
+            
+            # Don't play our own audio back
+            if uid == self.uid:
+                return
+            
+            audio_data = data[12:]
+            if len(audio_data) != data_size:
+                return
+            
+            # Play audio data
+            if self.output_stream:
+                self.output_stream.write(audio_data)
+                
+        except Exception as e:
+            print(f"[ERROR] Audio receive error: {e}")
+    
     def stop(self):
         """Stop audio capture."""
         self.running = False
         self.enabled = False
+
 
 
 # ============================================================================
@@ -2235,6 +2323,7 @@ class ClientMainWindow(QMainWindow):
         # Initialize and start media clients
         self.video_client = VideoClient(self.host, DEFAULT_UDP_VIDEO_PORT, self)
         self.video_client.frame_captured.connect(self.video_grid.update_local_video)
+        self.video_client.frame_received.connect(self.video_grid.update_participant_video)
         self.video_client.start()  # Start the video thread
         
         self.audio_client = AudioClient(self.host, DEFAULT_UDP_AUDIO_PORT, self)
