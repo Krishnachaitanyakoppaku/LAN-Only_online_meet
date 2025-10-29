@@ -2699,6 +2699,9 @@ class ClientMainWindow(QMainWindow):
         """Disconnect from server."""
         print("[DEBUG] Leave button clicked - starting disconnect process")
         
+        # Mark this as an intentional disconnect
+        self._intentional_disconnect = True
+        
         if self.network_thread and self.connected:
             # Send logout message to server before disconnecting
             print("[DEBUG] Sending LOGOUT message to server")
@@ -2748,14 +2751,51 @@ class ClientMainWindow(QMainWindow):
         self.setWindowTitle("LAN Collaboration Client")
         
         print("[DEBUG] Disconnect process completed - client fully disconnected")
+        
+        # Show connection dialog again or close application
+        self.show_reconnect_options()
+        
+        # Clear the intentional disconnect flag
+        if hasattr(self, '_intentional_disconnect'):
+            delattr(self, '_intentional_disconnect')
     
     def handle_leave_button_click(self):
         """Handle leave button click with debug output."""
         print("[DEBUG] 🚪 Leave button clicked!")
         self.disconnect_from_server()
     
+    def show_reconnect_options(self):
+        """Show options to reconnect or exit after disconnection."""
+        # Check if this was an intentional disconnect
+        if hasattr(self, '_intentional_disconnect'):
+            title = "Left Meeting"
+            message = "You have left the meeting.\n\nWhat would you like to do?"
+        else:
+            title = "Connection Lost"
+            message = "Connection to the server was lost.\n\nWhat would you like to do?"
+        
+        # Create custom message box with better button labels
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        
+        reconnect_btn = msg_box.addButton("🔄 Connect Again", QMessageBox.ButtonRole.AcceptRole)
+        exit_btn = msg_box.addButton("❌ Exit", QMessageBox.ButtonRole.RejectRole)
+        msg_box.setDefaultButton(reconnect_btn)
+        
+        msg_box.exec()
+        
+        if msg_box.clickedButton() == reconnect_btn:
+            # Show connection dialog to reconnect
+            self.show_connection_dialog()
+        else:
+            # Close the application
+            self.close()
+    
     def on_connection_status_changed(self, connected: bool, message: str):
         """Handle connection status change."""
+        was_connected = self.connected
         self.connected = connected
         
         if connected:
@@ -2766,6 +2806,16 @@ class ClientMainWindow(QMainWindow):
             self.connection_status.setText("⚫ Disconnected")
             self.connection_status.setStyleSheet("color: #dc3545; font-weight: bold;")
             self.status_bar.showMessage(message)
+            
+            # If we were connected and now disconnected unexpectedly (not via Leave button)
+            if was_connected and not hasattr(self, '_intentional_disconnect'):
+                print("[DEBUG] Unexpected disconnection detected")
+                # Clean up UI state
+                self.participants.clear()
+                self.participants_widget.update_participants({})
+                self.chat_widget.clear_chat()
+                # Show reconnect options after a short delay
+                QTimer.singleShot(1000, self.show_reconnect_options)
     
     def handle_message(self, message: dict):
         """Handle incoming message from server."""
