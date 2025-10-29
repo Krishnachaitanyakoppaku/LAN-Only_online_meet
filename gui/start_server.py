@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Easy startup script for GUI LAN Communication Server
+Easy startup script for LAN Collaboration Server
 Handles dependencies and shows connection info
 """
 
@@ -18,8 +18,8 @@ def get_local_ip():
         local_ip = s.getsockname()[0]
         s.close()
         return local_ip
-    except:
-        return "localhost"
+    except Exception:
+        return "127.0.0.1"
 
 def check_dependencies():
     """Check if required dependencies are available."""
@@ -27,22 +27,21 @@ def check_dependencies():
     
     missing = []
     
-    # Check asyncio (built-in)
+    # Check core Python modules (should always be available)
     try:
-        import asyncio
-        print("✅ asyncio: OK")
-    except ImportError:
-        print("❌ asyncio: Missing")
-        missing.append("asyncio")
+        import asyncio, json, socket, threading
+        print("✅ Core modules: OK")
+    except ImportError as e:
+        print(f"❌ Core modules: {e}")
+        missing.append("core-modules")
     
-    # Check OpenCV (optional)
+    # Check optional media dependencies
     try:
         import cv2
         print("✅ OpenCV: OK")
     except ImportError:
         print("⚠️  OpenCV: Missing (video processing disabled)")
     
-    # Check PyAudio (optional)
     try:
         import pyaudio
         print("✅ PyAudio: OK")
@@ -104,12 +103,13 @@ def show_server_info(local_ip):
     print()
     print("💡 Troubleshooting:")
     print("   • Make sure firewall allows these ports")
-    print("   • Test connection: python connection_test.py")
+    print("   • Check that no other services use these ports")
+    print("   • For network access, ensure devices are on same LAN")
     print()
 
 def main():
     """Main startup function."""
-    print("🚀 LAN Communication GUI Server")
+    print("🚀 LAN Collaboration Server Startup")
     print("=" * 50)
     
     # Get local IP
@@ -119,6 +119,7 @@ def main():
     # Check dependencies
     if not check_dependencies():
         print("\n❌ Cannot start server due to missing dependencies")
+        print("💡 Run: python install.py")
         return 1
     
     # Check ports
@@ -149,7 +150,7 @@ def main():
         print("\n🔌 Server stopped by user")
         return 0
     except Exception as e:
-        print(f"❌ Server error: {e}")
+        print(f"\n❌ Error starting server: {e}")
         return 1
 
 if __name__ == "__main__":

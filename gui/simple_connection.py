@@ -1,128 +1,176 @@
 #!/usr/bin/env python3
 """
-Ultra-simple connection dialog that definitely works
+Simple Connection Dialog for LAN Collaboration Client
+Provides a clean interface for entering server connection details
 """
 
-import sys
-import time
-import socket
-import subprocess
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLineEdit, QLabel, QPushButton, QCheckBox, QMessageBox
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, 
+    QLabel, QLineEdit, QPushButton, QDialogButtonBox,
+    QGroupBox, QMessageBox
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QIcon
 
-DEFAULT_TCP_PORT = 9000
 
 class SimpleConnectionDialog(QDialog):
-    """Ultra-simple connection dialog with zero styling."""
+    """Simple connection dialog for server details."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Connect to Server")
         self.setModal(True)
+        self.setFixedSize(400, 300)
         
-        # ZERO styling - pure system default
+        # Connection info
+        self.connection_info = {}
+        
         self.setup_ui()
-        
+        self.apply_styles()
+    
     def setup_ui(self):
-        """Setup the simplest possible connection dialog."""
+        """Setup the user interface."""
         layout = QVBoxLayout(self)
         
         # Title
-        title = QLabel("LAN Collaboration Client - Connect")
+        title = QLabel("🌐 Connect to Collaboration Server")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
         layout.addWidget(title)
         
-        # Form
-        form_layout = QFormLayout()
+        # Connection form
+        form_group = QGroupBox("Server Details")
+        form_layout = QFormLayout(form_group)
         
-        # Server IP
-        self.server_ip_input = QLineEdit()
-        self.server_ip_input.setText("localhost")
-        form_layout.addRow("Server IP:", self.server_ip_input)
+        # Server host
+        self.host_input = QLineEdit()
+        self.host_input.setPlaceholderText("localhost or IP address")
+        self.host_input.setText("localhost")
+        form_layout.addRow("🖥️ Server Host:", self.host_input)
         
-        # Server Port
-        self.server_port_input = QLineEdit()
-        self.server_port_input.setText(str(DEFAULT_TCP_PORT))
-        form_layout.addRow("Server Port:", self.server_port_input)
+        # Server port
+        self.port_input = QLineEdit()
+        self.port_input.setPlaceholderText("9000")
+        self.port_input.setText("9000")
+        form_layout.addRow("🔌 Port:", self.port_input)
         
         # Username
         self.username_input = QLineEdit()
-        self.username_input.setText(f"User_{int(time.time()) % 1000}")
-        form_layout.addRow("Username:", self.username_input)
+        self.username_input.setPlaceholderText("Your display name")
+        form_layout.addRow("👤 Username:", self.username_input)
         
-        layout.addLayout(form_layout)
-        
-        # Helper buttons
-        helper_layout = QHBoxLayout()
-        
-        localhost_btn = QPushButton("Use Localhost")
-        localhost_btn.clicked.connect(lambda: self.server_ip_input.setText("localhost"))
-        helper_layout.addWidget(localhost_btn)
-        
-        local_ip_btn = QPushButton("Use Local IP")
-        local_ip_btn.clicked.connect(self.set_local_ip)
-        helper_layout.addWidget(local_ip_btn)
-        
-        layout.addLayout(helper_layout)
-        
-        # Options
-        self.join_with_video = QCheckBox("Join with video")
-        self.join_with_audio = QCheckBox("Join with audio")
-        layout.addWidget(self.join_with_video)
-        layout.addWidget(self.join_with_audio)
+        layout.addWidget(form_group)
         
         # Buttons
-        button_layout = QHBoxLayout()
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept_connection)
+        button_box.rejected.connect(self.reject)
         
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(cancel_btn)
+        layout.addWidget(button_box)
         
-        connect_btn = QPushButton("Connect")
-        connect_btn.clicked.connect(self.accept)
-        connect_btn.setDefault(True)
-        button_layout.addWidget(connect_btn)
-        
-        layout.addLayout(button_layout)
+        # Focus on username field
+        self.username_input.setFocus()
     
-    def set_local_ip(self):
-        """Set the local IP address."""
+    def apply_styles(self):
+        """Apply dark theme styles."""
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QLabel {
+                color: #ffffff;
+                padding: 5px;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #555555;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QLineEdit {
+                background-color: #404040;
+                border: 2px solid #555555;
+                border-radius: 5px;
+                padding: 8px;
+                color: #ffffff;
+                font-size: 12px;
+            }
+            QLineEdit:focus {
+                border-color: #0078d4;
+            }
+            QPushButton {
+                background-color: #0078d4;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #106ebe;
+            }
+            QPushButton:pressed {
+                background-color: #005a9e;
+            }
+        """)
+    
+    def accept_connection(self):
+        """Validate and accept connection details."""
+        host = self.host_input.text().strip()
+        port_text = self.port_input.text().strip()
+        username = self.username_input.text().strip()
+        
+        # Validation
+        if not host:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a server host.")
+            self.host_input.setFocus()
+            return
+        
+        if not port_text:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a port number.")
+            self.port_input.setFocus()
+            return
+        
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            self.server_ip_input.setText(local_ip)
-        except Exception:
-            QMessageBox.warning(self, "IP Detection", "Could not detect local IP address")
+            port = int(port_text)
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid port number (1-65535).")
+            self.port_input.setFocus()
+            return
+        
+        if not username:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a username.")
+            self.username_input.setFocus()
+            return
+        
+        if len(username) > 50:
+            QMessageBox.warning(self, "Invalid Input", "Username must be 50 characters or less.")
+            self.username_input.setFocus()
+            return
+        
+        # Store connection info
+        self.connection_info = {
+            'host': host,
+            'port': port,
+            'username': username
+        }
+        
+        self.accept()
     
     def get_connection_info(self):
-        """Get connection information."""
-        return {
-            'host': self.server_ip_input.text().strip(),
-            'port': int(self.server_port_input.text().strip()),
-            'username': self.username_input.text().strip(),
-            'join_with_video': self.join_with_video.isChecked(),
-            'join_with_audio': self.join_with_audio.isChecked()
-        }
-
-def test_dialog():
-    """Test the simple dialog."""
-    app = QApplication(sys.argv)
-    
-    dialog = SimpleConnectionDialog()
-    
-    print("Testing simple connection dialog...")
-    print("Can you type in the Server IP field?")
-    
-    if dialog.exec() == QDialog.DialogCode.Accepted:
-        info = dialog.get_connection_info()
-        print(f"Connection info: {info}")
-    else:
-        print("Dialog cancelled")
-
-if __name__ == "__main__":
-    test_dialog()
+        """Get the connection information."""
+        return self.connection_info

@@ -1,17 +1,76 @@
-# LAN Communication System - Modern Interface Requirements
+# LAN Collaboration System - Complete Requirements
+# All dependencies needed for the GUI client and server
 
-# Core dependencies for networking and media
-opencv-python>=4.8.0
-pillow>=10.0.0
-numpy>=1.24.0
-pyaudio>=0.2.11
+# ============================================================================
+# CORE GUI FRAMEWORK
+# ============================================================================
+PyQt6>=6.5.0                    # Modern GUI framework for client interface
+PyQt6-Qt6>=6.5.0               # Qt6 binaries for PyQt6
 
-# GUI framework (included with Python)
-# tkinter - comes with Python standard library
+# ============================================================================
+# VIDEO & IMAGE PROCESSING
+# ============================================================================
+opencv-python>=4.8.0           # Video capture, processing, and streaming
+numpy>=1.24.0                  # Array operations for image/video data
+Pillow>=10.0.0                 # Image processing and format support
 
-# Optional for enhanced features
-mss>=9.0.1  # For screen capture
-# pydub>=0.25.1  # For audio processing
+# ============================================================================
+# AUDIO PROCESSING
+# ============================================================================
+pyaudio>=0.2.11                # Audio capture and playback
 
-# Installation command:
-# pip install opencv-python pillow numpy pyaudio
+# ============================================================================
+# SCREEN CAPTURE
+# ============================================================================
+mss>=9.0.1                     # Fast cross-platform screen capture
+
+# ============================================================================
+# NETWORKING & ASYNC
+# ============================================================================
+# asyncio - Built into Python 3.7+
+# socket - Built into Python standard library
+# threading - Built into Python standard library
+
+# ============================================================================
+# DATA & UTILITIES
+# ============================================================================
+# json - Built into Python standard library
+# struct - Built into Python standard library
+# hashlib - Built into Python standard library
+# uuid - Built into Python standard library
+# pathlib - Built into Python standard library
+# datetime - Built into Python standard library
+# collections - Built into Python standard library
+
+# ============================================================================
+# OPTIONAL ENHANCEMENTS
+# ============================================================================
+# These are optional but recommended for enhanced functionality:
+# 
+# pydub>=0.25.1                # Advanced audio processing
+# opus-python>=1.0.1           # Opus audio codec for better compression
+# psutil>=5.9.0                # System monitoring and process management
+
+# ============================================================================
+# INSTALLATION COMMANDS
+# ============================================================================
+# 
+# Install all required dependencies:
+# pip install -r requirements.txt
+#
+# Or install individually:
+# pip install PyQt6 opencv-python numpy Pillow pyaudio mss
+#
+# For development/testing:
+# pip install PyQt6 opencv-python numpy Pillow pyaudio mss pydub psutil
+
+# ============================================================================
+# SYSTEM REQUIREMENTS
+# ============================================================================
+# 
+# Python: 3.8 or higher
+# Operating System: Windows, macOS, or Linux
+# RAM: 4GB minimum, 8GB recommended
+# Network: LAN connection for multi-user features
+# Camera: Optional for video features
+# Microphone: Optional for audio features
