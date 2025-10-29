@@ -1733,6 +1733,291 @@ class FileDownloadThread(QThread):
 
 
 # ============================================================================
+# SCREEN SHARING COMPONENTS
+# ============================================================================
+
+class ScreenCaptureClient(QThread):
+    """Captures screen and sends to server for sharing."""
+    
+    def __init__(self, server_host: str, server_port: int, parent=None):
+        super().__init__(parent)
+        self.server_host = server_host
+        self.server_port = server_port
+        self.running = False
+        self.socket = None
+        
+    def run(self):
+        """Run screen capture loop."""
+        try:
+            self.running = True
+            
+            # Connect to screen share server
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.server_host, self.server_port))
+            
+            # Send presenter type
+            self.socket.send(struct.pack('!I', 1))  # 1 = presenter
+            
+            # Wait for OK response
+            response = self.socket.recv(1024)
+            if response != b'OK':
+                print(f"[ERROR] Screen share server rejected connection: {response}")
+                return
+            
+            print("[INFO] Screen sharing started - capturing screen")
+            
+            while self.running:
+                try:
+                    # Capture screen
+                    screenshot = self.capture_screen()
+                    if screenshot:
+                        # Send frame size
+                        frame_size = struct.pack('!I', len(screenshot))
+                        self.socket.send(frame_size)
+                        
+                        # Send frame data
+                        self.socket.send(screenshot)
+                    
+                    self.msleep(100)  # 10 FPS for screen sharing
+                    
+                except Exception as e:
+                    print(f"[ERROR] Screen capture error: {e}")
+                    break
+                    
+        except Exception as e:
+            print(f"[ERROR] Screen capture client error: {e}")
+        finally:
+            if self.socket:
+                self.socket.close()
+            self.running = False
+            print("[INFO] Screen sharing stopped")
+    
+    def capture_screen(self):
+        """Capture the screen and return as compressed image."""
+        try:
+            if not HAS_OPENCV:
+                return None
+            
+            # Use different methods based on platform
+            if sys.platform == "darwin":  # macOS
+                # Use screencapture command
+                import subprocess
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    subprocess.run(['screencapture', '-x', tmp.name], check=True)
+                    screenshot = cv2.imread(tmp.name)
+                    os.unlink(tmp.name)
+            else:
+                # For other platforms, try using PIL if available
+                try:
+                    from PIL import ImageGrab
+                    import numpy as np
+                    pil_image = ImageGrab.grab()
+                    screenshot = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+                except ImportError:
+                    print("[ERROR] Screen capture requires PIL/Pillow: pip install Pillow")
+                    return None
+                except Exception as e:
+                    print(f"[ERROR] Screen capture failed: {e}")
+                    return None
+            
+            if screenshot is not None:
+                # Resize for better performance
+                height, width = screenshot.shape[:2]
+                new_width = min(1280, width)
+                new_height = int(height * (new_width / width))
+                screenshot = cv2.resize(screenshot, (new_width, new_height))
+                
+                # Compress as JPEG
+                _, encoded = cv2.imencode('.jpg', screenshot, [cv2.IMWRITE_JPEG_QUALITY, 60])
+                return encoded.tobytes()
+            
+        except Exception as e:
+            print(f"[ERROR] Screen capture failed: {e}")
+        
+        return None
+    
+    def stop(self):
+        """Stop screen capture."""
+        self.running = False
+
+
+class ScreenShareViewer(QMainWindow):
+    """Dedicated window for viewing screen shares."""
+    
+    def __init__(self, server_host: str, server_port: int, presenter_name: str, parent=None):
+        super().__init__(parent)
+        self.server_host = server_host
+        self.server_port = server_port
+        self.presenter_name = presenter_name
+        self.receiver_thread = None
+        
+        self.setup_ui()
+        self.start_receiving()
+    
+    def setup_ui(self):
+        """Setup the screen share viewer UI."""
+        self.setWindowTitle(f"Screen Share - {self.presenter_name}")
+        self.setMinimumSize(800, 600)
+        
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        layout = QVBoxLayout(central_widget)
+        
+        # Header
+        header = QLabel(f"🖥️ {self.presenter_name} is sharing their screen")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setStyleSheet("font-size: 16px; font-weight: bold; padding: 10px; background-color: #0078d4; color: white;")
+        layout.addWidget(header)
+        
+        # Screen display area
+        self.screen_display = QLabel()
+        self.screen_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.screen_display.setStyleSheet("background-color: black; border: 1px solid #ccc;")
+        self.screen_display.setText("Connecting to screen share...")
+        layout.addWidget(self.screen_display)
+        
+        # Control buttons
+        button_layout = QHBoxLayout()
+        
+        fullscreen_btn = QPushButton("🔍 Fullscreen")
+        fullscreen_btn.clicked.connect(self.toggle_fullscreen)
+        button_layout.addWidget(fullscreen_btn)
+        
+        button_layout.addStretch()
+        
+        close_btn = QPushButton("❌ Close")
+        close_btn.clicked.connect(self.close)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def start_receiving(self):
+        """Start receiving screen share data."""
+        self.receiver_thread = ScreenShareReceiver(self.server_host, self.server_port, self)
+        self.receiver_thread.frame_received.connect(self.update_screen)
+        self.receiver_thread.connection_error.connect(self.handle_connection_error)
+        self.receiver_thread.start()
+    
+    def update_screen(self, frame_data: bytes):
+        """Update the screen display with new frame."""
+        try:
+            # Decode frame
+            frame_array = np.frombuffer(frame_data, dtype=np.uint8)
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                # Convert to Qt format
+                height, width, channel = frame.shape
+                bytes_per_line = 3 * width
+                q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format.Format_RGB888).rgbSwapped()
+                
+                # Scale to fit display
+                pixmap = QPixmap.fromImage(q_image)
+                scaled_pixmap = pixmap.scaled(
+                    self.screen_display.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                
+                self.screen_display.setPixmap(scaled_pixmap)
+                
+        except Exception as e:
+            print(f"[ERROR] Screen display error: {e}")
+    
+    def handle_connection_error(self, error: str):
+        """Handle connection errors."""
+        self.screen_display.setText(f"Connection error: {error}")
+    
+    def toggle_fullscreen(self):
+        """Toggle fullscreen mode."""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+    
+    def closeEvent(self, event):
+        """Handle window close event."""
+        if self.receiver_thread:
+            self.receiver_thread.stop()
+            self.receiver_thread.wait()
+        event.accept()
+
+
+class ScreenShareReceiver(QThread):
+    """Receives screen share data from server."""
+    
+    frame_received = pyqtSignal(bytes)
+    connection_error = pyqtSignal(str)
+    
+    def __init__(self, server_host: str, server_port: int, parent=None):
+        super().__init__(parent)
+        self.server_host = server_host
+        self.server_port = server_port
+        self.running = False
+        self.socket = None
+    
+    def run(self):
+        """Run screen share receiver loop."""
+        try:
+            self.running = True
+            
+            # Connect to screen share server
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.server_host, self.server_port))
+            
+            # Send viewer type
+            self.socket.send(struct.pack('!I', 2))  # 2 = viewer
+            
+            # Wait for OK response
+            response = self.socket.recv(1024)
+            if response != b'OK':
+                self.connection_error.emit(f"Server rejected connection: {response}")
+                return
+            
+            print("[INFO] Connected to screen share as viewer")
+            
+            while self.running:
+                try:
+                    # Read frame size
+                    size_data = self.socket.recv(4)
+                    if not size_data:
+                        break
+                    
+                    frame_size = struct.unpack('!I', size_data)[0]
+                    
+                    # Read frame data
+                    frame_data = b''
+                    while len(frame_data) < frame_size:
+                        chunk = self.socket.recv(min(8192, frame_size - len(frame_data)))
+                        if not chunk:
+                            break
+                        frame_data += chunk
+                    
+                    if len(frame_data) == frame_size:
+                        self.frame_received.emit(frame_data)
+                    
+                except Exception as e:
+                    if self.running:
+                        print(f"[ERROR] Screen receiver error: {e}")
+                        self.connection_error.emit(str(e))
+                    break
+                    
+        except Exception as e:
+            self.connection_error.emit(str(e))
+        finally:
+            if self.socket:
+                self.socket.close()
+            self.running = False
+    
+    def stop(self):
+        """Stop screen share receiver."""
+        self.running = False
+
+
+# ============================================================================
 # MAIN CLIENT WINDOW
 # ============================================================================
 
@@ -2406,6 +2691,15 @@ class ClientMainWindow(QMainWindow):
             self.audio_client.wait()
             self.audio_client = None
         
+        # Stop screen sharing
+        if hasattr(self, 'screen_capture_client') and self.screen_capture_client:
+            self.screen_capture_client.stop()
+            self.screen_capture_client = None
+        
+        if hasattr(self, 'screen_viewer') and self.screen_viewer:
+            self.screen_viewer.close()
+            self.screen_viewer = None
+        
         self.connected = False
         self.uid = None
         self.participants.clear()
@@ -2532,6 +2826,31 @@ class ClientMainWindow(QMainWindow):
         elif msg_type == MessageTypes.HEARTBEAT_ACK:
             # Heartbeat acknowledged - connection is alive
             pass
+        
+        elif msg_type == MessageTypes.SCREEN_SHARE_PORTS:
+            # Server provided screen share port for presenter
+            port = message.get('port')
+            if port:
+                self.start_screen_capture(port)
+        
+        elif msg_type == MessageTypes.PRESENT_START_BROADCAST:
+            # Someone started presenting
+            uid = message.get('uid')
+            username = message.get('username')
+            port = message.get('screen_share_port')
+            
+            if uid != self.uid:  # Don't show viewer for our own presentation
+                self.chat_widget.add_message("System", f"🖥️ {username} started screen sharing", is_system=True)
+                self.show_screen_share_viewer(self.host, port, username)
+        
+        elif msg_type == MessageTypes.PRESENT_STOP_BROADCAST:
+            # Someone stopped presenting
+            uid = message.get('uid')
+            username = message.get('username')
+            
+            if uid != self.uid:
+                self.chat_widget.add_message("System", f"🖥️ {username} stopped screen sharing", is_system=True)
+                self.close_screen_share_viewer()
             
         elif msg_type == MessageTypes.ERROR:
             error_msg = message.get('message', 'Unknown error')
@@ -2699,7 +3018,80 @@ class ClientMainWindow(QMainWindow):
     
     def toggle_screen_share(self, enabled: bool):
         """Toggle screen sharing on/off."""
-        # TODO: Implement screen sharing
+        if enabled:
+            self.start_screen_sharing()
+        else:
+            self.stop_screen_sharing()
+    
+    def start_screen_sharing(self):
+        """Start screen sharing."""
+        if self.network_thread and self.connected:
+            # Send present start request to server
+            message = {
+                'type': MessageTypes.PRESENT_START,
+                'timestamp': datetime.now().isoformat()
+            }
+            self.network_thread.send_message_sync(message)
+    
+    def stop_screen_sharing(self):
+        """Stop screen sharing."""
+        if self.network_thread and self.connected:
+            # Send present stop request to server
+            message = {
+                'type': MessageTypes.PRESENT_STOP,
+                'timestamp': datetime.now().isoformat()
+            }
+            self.network_thread.send_message_sync(message)
+        
+        # Stop local screen capture if running
+        if hasattr(self, 'screen_capture_client') and self.screen_capture_client:
+            self.screen_capture_client.stop()
+            self.screen_capture_client = None
+    
+    def start_screen_capture(self, port: int):
+        """Start screen capture for presentation."""
+        try:
+            self.screen_capture_client = ScreenCaptureClient(self.host, port, self)
+            self.screen_capture_client.start()
+            
+            self.chat_widget.add_message("System", "🖥️ You are now sharing your screen", is_system=True)
+            
+            # Update UI
+            self.media_controls.screen_sharing = True
+            self.media_controls.screen_btn.setChecked(True)
+            self.media_controls.screen_btn.setText("🖥️ Sharing")
+            
+        except Exception as e:
+            error_msg = str(e)
+            if "PIL" in error_msg or "Pillow" in error_msg:
+                error_msg = "Screen capture requires Pillow. Install with: pip install Pillow"
+            
+            QMessageBox.critical(self, "Screen Share Error", f"Failed to start screen sharing: {error_msg}")
+            self.chat_widget.add_message("System", "❌ Failed to start screen sharing", is_system=True)
+            
+            # Reset button state
+            self.media_controls.screen_sharing = False
+            self.media_controls.screen_btn.setChecked(False)
+            self.media_controls.screen_btn.setText("🖥️ Share")
+    
+    def show_screen_share_viewer(self, host: str, port: int, presenter_name: str):
+        """Show screen share viewer window."""
+        try:
+            if hasattr(self, 'screen_viewer') and self.screen_viewer:
+                self.screen_viewer.close()
+            
+            self.screen_viewer = ScreenShareViewer(host, port, presenter_name, self)
+            self.screen_viewer.show()
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to open screen share viewer: {e}")
+            self.chat_widget.add_message("System", "❌ Failed to open screen share viewer", is_system=True)
+    
+    def close_screen_share_viewer(self):
+        """Close screen share viewer window."""
+        if hasattr(self, 'screen_viewer') and self.screen_viewer:
+            self.screen_viewer.close()
+            self.screen_viewer = None
         self.media_controls.screen_sharing = enabled
         self.media_controls.screen_btn.setChecked(enabled)
         self.media_controls.screen_btn.setText("🖥️ Sharing" if enabled else "🖥️ Share")
