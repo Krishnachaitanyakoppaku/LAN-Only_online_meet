@@ -3065,6 +3065,11 @@ class ClientMainWindow(QMainWindow):
         if hasattr(self, 'screen_capture_client') and self.screen_capture_client:
             self.screen_capture_client.stop()
             self.screen_capture_client = None
+        
+        # Reset UI state
+        self.media_controls.screen_sharing = False
+        self.media_controls.screen_btn.setChecked(False)
+        self.media_controls.screen_btn.setText("🖥️ Share")
     
     def start_screen_capture(self, port: int):
         """Start screen capture for presentation."""
@@ -3119,10 +3124,6 @@ class ClientMainWindow(QMainWindow):
         if hasattr(self, 'screen_viewer') and self.screen_viewer:
             self.screen_viewer.close()
             self.screen_viewer = None
-        self.media_controls.screen_sharing = enabled
-        self.media_controls.screen_btn.setChecked(enabled)
-        self.media_controls.screen_btn.setText("🖥️ Sharing" if enabled else "🖥️ Share")
-        QMessageBox.information(self, "Screen Sharing", "Screen sharing not implemented yet.")
     
     def closeEvent(self, event):
         """Handle window close event."""

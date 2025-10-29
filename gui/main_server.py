@@ -949,10 +949,14 @@ class CollaborationServer:
     
     async def handle_present_stop(self, participant: Participant) -> dict:
         """Handle presentation stop."""
+        print(f"[DEBUG] Received PRESENT_STOP from {participant.username} (UID: {participant.uid})")
+        
         if not participant.is_presenting:
+            print(f"[DEBUG] Presentation stop rejected - {participant.username} is not presenting")
             return create_error_message("Not currently presenting")
         
         participant.is_presenting = False
+        print(f"[DEBUG] {participant.username} stopped presenting")
         
         # Notify all participants
         present_msg = {
@@ -969,6 +973,20 @@ class CollaborationServer:
     async def handle_logout(self, participant: Participant):
         """Handle user logout."""
         if participant.uid in self.participants:
+            # If the user was presenting, stop their presentation
+            if participant.is_presenting:
+                print(f"[INFO] Stopping presentation for disconnecting user: {participant.username}")
+                participant.is_presenting = False
+                
+                # Notify all participants that presentation stopped
+                present_stop_msg = {
+                    'type': MessageTypes.PRESENT_STOP_BROADCAST,
+                    'uid': participant.uid,
+                    'username': participant.username,
+                    'timestamp': datetime.now().isoformat()
+                }
+                await self.broadcast_message(present_stop_msg)
+            
             del self.participants[participant.uid]
             del self.username_to_uid[participant.username]
             
