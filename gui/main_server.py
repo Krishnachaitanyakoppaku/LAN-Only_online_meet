@@ -974,6 +974,8 @@ class CollaborationServer:
     
     async def handle_logout(self, participant: Participant):
         """Handle user logout."""
+        print(f"[DEBUG] Processing LOGOUT for {participant.username} (UID: {participant.uid})")
+        
         if participant.uid in self.participants:
             # If the user was presenting, stop their presentation
             if participant.is_presenting:
@@ -996,6 +998,7 @@ class CollaborationServer:
             user_left_msg = create_user_left_message(participant.uid, participant.username)
             await self.broadcast_message(user_left_msg)
             
+            print(f"[DEBUG] Broadcasted USER_LEFT message for {participant.username}")
             print(f"[INFO] User '{participant.username}' logged out")
     
     async def send_message(self, writer, message: dict):

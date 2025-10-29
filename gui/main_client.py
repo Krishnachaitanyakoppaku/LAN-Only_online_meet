@@ -802,8 +802,9 @@ class MediaControlsWidget(QWidget):
     def connect_parent_signals(self):
         """Connect signals that require parent access."""
         if self.parent():
-            self.disconnect_btn.clicked.connect(self.parent().disconnect_from_server)# =========
-#===================================================================
+            self.disconnect_btn.clicked.connect(self.parent().disconnect_from_server)
+
+# ============================================================================
 # NETWORKING COMPONENTS
 # ============================================================================
 
@@ -2102,7 +2103,7 @@ class ClientMainWindow(QMainWindow):
         self.media_controls.video_toggle_requested.connect(self.toggle_video)
         self.media_controls.audio_toggle_requested.connect(self.toggle_audio)
         self.media_controls.screen_share_requested.connect(self.toggle_screen_share)
-        self.media_controls.disconnect_btn.clicked.connect(self.disconnect_from_server)
+        self.media_controls.disconnect_btn.clicked.connect(lambda: self.handle_leave_button_click())
         left_layout.addWidget(self.media_controls)
         
         main_layout.addWidget(left_panel, 3)  # 75% width
@@ -2696,6 +2697,21 @@ class ClientMainWindow(QMainWindow):
     
     def disconnect_from_server(self):
         """Disconnect from server."""
+        print("[DEBUG] Leave button clicked - starting disconnect process")
+        
+        if self.network_thread and self.connected:
+            # Send logout message to server before disconnecting
+            print("[DEBUG] Sending LOGOUT message to server")
+            logout_message = {
+                'type': MessageTypes.LOGOUT,
+                'timestamp': datetime.now().isoformat()
+            }
+            self.network_thread.send_message_sync(logout_message)
+            
+            # Give server time to process logout and notify other clients
+            import time
+            time.sleep(0.5)
+        
         if self.network_thread:
             self.network_thread.disconnect()
             self.network_thread.wait()
@@ -2730,6 +2746,13 @@ class ClientMainWindow(QMainWindow):
         
         # Reset window title
         self.setWindowTitle("LAN Collaboration Client")
+        
+        print("[DEBUG] Disconnect process completed - client fully disconnected")
+    
+    def handle_leave_button_click(self):
+        """Handle leave button click with debug output."""
+        print("[DEBUG] 🚪 Leave button clicked!")
+        self.disconnect_from_server()
     
     def on_connection_status_changed(self, connected: bool, message: str):
         """Handle connection status change."""
