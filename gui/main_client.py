@@ -997,14 +997,16 @@ class VideoClient(QThread):
                 print("[ERROR] Could not open camera")
                 return
             
-            # Set camera properties
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            # Set camera properties for smaller frames
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Reduced from 640
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)  # Reduced from 480
             self.cap.set(cv2.CAP_PROP_FPS, DEFAULT_FPS)
             
             # Initialize UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.socket.settimeout(0.1)  # Non-blocking with short timeout
+            
+            print(f"[DEBUG] Video client started, waiting for UID to be set...")
             
             while self.running:
                 # Capture and send video if enabled
@@ -1041,9 +1043,18 @@ class VideoClient(QThread):
     def send_frame(self, frame: np.ndarray):
         """Send frame to server."""
         try:
-            # Encode frame as JPEG
-            _, encoded = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, DEFAULT_QUALITY])
+            # Resize frame to ensure it's small enough
+            small_frame = cv2.resize(frame, (320, 240))
+            
+            # Encode frame as JPEG with lower quality for smaller size
+            _, encoded = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 30])  # Lower quality
             frame_data = encoded.tobytes()
+            
+            # Check if packet is too large (UDP limit is ~65KB, leave room for header)
+            if len(frame_data) > 60000:
+                # Further reduce quality if still too large
+                _, encoded = cv2.imencode('.jpg', small_frame, [cv2.IMWRITE_JPEG_QUALITY, 15])
+                frame_data = encoded.tobytes()
             
             # Create packet header (uid, sequence, frame_id, data_size)
             frame_id = self.sequence  # Use sequence as frame_id
@@ -1139,6 +1150,8 @@ class AudioClient(QThread):
             # Initialize UDP socket
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.socket.settimeout(0.01)  # Very short timeout for audio
+            
+            print(f"[DEBUG] Audio client started, waiting for UID to be set...")
             
             # Initialize output stream for playing received audio
             self.output_stream = self.audio.open(
@@ -2320,14 +2333,14 @@ class ClientMainWindow(QMainWindow):
         self.network_thread.connection_status_changed.connect(self.on_connection_status_changed)
         self.network_thread.start()
         
-        # Initialize and start media clients
+        # Initialize media clients (but don't start them yet)
         self.video_client = VideoClient(self.host, DEFAULT_UDP_VIDEO_PORT, self)
         self.video_client.frame_captured.connect(self.video_grid.update_local_video)
         self.video_client.frame_received.connect(self.video_grid.update_participant_video)
-        self.video_client.start()  # Start the video thread
         
         self.audio_client = AudioClient(self.host, DEFAULT_UDP_AUDIO_PORT, self)
-        self.audio_client.start()  # Start the audio thread
+        
+        # Media clients will be started after successful login
         
         # Set initial media states
         if conn_info['join_with_video']:
@@ -2384,11 +2397,18 @@ class ClientMainWindow(QMainWindow):
             self.uid = message.get('uid')
             username = message.get('username')
             
-            # Set UID for media clients
+            # Set UID for media clients and start them
             if self.video_client:
                 self.video_client.set_uid(self.uid)
+                if not self.video_client.isRunning():
+                    self.video_client.start()
+                    print(f"[DEBUG] Started video client with UID {self.uid}")
+            
             if self.audio_client:
                 self.audio_client.set_uid(self.uid)
+                if not self.audio_client.isRunning():
+                    self.audio_client.start()
+                    print(f"[DEBUG] Started audio client with UID {self.uid}")
             
             self.chat_widget.add_message("System", f"Welcome {username}! You are now connected.", is_system=True)
             
