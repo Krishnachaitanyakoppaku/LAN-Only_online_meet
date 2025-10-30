@@ -4,9 +4,8 @@
 # ============================================================================
 # CORE GUI FRAMEWORK (Windows-specific versions)
 # ============================================================================
-PyQt6==6.6.1                   # Specific version known to work on Windows
-PyQt6-Qt6==6.6.1              # Matching Qt6 binaries
-PyQt6-tools==6.6.1            # PyQt6 development tools
+PyQt6>=6.4.0,<6.7.0           # Specific version range known to work on Windows
+PyQt6-Qt6>=6.4.0,<6.7.0       # Matching Qt6 binaries
 
 # ============================================================================
 # VIDEO & IMAGE PROCESSING

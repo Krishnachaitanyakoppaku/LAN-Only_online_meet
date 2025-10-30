@@ -4,9 +4,8 @@
 # ============================================================================
 # CORE GUI FRAMEWORK
 # ============================================================================
-PyQt6>=6.5.0                    # Modern GUI framework for client interface
-PyQt6-Qt6>=6.5.0               # Qt6 binaries for PyQt6
-PyQt6-tools>=6.5.0             # Additional PyQt6 tools and utilities
+PyQt6>=6.4.0                    # Modern GUI framework for client interface
+PyQt6-Qt6>=6.4.0               # Qt6 binaries for PyQt6
 
 # ============================================================================
 # VIDEO & IMAGE PROCESSING
@@ -28,6 +27,10 @@ pyaudio>=0.2.11                # Audio capture and playback
 # pipwin install pyaudio
 # 
 # Or download wheel from: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
+#
+# NOTE: PyQt6-tools is NOT required for the application to run.
+# It's only needed for development (Qt Designer, etc.)
+# The application only needs PyQt6 and PyQt6-Qt6.
 
 # ============================================================================
 # SCREEN CAPTURE
@@ -73,7 +76,7 @@ mss>=9.0.1                     # Fast cross-platform screen capture
 #
 # MANUAL INSTALLATION (if requirements files fail):
 # pip install --upgrade pip
-# pip install PyQt6 PyQt6-Qt6 PyQt6-tools
+# pip install PyQt6 PyQt6-Qt6
 # pip install opencv-python numpy Pillow mss
 # 
 # FOR PYAUDIO ON WINDOWS (if installation fails):

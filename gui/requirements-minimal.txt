@@ -1,0 +1,24 @@
+# LAN Collaboration System - Minimal Requirements
+# Essential packages only - use this if full requirements fail
+
+# Core GUI (essential)
+PyQt6>=6.4.0,<6.7.0
+PyQt6-Qt6>=6.4.0,<6.7.0
+
+# Video and Image Processing (essential)
+opencv-python>=4.5.0
+numpy>=1.20.0
+Pillow>=8.0.0
+
+# Screen Capture (essential)
+mss>=6.0.0
+
+# Audio (optional - comment out if installation fails)
+# pyaudio>=0.2.11
+
+# Installation instructions:
+# 1. pip install -r requirements-minimal.txt
+# 2. If pyaudio fails, install separately:
+#    - Windows: pip install pipwin && pipwin install pyaudio
+#    - macOS: brew install portaudio && pip install pyaudio
+#    - Linux: sudo apt install portaudio19-dev && pip install pyaudio

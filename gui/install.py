@@ -39,8 +39,8 @@ def check_package(package_name, import_name=None, optional=False):
         # Special handling for PyQt6 on Windows
         if package_name == "PyQt6" and platform.system() == "Windows":
             print("    💡 Windows PyQt6 installation tips:")
-            print("       - Try: pip install PyQt6 PyQt6-Qt6 PyQt6-tools")
-            print("       - Or use: pip install -r requirements-windows.txt")
+            print('       - Try: pip install "PyQt6>=6.4.0,<6.7.0" "PyQt6-Qt6>=6.4.0,<6.7.0"')
+            print("       - Or use: pip install -r requirements-minimal.txt")
             print("       - Ensure Visual C++ Build Tools are installed")
         
         return False

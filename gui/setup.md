@@ -94,8 +94,8 @@ venv\Scripts\activate
 # 3. Upgrade pip
 python -m pip install --upgrade pip
 
-# 4. Install PyQt6 (use specific versions for Windows)
-pip install PyQt6==6.6.1 PyQt6-Qt6==6.6.1 PyQt6-tools==6.6.1
+# 4. Install PyQt6 (use compatible versions for Windows)
+pip install "PyQt6>=6.4.0,<6.7.0" "PyQt6-Qt6>=6.4.0,<6.7.0"
 
 # 5. Install other dependencies
 pip install opencv-python numpy Pillow mss

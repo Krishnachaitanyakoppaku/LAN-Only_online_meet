@@ -14,8 +14,8 @@ pip uninstall PyQt6 PyQt6-Qt6 PyQt6-tools -y
 # 2. Clear pip cache
 pip cache purge
 
-# 3. Install specific working versions
-pip install PyQt6==6.6.1 PyQt6-Qt6==6.6.1 PyQt6-tools==6.6.1
+# 3. Install compatible working versions
+pip install "PyQt6>=6.4.0,<6.7.0" "PyQt6-Qt6>=6.4.0,<6.7.0"
 
 # 4. Test installation
 python -c "from PyQt6.QtWidgets import QApplication; print('SUCCESS')"
@@ -30,9 +30,8 @@ pip install -r requirements-windows.txt
 ```bash
 # Install each component separately
 pip install --upgrade pip setuptools wheel
-pip install PyQt6
-pip install PyQt6-Qt6
-pip install PyQt6-tools
+pip install "PyQt6>=6.4.0,<6.7.0"
+pip install "PyQt6-Qt6>=6.4.0,<6.7.0"
 ```
 
 ### **Issue 2: "Microsoft Visual C++ 14.0 is required"**
@@ -105,8 +104,8 @@ echo %VIRTUAL_ENV%
 pip install -r requirements-windows.txt
 
 # Method 2: Manual installation
-pip install PyQt6==6.6.1 PyQt6-Qt6==6.6.1 PyQt6-tools==6.6.1
-pip install opencv-python==4.8.1.78 numpy==1.24.4 Pillow==10.1.0 mss==9.0.1
+pip install "PyQt6>=6.4.0,<6.7.0" "PyQt6-Qt6>=6.4.0,<6.7.0"
+pip install opencv-python numpy Pillow mss
 pip install pipwin
 pipwin install pyaudio
 ```
