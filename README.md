@@ -7,9 +7,11 @@ A comprehensive offline video conferencing solution for local area networks (LAN
 This project contains **two versions** of the LAN meeting system:
 
 ### 🌐 **Web Server Version** (Recommended)
+
 **Location**: `webserver/` directory
 
 Modern web-based interface that solves all GUI issues:
+
 - ✅ **Stable interface** - no button flickering or freezing
 - ✅ **Cross-platform** - works on any device with a browser
 - ✅ **Mobile support** - access from phones/tablets
@@ -17,9 +19,11 @@ Modern web-based interface that solves all GUI issues:
 - ✅ **Professional UI** - modern, responsive design
 
 ### 🖥️ **GUI Version** (Original)
+
 **Location**: `gui/` directory
 
 Traditional desktop application using Tkinter:
+
 - ⚠️ **GUI limitations** - button visibility issues during screen sharing
 - ⚠️ **Platform dependent** - requires Python GUI libraries
 - ⚠️ **Desktop only** - no mobile support
@@ -35,11 +39,13 @@ python start_web_meeting.py
 ```
 
 **Access:**
+
 - **Host Control**: http://localhost:5000/host
 - **Client Interface**: http://localhost:5000/client
 - **LAN Access**: http://[YOUR_IP]:5000/client
 
 **Client Joining:**
+
 ```bash
 # Easy launcher
 python join_meeting.py
@@ -67,35 +73,41 @@ python client.py
 ## ✨ **Features**
 
 ### 🎬 **Video Conferencing**
+
 - Multi-user video calls with up to 50 participants
 - Real-time video streaming optimized for LAN
 - Local video preview for participants
 - Dynamic video grid that adapts to participant count
 
 ### 🖥️ **Screen Sharing**
+
 - Presenter role management with permission system
 - High-quality screen capture
 - Multi-client screen viewing
 - Host controls to manage screen sharing
 
 ### 🎤 **Audio Communication**
+
 - Real-time audio streaming with low latency
 - Individual microphone controls (mute/unmute)
 - Speaker controls for audio output
 - Host audio management
 
 ### 💬 **Group Chat**
+
 - Real-time text messaging for all participants
 - Message history preserved during session
 - System notifications for user events
 
 ### 📁 **File Sharing**
+
 - Upload and share any file type
 - Download shared files
 - File management interface
 - Real-time notifications
 
 ### 👑 **Host Controls**
+
 - Meeting management and participant controls
 - Permission management
 - Force commands (mute all, disable video, etc.)
@@ -104,14 +116,17 @@ python client.py
 ## 🌍 **Network Setup**
 
 ### **Same Computer:**
+
 - Host: http://localhost:5000/host (web) or `python server.py` (GUI)
 - Client: http://localhost:5000/client (web) or `python client.py` (GUI)
 
 ### **LAN (Different Computers):**
+
 1. Find host IP: `ipconfig` (Windows) or `ifconfig` (Mac/Linux)
 2. Share with clients: http://[HOST_IP]:5000/client (web) or IP address (GUI)
 
 ### **Mobile Devices (Web Version Only):**
+
 - Connect to same WiFi
 - Open browser: http://[HOST_IP]:5000/client
 
@@ -125,11 +140,13 @@ python client.py
 ## 📋 **System Requirements**
 
 ### **Web Version:**
+
 - Python 3.7+
 - Modern web browser (Chrome, Firefox, Safari, Edge)
 - Network connection (LAN/WiFi)
 
 ### **GUI Version:**
+
 - Python 3.7+
 - Tkinter (usually included with Python)
 - OpenCV, PyAudio, PIL/Pillow
@@ -137,14 +154,14 @@ python client.py
 
 ## 🎯 **Which Version to Choose?**
 
-| Feature | Web Version | GUI Version |
-|---------|-------------|-------------|
-| **Stability** | ✅ Excellent | ⚠️ GUI issues |
-| **Cross-platform** | ✅ Any browser | ⚠️ Python required |
-| **Mobile Support** | ✅ Full support | ❌ Not available |
-| **Setup Complexity** | ✅ Simple | ⚠️ More dependencies |
-| **Client Access** | ✅ Just enter IP | ⚠️ Need Python |
-| **Performance** | ✅ Smooth | ⚠️ Threading issues |
+| Feature              | Web Version      | GUI Version          |
+| -------------------- | ---------------- | -------------------- |
+| **Stability**        | ✅ Excellent     | ⚠️ GUI issues        |
+| **Cross-platform**   | ✅ Any browser   | ⚠️ Python required   |
+| **Mobile Support**   | ✅ Full support  | ❌ Not available     |
+| **Setup Complexity** | ✅ Simple        | ⚠️ More dependencies |
+| **Client Access**    | ✅ Just enter IP | ⚠️ Need Python       |
+| **Performance**      | ✅ Smooth        | ⚠️ Threading issues  |
 
 **Recommendation**: Use the **Web Server Version** for the best experience!
 
@@ -153,16 +170,19 @@ python client.py
 ### **Common Issues:**
 
 **Connection Problems:**
+
 - Ensure all devices are on the same network
 - Check firewall settings
 - Verify IP addresses are correct
 
 **Web Version Issues:**
+
 - Allow browser camera/microphone permissions
 - Use Chrome or Firefox for best compatibility
 - Check if port 5000 is available
 
 **GUI Version Issues:**
+
 - Install all dependencies: `pip install -r requirements.txt`
 - Check camera/microphone permissions
 - Try running as administrator if needed
