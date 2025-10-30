@@ -1,0 +1,61 @@
+# LAN Collaboration System - Windows-Specific Requirements
+# Use this file for Windows installations if the main requirements.txt fails
+
+# ============================================================================
+# CORE GUI FRAMEWORK (Windows-specific versions)
+# ============================================================================
+PyQt6==6.6.1                   # Specific version known to work on Windows
+PyQt6-Qt6==6.6.1              # Matching Qt6 binaries
+PyQt6-tools==6.6.1            # PyQt6 development tools
+
+# ============================================================================
+# VIDEO & IMAGE PROCESSING
+# ============================================================================
+opencv-python==4.8.1.78       # Specific version for Windows compatibility
+numpy==1.24.4                 # Stable version for Windows
+Pillow==10.1.0                # Windows-compatible version
+
+# ============================================================================
+# AUDIO PROCESSING (Windows)
+# ============================================================================
+# PyAudio can be problematic on Windows. Try these alternatives:
+# Option 1: Use pipwin (recommended for Windows)
+# pip install pipwin
+# pipwin install pyaudio
+#
+# Option 2: Download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
+# Then: pip install PyAudio-0.2.11-cp311-cp311-win_amd64.whl
+#
+# Option 3: If above fail, comment out pyaudio (audio features will be disabled)
+pyaudio==0.2.11
+
+# ============================================================================
+# SCREEN CAPTURE
+# ============================================================================
+mss==9.0.1                    # Screen capture for Windows
+
+# ============================================================================
+# WINDOWS-SPECIFIC INSTALLATION INSTRUCTIONS
+# ============================================================================
+# 
+# 1. Install Visual C++ Build Tools if not already installed:
+#    https://visualstudio.microsoft.com/visual-cpp-build-tools/
+#
+# 2. Create virtual environment:
+#    python -m venv venv
+#    venv\Scripts\activate
+#
+# 3. Upgrade pip:
+#    python -m pip install --upgrade pip
+#
+# 4. Install requirements:
+#    pip install -r requirements-windows.txt
+#
+# 5. If PyAudio fails, try:
+#    pip install pipwin
+#    pipwin install pyaudio
+#
+# 6. Test installation:
+#    python -c "from PyQt6.QtWidgets import QApplication; print('PyQt6 OK')"
+#    python -c "import cv2; print('OpenCV OK')"
+#    python -c "import numpy; print('NumPy OK')"

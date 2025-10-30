@@ -6,6 +6,7 @@
 # ============================================================================
 PyQt6>=6.5.0                    # Modern GUI framework for client interface
 PyQt6-Qt6>=6.5.0               # Qt6 binaries for PyQt6
+PyQt6-tools>=6.5.0             # Additional PyQt6 tools and utilities
 
 # ============================================================================
 # VIDEO & IMAGE PROCESSING
@@ -18,6 +19,15 @@ Pillow>=10.0.0                 # Image processing and format support
 # AUDIO PROCESSING
 # ============================================================================
 pyaudio>=0.2.11                # Audio capture and playback
+
+# ============================================================================
+# PLATFORM-SPECIFIC NOTES
+# ============================================================================
+# Windows users: If PyAudio installation fails, try:
+# pip install pipwin
+# pipwin install pyaudio
+# 
+# Or download wheel from: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
 
 # ============================================================================
 # SCREEN CAPTURE
@@ -55,14 +65,29 @@ mss>=9.0.1                     # Fast cross-platform screen capture
 # INSTALLATION COMMANDS
 # ============================================================================
 # 
-# Install all required dependencies:
+# GENERAL INSTALLATION:
 # pip install -r requirements.txt
 #
-# Or install individually:
-# pip install PyQt6 opencv-python numpy Pillow pyaudio mss
+# WINDOWS USERS (if above fails):
+# pip install -r requirements-windows.txt
 #
-# For development/testing:
-# pip install PyQt6 opencv-python numpy Pillow pyaudio mss pydub psutil
+# MANUAL INSTALLATION (if requirements files fail):
+# pip install --upgrade pip
+# pip install PyQt6 PyQt6-Qt6 PyQt6-tools
+# pip install opencv-python numpy Pillow mss
+# 
+# FOR PYAUDIO ON WINDOWS (if installation fails):
+# Method 1: pip install pipwin && pipwin install pyaudio
+# Method 2: Download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
+# Method 3: Use conda: conda install pyaudio
+#
+# VERIFICATION COMMANDS:
+# python -c "from PyQt6.QtWidgets import QApplication; print('✅ PyQt6 OK')"
+# python -c "import cv2; print('✅ OpenCV OK')"
+# python -c "import numpy; print('✅ NumPy OK')"
+# python -c "import PIL; print('✅ Pillow OK')"
+# python -c "import mss; print('✅ MSS OK')"
+# python -c "import pyaudio; print('✅ PyAudio OK')"
 
 # ============================================================================
 # SYSTEM REQUIREMENTS

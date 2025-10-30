@@ -84,10 +84,36 @@ pip install mss>=9.0.1
 
 #### **Windows:**
 ```bash
-# May need Visual C++ Build Tools
-# For PyAudio issues:
+# 1. Install Visual C++ Build Tools (required)
+# Download: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+# 2. Create and activate virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Upgrade pip
+python -m pip install --upgrade pip
+
+# 4. Install PyQt6 (use specific versions for Windows)
+pip install PyQt6==6.6.1 PyQt6-Qt6==6.6.1 PyQt6-tools==6.6.1
+
+# 5. Install other dependencies
+pip install opencv-python numpy Pillow mss
+
+# 6. For PyAudio (try methods in order):
+# Method 1: Using pipwin (recommended)
 pip install pipwin
 pipwin install pyaudio
+
+# Method 2: Download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
+# Method 3: Use conda if available
+conda install pyaudio
+
+# 7. Test PyQt6 installation
+python test_pyqt6.py
+
+# 8. Alternative: Use Windows-specific requirements
+pip install -r requirements-windows.txt
 ```
 
 #### **macOS:**

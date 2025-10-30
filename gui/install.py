@@ -31,10 +31,18 @@ def check_package(package_name, import_name=None, optional=False):
         status = "✅" if not optional else "✅"
         print(f"{status} {package_name}: OK")
         return True
-    except ImportError:
+    except ImportError as e:
         status = "❌" if not optional else "⚠️ "
         opt_text = " (optional)" if optional else ""
         print(f"{status} {package_name}: Missing{opt_text}")
+        
+        # Special handling for PyQt6 on Windows
+        if package_name == "PyQt6" and platform.system() == "Windows":
+            print("    💡 Windows PyQt6 installation tips:")
+            print("       - Try: pip install PyQt6 PyQt6-Qt6 PyQt6-tools")
+            print("       - Or use: pip install -r requirements-windows.txt")
+            print("       - Ensure Visual C++ Build Tools are installed")
+        
         return False
 
 def install_package(package_name):
@@ -47,6 +55,31 @@ def install_package(package_name):
     except subprocess.CalledProcessError:
         print(f"❌ Failed to install {package_name}")
         return False
+
+def check_pyqt6_installation():
+    """Specifically check PyQt6 and its components"""
+    print("\n🔍 Detailed PyQt6 Check:")
+    pyqt6_components = [
+        ("PyQt6.QtCore", "QtCore"),
+        ("PyQt6.QtWidgets", "QtWidgets"),
+        ("PyQt6.QtGui", "QtGui"),
+    ]
+    
+    all_good = True
+    for module, component in pyqt6_components:
+        try:
+            importlib.import_module(module)
+            print(f"  ✅ {component}: OK")
+        except ImportError:
+            print(f"  ❌ {component}: Missing")
+            all_good = False
+    
+    if not all_good and platform.system() == "Windows":
+        print("\n  💡 Windows PyQt6 Fix:")
+        print("     pip uninstall PyQt6 PyQt6-Qt6")
+        print("     pip install PyQt6==6.6.1 PyQt6-Qt6==6.6.1 PyQt6-tools==6.6.1")
+    
+    return all_good
 
 def check_dependencies():
     """Check all required dependencies"""
@@ -137,6 +170,10 @@ def main():
     
     # Check dependencies
     missing_required, missing_optional = check_dependencies()
+    
+    # Special PyQt6 check for Windows users
+    if "PyQt6" not in missing_required:
+        check_pyqt6_installation()
     
     if missing_required:
         print(f"\n❌ Missing required packages: {', '.join(missing_required)}")
